@@ -30,6 +30,7 @@ export function PageHeader({
           <button
             className="text-button icon-labelled"
             onClick={() => dispatch({ type: "search", open: true })}
+            aria-label="Search Organato"
           >
             <Search size={17} aria-hidden="true" />
             <span className="desktop-action-label">Search</span>

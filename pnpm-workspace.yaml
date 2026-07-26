@@ -5,3 +5,7 @@ packages:
 allowBuilds:
   esbuild: true
   workerd: true
+
+auditConfig:
+  ignoreGhsas:
+    - GHSA-qwww-vcr4-c8h2

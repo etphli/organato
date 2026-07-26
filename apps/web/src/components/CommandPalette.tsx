@@ -10,9 +10,10 @@ import {
   RefreshCw,
   Settings,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useOrganato } from "../state/OrganatoProvider";
+import { useDialogFocus } from "./useDialogFocus";
 
 const baseCommands = [
   { label: "Go to Home", icon: Home, path: "/" },
@@ -27,9 +28,17 @@ const baseCommands = [
 
 export function CommandPalette() {
   const { commandOpen, dispatch, syncNow, settings } = useOrganato();
+  const dialogRef = useRef<HTMLElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const navigate = useNavigate();
+  useDialogFocus(
+    commandOpen,
+    dialogRef,
+    inputRef,
+    commandOpen ? "command-open" : "command-closed",
+  );
   const commands = useMemo(
     () => [
       ...baseCommands,
@@ -70,6 +79,7 @@ export function CommandPalette() {
       onMouseDown={() => dispatch({ type: "command", open: false })}
     >
       <section
+        ref={dialogRef}
         className="command-palette"
         role="dialog"
         aria-modal="true"
@@ -77,7 +87,7 @@ export function CommandPalette() {
         onMouseDown={(event) => event.stopPropagation()}
       >
         <input
-          autoFocus
+          ref={inputRef}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {

@@ -1020,6 +1020,350 @@ textarea::placeholder {
   margin-bottom: 0 !important;
 }
 
+.settings-count {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.identity-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto !important;
+  gap: 5px;
+}
+
+.identity-actions button {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.identity-add-form {
+  display: grid;
+  gap: 8px;
+  padding-top: 18px;
+}
+
+.identity-add-form > label {
+  color: var(--secondary);
+  font-size: 0.8125rem;
+}
+
+.identity-add-form > div {
+  display: flex;
+  gap: 8px;
+}
+
+.identity-add-form input {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  flex: 1;
+  font: inherit;
+  min-height: var(--control-height);
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.identity-add-form button {
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  color: var(--secondary);
+  display: inline-flex;
+  font-size: 0.8125rem;
+  gap: 6px;
+  min-height: var(--control-height);
+  padding: 0 11px;
+}
+
+.identity-add-form small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.settings-inline-error {
+  color: var(--danger) !important;
+  margin: 12px 0 0 !important;
+}
+
+.danger-text {
+  color: var(--danger) !important;
+}
+
+.danger-zone {
+  border-bottom: 0;
+}
+
+.delete-confirmation {
+  border-left: 2px solid color-mix(in srgb, var(--danger) 65%, transparent);
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 4px 0 4px 16px;
+}
+
+.delete-confirmation > label {
+  color: var(--secondary);
+  display: grid;
+  font-size: 0.8125rem;
+  gap: 8px;
+}
+
+.delete-confirmation > label > input:not([type="checkbox"]) {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font: inherit;
+  min-height: var(--control-height);
+  padding: 0 10px;
+}
+
+.delete-acknowledgement {
+  align-items: flex-start;
+  display: flex !important;
+  line-height: 1.45;
+}
+
+.delete-acknowledgement input {
+  margin: 2px 0 0;
+}
+
+.danger-button:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger) 60%, var(--border)) !important;
+  color: var(--danger) !important;
+}
+
+.archive-tools {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(160px, 1.5fr) repeat(4, minmax(110px, 0.75fr));
+  padding: 14px 0 10px;
+}
+
+.archive-tools input,
+.archive-tools select {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8125rem;
+  min-height: var(--control-height);
+  min-width: 0;
+  padding: 0 9px;
+}
+
+.archive-selection-bar {
+  align-items: center;
+  background: var(--focus-soft);
+  border-left: 2px solid var(--focus);
+  display: flex;
+  font-size: 0.75rem;
+  gap: 8px;
+  margin: 4px 0;
+  min-height: 42px;
+  padding: 0 10px;
+}
+
+.archive-selection-bar span {
+  color: var(--secondary);
+  flex: 1;
+}
+
+.archive-selection-bar button {
+  color: var(--focus);
+  font-size: inherit;
+}
+
+.archive-row > input {
+  accent-color: var(--focus);
+  flex: 0 0 auto;
+}
+
+.archive-item-preview {
+  align-items: flex-start !important;
+  color: var(--text) !important;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  text-align: left;
+}
+
+.archive-item-preview strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archive-item-preview small {
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.archive-preview {
+  background: color-mix(in srgb, var(--surface-hover) 55%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  margin-top: 14px;
+  padding: 18px;
+}
+
+.archive-preview > div:first-child {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 0.72rem;
+  justify-content: space-between;
+  text-transform: capitalize;
+}
+
+.archive-preview > div:first-child button {
+  color: var(--muted);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.archive-preview h4 {
+  font-size: 1rem;
+  margin: 12px 0 4px;
+}
+
+.archive-preview p {
+  margin: 0 0 12px;
+}
+
+.archive-preview-notes {
+  border-left: 2px solid var(--border-strong);
+  color: var(--secondary) !important;
+  padding-left: 10px;
+  white-space: pre-wrap;
+}
+
+.archive-preview ol {
+  border-top: 1px solid var(--border);
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 8px 0 0;
+}
+
+.archive-preview li {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  gap: 3px;
+  padding: 7px 0;
+}
+
+.archive-preview li small {
+  color: var(--muted);
+}
+
+.archive-delete-control {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 16px;
+}
+
+.archive-delete-control label {
+  color: var(--secondary);
+  display: grid;
+  font-size: 0.75rem;
+  gap: 8px;
+}
+
+.archive-delete-control input {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font: inherit;
+  min-height: var(--control-height);
+  padding: 0 9px;
+}
+
+.archive-delete-control button {
+  justify-self: start;
+}
+
+.delivery-row {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  min-height: 58px;
+}
+
+.delivery-row > span:nth-child(2) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  font-size: 0.8125rem;
+  gap: 3px;
+}
+
+.delivery-row small,
+.delivery-row time {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.delivery-status {
+  background: var(--muted);
+  border-radius: 50%;
+  height: 7px;
+  width: 7px;
+}
+
+.delivery-status.sent {
+  background: var(--success);
+}
+
+.delivery-status.failed_transient,
+.delivery-status.failed_permanent {
+  background: var(--danger);
+}
+
+.delivery-status.pending {
+  background: var(--warning);
+}
+
+@media (max-width: 920px) {
+  .archive-tools {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .archive-tools input {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .identity-row {
+    flex-wrap: wrap;
+  }
+
+  .identity-actions {
+    flex-basis: 100% !important;
+    padding: 0 0 10px 42px;
+  }
+
+  .archive-tools {
+    grid-template-columns: 1fr;
+  }
+
+  .archive-tools input {
+    grid-column: auto;
+  }
+}
+
 .setting-row input[type="checkbox"],
 .toggle-lines input[type="checkbox"] {
   height: 20px;
@@ -1429,7 +1773,7 @@ textarea::placeholder {
   }
 
   .bottom-nav a {
-    font-size: 0.6875rem;
+    font-size: 0.625rem;
     gap: 4px;
     min-height: 48px;
   }
@@ -1498,11 +1842,84 @@ textarea::placeholder {
   }
 
   .database-table tr {
-    padding: 14px 4px;
+    align-items: center;
+    display: grid;
+    gap: 7px 10px;
+    grid-template-columns: 24px minmax(0, 1fr) auto auto 28px;
+    padding: 16px 3px;
   }
 
   .database-table td {
     font-size: 0.8125rem;
+    margin: 0;
+    padding: 0;
+  }
+
+  .database-table .column-select {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .database-table .column-name {
+    grid-column: 2 / 5;
+    grid-row: 1;
+    min-width: 0;
+    width: auto;
+  }
+
+  .database-table .work-name {
+    min-width: 0;
+  }
+
+  .database-table .work-name strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .database-table .column-actions {
+    grid-column: 5;
+    grid-row: 1;
+    position: static;
+    width: auto;
+  }
+
+  .database-table .column-due {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .database-table .column-days {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  .database-table .column-subject {
+    grid-column: 4 / 6;
+    grid-row: 2;
+  }
+
+  .database-table .column-priority {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .database-table .column-status {
+    grid-column: 3 / 6;
+    grid-row: 3;
+  }
+
+  .database-table .column-priority,
+  .database-table .column-status {
+    justify-self: start;
+  }
+
+  .database-table .column-priority:has(.priority-blank) {
+    display: none;
+  }
+
+  .database-table .column-priority:has(.priority-blank) + .column-status {
+    grid-column: 2 / 6;
   }
 
   .database-table .column-due,

@@ -6,7 +6,10 @@ import {
   digestDeliveryKey,
   groupDigestItems,
   isInView,
+  mergeDeadlineFields,
   nextRecurrence,
+  nextRecurrenceDeadline,
+  validateBackupItem,
   visibleStatus,
   type OrganatoItem,
 } from "../src";
@@ -89,6 +92,94 @@ describe("domain invariants", () => {
     expect(next.toISOString()).toBe("2026-07-27T06:00:00.000Z");
   });
 
+  it("keeps date-only recurrences date-only across month boundaries", () => {
+    expect(
+      nextRecurrenceDeadline(
+        {
+          dueAt: null,
+          dueDateLocal: "2026-07-31",
+          dueHasExplicitTime: false,
+        },
+        { frequency: "monthly", interval: 1, seriesId: "series-1" },
+      ),
+    ).toEqual({
+      dueAt: null,
+      dueDateLocal: "2026-08-31",
+      dueHasExplicitTime: false,
+    });
+    expect(
+      nextRecurrenceDeadline(
+        {
+          dueAt: null,
+          dueDateLocal: "2026-01-31",
+          dueHasExplicitTime: false,
+        },
+        { frequency: "monthly", interval: 1, seriesId: "series-1" },
+      ),
+    ).toEqual({
+      dueAt: null,
+      dueDateLocal: "2026-02-28",
+      dueHasExplicitTime: false,
+    });
+  });
+
+  it("normalizes deadline patches into one coherent representation", () => {
+    expect(
+      mergeDeadlineFields(
+        {
+          dueAt: "2026-07-27T06:00:00.000Z",
+          dueDateLocal: null,
+          dueHasExplicitTime: true,
+        },
+        { dueDateLocal: "2026-07-30" },
+      ),
+    ).toEqual({
+      dueAt: null,
+      dueDateLocal: "2026-07-30",
+      dueHasExplicitTime: false,
+    });
+    expect(
+      mergeDeadlineFields(
+        {
+          dueAt: null,
+          dueDateLocal: "2026-07-30",
+          dueHasExplicitTime: false,
+        },
+        { dueAt: "2026-07-30T06:00:00.000Z" },
+      ),
+    ).toEqual({
+      dueAt: "2026-07-30T06:00:00.000Z",
+      dueDateLocal: null,
+      dueHasExplicitTime: true,
+    });
+  });
+
+  it("rejects contradictory or impossible deadline shapes", () => {
+    expect(() =>
+      mergeDeadlineFields(
+        {
+          dueAt: null,
+          dueDateLocal: null,
+          dueHasExplicitTime: false,
+        },
+        {
+          dueAt: "2026-07-30T06:00:00.000Z",
+          dueHasExplicitTime: false,
+        },
+      ),
+    ).toThrow(/explicit time/i);
+    expect(() =>
+      mergeDeadlineFields(
+        {
+          dueAt: null,
+          dueDateLocal: null,
+          dueHasExplicitTime: false,
+        },
+        { dueDateLocal: "2026-02-30" },
+      ),
+    ).toThrow(/invalid/i);
+  });
+
   it("deduplicates daily delivery keys by sorted normalized recipients", () => {
     expect(
       digestDeliveryKey("2026-07-25", ["B@example.com", "a@example.com"]),
@@ -109,5 +200,27 @@ describe("domain invariants", () => {
   it("detects credential-like fields in backup output", () => {
     expect(assertSecretFreeBackup('{"items":[]}')).toBe(true);
     expect(assertSecretFreeBackup('{"refresh_token":"nope"}')).toBe(false);
+  });
+
+  it("rejects untrusted Canvas links and invalid date shapes in backups", () => {
+    expect(
+      validateBackupItem(
+        item({
+          sourceType: "canvas",
+          canvasAssignmentId: "42",
+          canvasCourseId: "7",
+          canvasHtmlUrl: "https://attacker.example/courses/7/assignments/42",
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      validateBackupItem(
+        item({
+          dueAt: null,
+          dueDateLocal: "2026-02-30",
+          dueHasExplicitTime: false,
+        }),
+      ).success,
+    ).toBe(false);
   });
 });

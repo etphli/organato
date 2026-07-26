@@ -169,6 +169,23 @@ button:disabled {
   z-index: 100;
 }
 
+.skip-link {
+  background: var(--text);
+  border-radius: 6px;
+  color: var(--bg);
+  left: 10px;
+  padding: 9px 13px;
+  position: fixed;
+  text-decoration: none;
+  top: 10px;
+  transform: translateY(calc(-100% - 14px));
+  z-index: 120;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
 .auth-page {
   align-items: center;
   display: flex;
@@ -2088,6 +2105,24 @@ kbd {
   min-width: 0;
 }
 
+.due-inputs {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.85fr);
+  min-width: 0;
+}
+
+.due-inputs input {
+  min-width: 0;
+  padding-right: 0;
+}
+
+.due-inputs input:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
 .property-list dd input,
 .property-list dd select {
   min-width: 0;
@@ -2224,6 +2259,7 @@ kbd {
   gap: 7px;
   min-height: 48px;
   padding: 0 18px;
+  text-decoration: none;
 }
 
 .archive-button:hover {
@@ -2367,7 +2403,7 @@ kbd {
     border-top: 1px solid var(--border-strong);
     bottom: 0;
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     left: 0;
     min-height: 65px;
     padding: 6px 3px max(6px, env(safe-area-inset-bottom));

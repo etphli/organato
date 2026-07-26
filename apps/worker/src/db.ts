@@ -142,33 +142,35 @@ export async function listSubjects(db: D1Database): Promise<Subject[]> {
 
 export async function listItems(
   db: D1Database,
-  options: { archived?: boolean; limit?: number } = {},
+  options: { archived?: boolean; limit?: number; all?: boolean } = {},
 ): Promise<OrganatoItem[]> {
   const archivedClause = options.archived
     ? "archived_at IS NOT NULL"
     : "archived_at IS NULL";
   const limit = Math.min(options.limit ?? 500, 2_000);
+  const itemScope = options.all
+    ? `SELECT id FROM item WHERE ${archivedClause}`
+    : `SELECT id FROM item WHERE ${archivedClause}
+       ORDER BY due_at IS NULL, due_at LIMIT ?`;
+  const prepareScoped = (sql: string) => {
+    const statement = db.prepare(sql);
+    return options.all ? statement : statement.bind(limit);
+  };
   const results = await db.batch([
-    db
-      .prepare(
-        `SELECT * FROM item WHERE ${archivedClause} ORDER BY due_at IS NULL, due_at LIMIT ?`,
-      )
-      .bind(limit),
-    db
-      .prepare(
-        `SELECT * FROM field_override WHERE item_id IN (SELECT id FROM item WHERE ${archivedClause} LIMIT ?)`,
-      )
-      .bind(limit),
-    db
-      .prepare(
-        `SELECT * FROM attachment_link WHERE item_id IN (SELECT id FROM item WHERE ${archivedClause} LIMIT ?)`,
-      )
-      .bind(limit),
-    db
-      .prepare(
-        `SELECT * FROM item_history WHERE item_id IN (SELECT id FROM item WHERE ${archivedClause} LIMIT ?) ORDER BY created_at DESC`,
-      )
-      .bind(limit),
+    prepareScoped(
+      `SELECT * FROM item WHERE ${archivedClause}
+       ORDER BY due_at IS NULL, due_at${options.all ? "" : " LIMIT ?"}`,
+    ),
+    prepareScoped(
+      `SELECT * FROM field_override WHERE item_id IN (${itemScope})`,
+    ),
+    prepareScoped(
+      `SELECT * FROM attachment_link WHERE item_id IN (${itemScope})`,
+    ),
+    prepareScoped(
+      `SELECT * FROM item_history WHERE item_id IN (${itemScope})
+       ORDER BY created_at DESC`,
+    ),
   ]);
   const itemResult = results[0]!;
   const overrideResult = results[1]!;
@@ -204,7 +206,7 @@ export async function listItems(
   for (const row of historyResult.results as Row[]) {
     const itemId = String(row.item_id);
     const list = history.get(itemId) ?? [];
-    if (list.length < 20) {
+    if (options.all || list.length < 20) {
       list.push({
         id: String(row.id),
         actorType: row.actor_type as HistoryEntry["actorType"],
@@ -346,12 +348,18 @@ export async function patchItem(
   } else if (typeof status === "string") {
     assignments.push("completed_at = NULL", "submitted_at = NULL");
   }
+  if (Object.prototype.hasOwnProperty.call(patch, "calendarEnabled")) {
+    assignments.push("calendar_sync_state = ?");
+    values.push(patch.calendarEnabled ? "pending" : "suppressed");
+  } else if (before.calendarEnabled) {
+    assignments.push("calendar_sync_state = 'pending'");
+  }
   const historyId = crypto.randomUUID();
   const batch: D1PreparedStatement[] = [
     db
       .prepare(
         `UPDATE item SET ${assignments.join(", ")}, version = version + 1,
-         updated_at = ?, calendar_sync_state = CASE WHEN calendar_enabled = 1 THEN 'pending' ELSE calendar_sync_state END
+         updated_at = ?
          WHERE id = ? AND version = ?`,
       )
       .bind(...values, now, id, version),

@@ -19,6 +19,7 @@ export interface SessionUser {
   displayName: string;
   csrfToken: string;
   sessionIdHash: string;
+  authenticatedAt: string;
 }
 
 export type Variables = {

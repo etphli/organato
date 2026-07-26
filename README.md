@@ -55,6 +55,10 @@ The production-ready repository contains:
 - Google Calendar API for a dedicated `Organato` calendar.
 - Gmail API for HTML email sent from the connected Google account to itself.
 - Canvas REST API with a personal access token.
+- Account administration, active-session revocation, security history, complete
+  export/validated restore, archive recovery, and permanent-deletion controls.
+- Durable reminder-delivery history with bounded retries, Calendar
+  reconciliation, Canvas omission protection, and automatic retention cleanup.
 
 Cloudflare Cron remains disabled because the conservative 480-assignment benchmark exceeded the Workers Free 10 ms CPU allowance. The runbook records the evidence and the threshold required before reconsidering it.
 
@@ -90,4 +94,11 @@ flowchart LR
 
 The deployment, database, generated secrets, owner allow-list, Google OAuth client, Calendar API, and Gmail API are configured. Emanuel School's Reshet installation is pinned server-side. Sign in with either permitted Google identity, then enter only a personal Canvas access token through Organato's protected Settings flow. Provider credentials never belong in Git.
 
-For local development, run `pnpm install`, then `pnpm dev:web`. See the [production handoff](docs/11-production-handoff.md) for the exact remaining activation steps and the [build and release runbook](docs/10-build-and-release-runbook.md) for the full `pnpm check` quality gate.
+For local development, run `pnpm install`, then `pnpm dev:web`. The release gate
+currently runs 61 domain, integration, component, authentication, and Worker
+tests in addition to formatting, linting, type-checking, production builds,
+licence checks, and secret scanning. See the
+[production handoff](docs/11-production-handoff.md) for the exact remaining
+activation steps and the
+[build and release runbook](docs/10-build-and-release-runbook.md) for the full
+`pnpm check` quality gate.

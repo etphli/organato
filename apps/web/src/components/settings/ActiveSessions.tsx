@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useOrganato } from "../../state/OrganatoProvider";
 
 interface SessionSummary {
+  email_normalized?: string;
   user_agent: string;
   created_at: string;
   last_activity_at: string;
@@ -135,6 +136,9 @@ export function ActiveSessions() {
               <small>
                 {session.is_current ? "Current session" : "Signed in"} ·{" "}
                 {relativeActivity(session.last_activity_at)}
+                {session.email_normalized
+                  ? ` · ${session.email_normalized}`
+                  : ""}
               </small>
             </span>
           </div>

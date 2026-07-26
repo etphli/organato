@@ -9,7 +9,6 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import {
-  Archive,
   Columns3,
   Combine,
   ExternalLink,
@@ -492,14 +491,6 @@ export default function WorkPage({
           <strong>{Object.keys(rowSelection).length} selected</strong>
           <button
             onClick={() => {
-              if (
-                settings.confirmBulkArchive &&
-                !window.confirm(
-                  `Archive ${table.getSelectedRowModel().rows.length} selected items?`,
-                )
-              ) {
-                return;
-              }
               table.getSelectedRowModel().rows.forEach((row) =>
                 dispatch({
                   type: "classify",
@@ -526,32 +517,20 @@ export default function WorkPage({
           >
             Checkpoint
           </button>
-          <button
-            onClick={() => {
-              table.getSelectedRowModel().rows.forEach((row) =>
-                dispatch({
-                  type: "archive",
-                  id: row.original.id,
-                  reason: "Bulk archive",
-                }),
-              );
-              setRowSelection({});
-            }}
-          >
-            <Archive size={14} /> Archive
-          </button>
           <button onClick={() => setRowSelection({})}>Clear</button>
         </div>
       ) : null}
       {showFilters ? (
         <div className="filter-bar">
           <input
+            aria-label="Filter this view"
             autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Filter this view…"
           />
           <select
+            aria-label="Filter by priority"
             value={priorityFilter}
             onChange={(event) => setPriorityFilter(event.target.value)}
           >

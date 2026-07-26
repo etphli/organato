@@ -20,6 +20,10 @@ const navigation = [
   { to: "/calendar", label: "Calendar", icon: CalendarDays },
   { to: "/todo", label: "Todo", icon: CheckSquare2 },
 ];
+const mobileNavigation = [
+  ...navigation,
+  { to: "/settings", label: "Settings", icon: Settings },
+];
 
 type ShellSyncTone = "neutral" | "healthy" | "busy" | "attention";
 
@@ -61,6 +65,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     .toUpperCase();
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
       <aside className="sidebar" aria-label="Primary navigation">
         <NavLink
           to="/"
@@ -102,18 +109,18 @@ export function AppShell({ children }: { children: ReactNode }) {
           </NavLink>
         </div>
       </aside>
-      <main className="main-content" id="main-content">
+      <main className="main-content" id="main-content" tabIndex={-1}>
         {children}
       </main>
       <nav className="bottom-nav" aria-label="Primary navigation">
-        {navigation.map(({ to, label, icon: Icon }) => (
+        {mobileNavigation.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
             end={to === "/"}
             className={({ isActive }) => (isActive ? "active" : "")}
           >
-            <Icon size={21} strokeWidth={1.7} />
+            <Icon size={21} strokeWidth={1.7} aria-hidden="true" />
             <span>{label}</span>
           </NavLink>
         ))}

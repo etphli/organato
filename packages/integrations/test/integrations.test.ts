@@ -1,10 +1,57 @@
 import { describe, expect, it } from "vitest";
+import type { OrganatoItem } from "@organato/domain";
 import {
   CanvasConnectionError,
   CanvasRestProvider,
   nextLink,
+  projectCalendarEvent,
   validateBaseUrl,
 } from "../src";
+
+function item(overrides: Partial<OrganatoItem> = {}): OrganatoItem {
+  return {
+    id: "item-1",
+    version: 4,
+    kind: "todo",
+    classification: "unclassified",
+    sourceType: "manual",
+    canvasAssignmentId: null,
+    canvasCourseId: null,
+    canvasHtmlUrl: null,
+    sourceName: null,
+    sourceDueAt: null,
+    sourceUpdatedAt: null,
+    sourcePayloadHash: null,
+    displayName: "Read chapter",
+    dueAt: null,
+    dueDateLocal: "2026-07-31",
+    dueHasExplicitTime: false,
+    subjectId: null,
+    priority: null,
+    workingStatus: "not_started",
+    completedAt: null,
+    submittedAt: null,
+    notesMarkdown: "",
+    recurrenceRule: null,
+    recurrenceSeriesId: null,
+    calendarEnabled: true,
+    remindersEnabled: true,
+    calendarSyncState: "pending",
+    calendarNote: "",
+    pinned: false,
+    sortRank: 0,
+    archivedAt: null,
+    archiveReason: null,
+    sourceMissingSince: null,
+    missingSyncCount: 0,
+    createdAt: "2026-07-20T00:00:00.000Z",
+    updatedAt: "2026-07-20T00:00:00.000Z",
+    overrides: [],
+    attachments: [],
+    history: [],
+    ...overrides,
+  };
+}
 
 describe("Canvas network boundaries", () => {
   it("requires HTTPS", () => {
@@ -80,5 +127,66 @@ describe("Canvas network boundaries", () => {
     await expect(provider.fetchUpcomingAssignments()).rejects.toMatchObject({
       code: "unexpected_origin",
     });
+  });
+});
+
+describe("Google Calendar projections", () => {
+  it("projects a date-only deadline as an exclusive all-day range", () => {
+    const projection = projectCalendarEvent(
+      item(),
+      undefined,
+      "https://organato.example",
+    );
+
+    expect(projection).toMatchObject({
+      start: { date: "2026-07-31" },
+      end: { date: "2026-08-01" },
+      privateProperties: {
+        organatoItemId: "item-1",
+        organatoItemVersion: "4",
+      },
+    });
+    expect(projection?.start).not.toHaveProperty("dateTime");
+    expect(projection?.description).not.toContain("11:59");
+  });
+
+  it("keeps timed projections as instants with a bounded end", () => {
+    const projection = projectCalendarEvent(
+      item({
+        dueAt: "2026-07-31T06:00:00.000Z",
+        dueDateLocal: null,
+        dueHasExplicitTime: true,
+      }),
+      undefined,
+      "https://organato.example",
+    );
+
+    expect(projection).toMatchObject({
+      start: {
+        dateTime: "2026-07-31T06:00:00.000Z",
+        timeZone: "Australia/Sydney",
+      },
+      end: {
+        dateTime: "2026-07-31T06:30:00.000Z",
+        timeZone: "Australia/Sydney",
+      },
+    });
+  });
+
+  it("does not project archived or calendar-suppressed items", () => {
+    expect(
+      projectCalendarEvent(
+        item({ archivedAt: "2026-07-30T00:00:00.000Z" }),
+        undefined,
+        "https://organato.example",
+      ),
+    ).toBeNull();
+    expect(
+      projectCalendarEvent(
+        item({ calendarEnabled: false }),
+        undefined,
+        "https://organato.example",
+      ),
+    ).toBeNull();
   });
 });

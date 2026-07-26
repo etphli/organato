@@ -37,8 +37,10 @@ export type CanvasConnectionErrorCode =
   | "unexpected_origin"
   | "unexpected_redirect"
   | "token_rejected"
+  | "rate_limited"
   | "request_failed"
   | "invalid_response"
+  | "response_too_large"
   | "pagination_limit";
 
 export class CanvasConnectionError extends Error {
@@ -88,6 +90,27 @@ function nextLink(header: string | null): string | null {
   return null;
 }
 
+const maximumResponseBytes = 5_000_000;
+const maximumAttempts = 3;
+
+export function retryAfterMs(
+  value: string | null,
+  attempt: number,
+  nowMs = Date.now(),
+): number {
+  const fallback = Math.min(5_000, 250 * 2 ** attempt);
+  if (!value) return fallback;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(10_000, seconds * 1_000);
+  }
+  const date = Date.parse(value);
+  if (!Number.isFinite(date)) return fallback;
+  return Math.min(10_000, Math.max(0, date - nowMs));
+}
+
+type Sleep = (milliseconds: number) => Promise<void>;
+
 export class CanvasRestProvider implements CanvasProvider {
   readonly baseUrl: URL;
 
@@ -95,6 +118,8 @@ export class CanvasRestProvider implements CanvasProvider {
     baseUrl: string,
     private readonly token: string,
     private readonly fetcher: typeof fetch = fetch,
+    private readonly sleep: Sleep = (milliseconds) =>
+      new Promise((resolve) => setTimeout(resolve, milliseconds)),
   ) {
     this.baseUrl = validateBaseUrl(baseUrl);
   }
@@ -110,58 +135,128 @@ export class CanvasRestProvider implements CanvasProvider {
         "Canvas refused an unexpected cross-origin request.",
       );
     }
-    const response = await this.fetcher(url, {
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        Accept: "application/json",
-      },
-      redirect: "manual",
-      ...(signal ? { signal } : {}),
-    });
-    if (response.status >= 300 && response.status < 400) {
+    for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
+      let response: Response;
+      try {
+        response = await this.fetcher(url, {
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+            Accept: "application/json",
+          },
+          redirect: "manual",
+          ...(signal ? { signal } : {}),
+        });
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        if (attempt < maximumAttempts - 1) {
+          await this.sleep(retryAfterMs(null, attempt));
+          continue;
+        }
+        throw new CanvasConnectionError(
+          "request_failed",
+          "Canvas could not be reached.",
+        );
+      }
+      if (response.status >= 300 && response.status < 400) {
+        throw new CanvasConnectionError(
+          "unexpected_redirect",
+          "Canvas refused an unexpected redirect.",
+        );
+      }
+      if (response.status === 401 || response.status === 403) {
+        throw new CanvasConnectionError(
+          "token_rejected",
+          "Canvas rejected the token.",
+        );
+      }
+      const retryable =
+        response.status === 429 ||
+        [500, 502, 503, 504].includes(response.status);
+      if (retryable && attempt < maximumAttempts - 1) {
+        await response.body?.cancel();
+        await this.sleep(
+          retryAfterMs(response.headers.get("Retry-After"), attempt),
+        );
+        continue;
+      }
+      if (response.status === 429) {
+        throw new CanvasConnectionError(
+          "rate_limited",
+          "Canvas rate limited the request.",
+        );
+      }
+      if (!response.ok) {
+        throw new CanvasConnectionError(
+          "request_failed",
+          `Canvas request failed (${response.status}).`,
+        );
+      }
+      const contentLength = Number(response.headers.get("Content-Length") ?? 0);
+      if (
+        Number.isFinite(contentLength) &&
+        contentLength > maximumResponseBytes
+      ) {
+        throw new CanvasConnectionError(
+          "response_too_large",
+          "Canvas returned a response above the safe size limit.",
+        );
+      }
+      return response;
+    }
+    throw new CanvasConnectionError(
+      "request_failed",
+      "Canvas could not be reached.",
+    );
+  }
+
+  private async responseJson(response: Response): Promise<unknown> {
+    const text = await response.text();
+    if (text.length > maximumResponseBytes) {
       throw new CanvasConnectionError(
-        "unexpected_redirect",
-        "Canvas refused an unexpected redirect.",
+        "response_too_large",
+        "Canvas returned a response above the safe size limit.",
       );
     }
-    if (response.status === 401 || response.status === 403) {
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
       throw new CanvasConnectionError(
-        "token_rejected",
-        "Canvas rejected the token.",
+        "invalid_response",
+        "Canvas returned invalid JSON.",
       );
     }
-    if (!response.ok) {
-      throw new CanvasConnectionError(
-        "request_failed",
-        `Canvas request failed (${response.status}).`,
-      );
-    }
-    return response;
   }
 
   private async paginated<T>(
     path: string,
     schema: z.ZodType<T>,
     signal?: AbortSignal,
+    onMalformed?: () => void,
   ): Promise<T[]> {
     const output: T[] = [];
     let next: string | null = path;
     const visited = new Set<string>();
     while (next && visited.size < 50) {
-      if (visited.has(next))
-        throw new Error("Canvas pagination loop detected.");
+      if (visited.has(next)) {
+        throw new CanvasConnectionError(
+          "pagination_limit",
+          "Canvas pagination loop detected.",
+        );
+      }
       visited.add(next);
       const response = await this.request(next, signal);
-      let body: T[];
-      try {
-        body = z.array(schema).parse(await response.json());
-      } catch {
+      const body = await this.responseJson(response);
+      if (!Array.isArray(body)) {
         throw new CanvasConnectionError(
           "invalid_response",
           "Canvas returned an unexpected response.",
         );
       }
-      output.push(...body);
+      for (const row of body) {
+        const parsed = schema.safeParse(row);
+        if (parsed.success) output.push(parsed.data);
+        else onMalformed?.();
+      }
       next = nextLink(response.headers.get("Link"));
     }
     if (next) {
@@ -177,7 +272,7 @@ export class CanvasRestProvider implements CanvasProvider {
     const response = await this.request("/api/v1/users/self/profile", signal);
     let user: z.infer<typeof userSchema>;
     try {
-      user = userSchema.parse(await response.json());
+      user = userSchema.parse(await this.responseJson(response));
     } catch {
       throw new CanvasConnectionError(
         "invalid_response",
@@ -190,10 +285,14 @@ export class CanvasRestProvider implements CanvasProvider {
   async fetchUpcomingAssignments(
     signal?: AbortSignal,
   ): Promise<CanvasSyncResult> {
+    let malformedCourseCount = 0;
     const courseRows = await this.paginated(
       "/api/v1/courses?enrollment_state=active&state[]=available&per_page=100",
       courseSchema,
       signal,
+      () => {
+        malformedCourseCount += 1;
+      },
     );
     const courses: CanvasCourse[] = courseRows.map((course) => ({
       id: String(course.id),
@@ -202,6 +301,14 @@ export class CanvasRestProvider implements CanvasProvider {
     }));
     const assignments: CanvasAssignment[] = [];
     const partialFailures: CanvasSyncResult["partialFailures"] = [];
+    const successfulCourseIds: string[] = [];
+    let skippedMalformedItems = malformedCourseCount;
+    if (malformedCourseCount) {
+      partialFailures.push({
+        courseId: "course_catalogue",
+        category: "malformed_course",
+      });
+    }
 
     const chunks = Array.from(
       { length: Math.ceil(courses.length / 4) },
@@ -210,28 +317,51 @@ export class CanvasRestProvider implements CanvasProvider {
     for (const chunk of chunks) {
       const results = await Promise.allSettled(
         chunk.map(async (course) => {
+          let malformedForCourse = 0;
           const rows = await this.paginated(
             `/api/v1/courses/${encodeURIComponent(course.id)}/assignments?bucket=upcoming&override_assignment_dates=true&include[]=submission&per_page=100`,
             assignmentSchema,
             signal,
+            () => {
+              malformedForCourse += 1;
+            },
           );
-          return rows.map((row): CanvasAssignment => ({
-            id: String(row.id),
-            courseId: String(row.course_id),
-            name: row.name,
-            dueAt: row.due_at ?? null,
-            htmlUrl: row.html_url,
-            updatedAt: row.updated_at,
-            published: row.published ?? true,
-            submitted: ["submitted", "graded", "pending_review"].includes(
-              row.submission?.workflow_state ?? "",
-            ),
-          }));
+          const normalized: CanvasAssignment[] = [];
+          for (const row of rows) {
+            const assignmentUrl = new URL(row.html_url);
+            if (assignmentUrl.origin !== this.baseUrl.origin) {
+              malformedForCourse += 1;
+              continue;
+            }
+            normalized.push({
+              id: String(row.id),
+              courseId: String(row.course_id),
+              name: row.name,
+              dueAt: row.due_at ?? null,
+              htmlUrl: assignmentUrl.href,
+              updatedAt: row.updated_at,
+              published: row.published ?? true,
+              submitted: ["submitted", "graded", "pending_review"].includes(
+                row.submission?.workflow_state ?? "",
+              ),
+            });
+          }
+          return { course, assignments: normalized, malformedForCourse };
         }),
       );
       results.forEach((result, index) => {
-        if (result.status === "fulfilled") assignments.push(...result.value);
-        else {
+        if (result.status === "fulfilled") {
+          assignments.push(...result.value.assignments);
+          skippedMalformedItems += result.value.malformedForCourse;
+          if (result.value.malformedForCourse) {
+            partialFailures.push({
+              courseId: result.value.course.id,
+              category: "malformed_item",
+            });
+          } else {
+            successfulCourseIds.push(result.value.course.id);
+          }
+        } else {
           partialFailures.push({
             courseId: chunk[index]?.id ?? "unknown",
             category: "course_fetch_failed",
@@ -239,7 +369,14 @@ export class CanvasRestProvider implements CanvasProvider {
         }
       });
     }
-    return { courses, assignments, partialFailures };
+    return {
+      courses,
+      assignments,
+      partialFailures,
+      successfulCourseIds,
+      catalogueComplete: malformedCourseCount === 0,
+      skippedMalformedItems,
+    };
   }
 }
 

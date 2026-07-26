@@ -18,8 +18,9 @@
     "lint": "node node_modules/eslint/bin/eslint.js . --max-warnings=0",
     "format": "node node_modules/prettier/bin/prettier.cjs --write .",
     "format:check": "node node_modules/prettier/bin/prettier.cjs --check .",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm licenses:check && pnpm secrets:scan",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm licenses:check && pnpm audit:prod && pnpm secrets:scan",
     "licenses:check": "node scripts/check-licenses.mjs",
+    "audit:prod": "pnpm audit --prod --audit-level high",
     "secrets:scan": "node scripts/scan-secrets.mjs",
     "scheduler:benchmark": "node scripts/benchmark-scheduler.mjs",
     "scheduler:install": "node scripts/install-launchd.mjs"

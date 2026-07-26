@@ -38,6 +38,7 @@ export interface DigestInput {
   appOrigin: string;
   lastCanvasSync: string;
   lastCalendarSync: string;
+  timezone?: string;
 }
 
 export interface RenderedDigest {
@@ -79,7 +80,7 @@ export function renderDigest(input: DigestInput): RenderedDigest | null {
             ? subjects.get(item.subjectId)?.displayName
             : undefined;
           const due = itemDeadline(item)?.toLocaleString("en-AU", {
-            timeZone: "Australia/Sydney",
+            timeZone: input.timezone ?? "Australia/Sydney",
             dateStyle: "medium",
             ...(item.dueHasExplicitTime ? { timeStyle: "short" as const } : {}),
           });

@@ -32,6 +32,8 @@ export async function loadGoogleConnection(env: Env) {
       const response = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        redirect: "error",
+        signal: AbortSignal.timeout(15_000),
         body: new URLSearchParams({
           client_id: env.GOOGLE_CLIENT_ID,
           client_secret: env.GOOGLE_CLIENT_SECRET,

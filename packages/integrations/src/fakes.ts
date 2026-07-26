@@ -19,7 +19,22 @@ export class FakeCanvasProvider implements CanvasProvider {
     };
   }
   async fetchUpcomingAssignments(): Promise<CanvasSyncResult> {
-    return structuredClone(this.result);
+    const result = structuredClone(this.result);
+    return {
+      ...result,
+      successfulCourseIds:
+        result.successfulCourseIds ??
+        result.courses
+          .map((course) => course.id)
+          .filter(
+            (courseId) =>
+              !result.partialFailures.some(
+                (failure) => failure.courseId === courseId,
+              ),
+          ),
+      catalogueComplete: result.catalogueComplete ?? true,
+      skippedMalformedItems: result.skippedMalformedItems ?? 0,
+    };
   }
 }
 
