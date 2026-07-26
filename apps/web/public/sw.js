@@ -1,6 +1,7 @@
-const cacheName = "organato-shell-v3";
+const cacheName = "organato-shell-v4";
 const shell = [
   "/",
+  "/boot.css",
   "/manifest.webmanifest",
   "/icons/icon.svg",
   "/icons/icon-maskable.svg",
