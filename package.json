@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@10.13.1",
   "engines": {
-    "node": "22.x"
+    "node": ">=22 <25"
   },
   "scripts": {
     "dev": "pnpm --parallel --filter @organato/web --filter @organato/worker dev",
