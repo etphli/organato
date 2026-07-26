@@ -49,6 +49,17 @@ app.post("/api/internal/schedule", async (context) => {
   }
   const job = context.req.query("job");
   if (job === "hourly") {
+    const canvasConnection = await context.env.DB.prepare(
+      `SELECT 1 AS connected FROM integration_connection
+       WHERE provider = 'canvas' AND status <> 'disconnected'`,
+    ).first<{ connected: number }>();
+    if (!canvasConnection) {
+      return context.json({
+        ok: true,
+        job,
+        skipped: "canvas_not_connected",
+      });
+    }
     const result = await runCanvasSync(context.env, "scheduled");
     await runCalendarReconciliation(context.env);
     await sendUrgentImport(context.env, result.runId, result.createdIds);

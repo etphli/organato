@@ -13,15 +13,15 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "organato-local",
-      "database_id": "replace-with-production-d1-id",
+      "database_name": "organato-production",
+      "database_id": "a653bf6d-e7d4-4429-af3a-fc30bd839af4",
       "migrations_dir": "migrations",
     },
   ],
   "vars": {
-    "APP_ORIGIN": "http://localhost:8787",
-    "ALLOWED_GOOGLE_EMAILS": "owner@example.com",
-    "GOOGLE_CLIENT_ID": "replace-with-client-id",
+    "APP_ORIGIN": "https://organato.vercel.app",
+    "ALLOWED_GOOGLE_EMAILS": "ethan.likht@gmail.com,likht.ethan@emanuelschool.nsw.edu.au",
+    "GOOGLE_CLIENT_ID": "190702448599-eg9o5ehknkbo29d2nifqg3l0tr3fpk67.apps.googleusercontent.com",
     "CANVAS_BASE_URL": "https://canvas.example.edu",
     "DEMO_MODE": "false",
     "SCHEDULER_MODE": "local",

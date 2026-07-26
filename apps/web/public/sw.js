@@ -1,4 +1,4 @@
-const cacheName = "organato-shell-v1";
+const cacheName = "organato-shell-v2";
 const shell = ["/", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -16,13 +16,17 @@ self.addEventListener("activate", (event) => {
             .filter((key) => key !== cacheName)
             .map((key) => caches.delete(key)),
         ),
-      ),
+      )
+      .then(() => self.clients.claim()),
   );
 });
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  if (url.pathname.startsWith("/api/")) return;
+  if (url.pathname.startsWith("/api/")) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
   if (event.request.mode === "navigate") {
     event.respondWith(fetch(event.request).catch(() => caches.match("/")));
     return;

@@ -19,6 +19,14 @@ The product should feel closer to Obsidian than a conventional school portal: bl
 
 Open Organato and immediately know what needs attention, when it is due, and what to do next—without manually copying upcoming Canvas work into another system.
 
+## Live deployment
+
+- App: [organato.vercel.app](https://organato.vercel.app)
+- API health: [organato.etphli.workers.dev/health](https://organato.etphli.workers.dev/health)
+- Private source repository: [github.com/etphli/organato](https://github.com/etphli/organato)
+
+Vercel serves the PWA and forwards same-origin `/api` requests to the Cloudflare Worker. The Worker uses the production D1 database in Oceania. GitHub is connected to Vercel for automatic deployments from the repository.
+
 ## Documentation map
 
 | Document                                                              | Purpose                                                                                      |
@@ -33,6 +41,7 @@ Open Organato and immediately know what needs attention, when it is due, and wha
 | [Delivery and quality plan](docs/08-delivery-and-quality-plan.md)     | Phases, acceptance criteria, testing, rollout, risks, and future ideas                       |
 | [Decision register](docs/09-decision-register.md)                     | Confirmed decisions, inferred decisions, assumptions, and information still needed           |
 | [Build and release runbook](docs/10-build-and-release-runbook.md)     | Local setup, provider configuration, scheduler decision, quality gates, deployment, recovery |
+| [Production handoff](docs/11-production-handoff.md)                   | Live resources, completed deployment work, remaining owner-only activation, and operations   |
 
 ## Implemented architecture
 
@@ -77,8 +86,8 @@ flowchart LR
 - Archived work is hidden from normal views but recoverable from Settings.
 - Normal personal usage stays far below every free-tier ceiling.
 
-## Configuration still required
+## Owner activation still required
 
-Deployment requires the exact Canvas base URL, permitted Google owner emails, OAuth credentials, D1 ID, and generated encryption/session/scheduler secrets. Canvas credentials are entered through the protected Settings flow; deployment secrets use Wrangler's secret store. None belong in Git.
+The deployment, database, generated secrets, owner allow-list, Google OAuth client, Calendar API, and Gmail API are configured. Sign in with either permitted Google identity, then enter the Canvas base URL and personal access token through Organato's protected Settings flow. Provider credentials never belong in Git.
 
-For local development, run `pnpm install`, then `pnpm dev:web`. See the [build and release runbook](docs/10-build-and-release-runbook.md) for production configuration and the full `pnpm check` quality gate.
+For local development, run `pnpm install`, then `pnpm dev:web`. See the [production handoff](docs/11-production-handoff.md) for the exact remaining activation steps and the [build and release runbook](docs/10-build-and-release-runbook.md) for the full `pnpm check` quality gate.

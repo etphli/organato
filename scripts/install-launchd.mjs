@@ -23,14 +23,23 @@ writeFileSync(
 chmodSync(envPath, 0o600);
 
 const script = resolve(process.cwd(), "scripts", "local-scheduler.mjs");
+function escapeXml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
 function plist(label, job, schedule) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>${label}</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/bin/env</string><string>node</string><string>${script}</string>
-    <string>${job}</string><string>--env-file</string><string>${envPath}</string>
+    <string>${escapeXml(process.execPath)}</string><string>${escapeXml(script)}</string>
+    <string>${job}</string><string>--env-file</string><string>${escapeXml(envPath)}</string>
   </array>
   ${schedule}
   <key>StandardOutPath</key><string>${configDir}/${job}.log</string>
