@@ -1,0 +1,25 @@
+{
+  "fixture": "redacted",
+  "assignments": [
+    {
+      "id": 101,
+      "course_id": 12,
+      "name": "Comparative essay draft",
+      "due_at": "2026-07-27T06:00:00Z",
+      "html_url": "https://canvas.example.edu/courses/12/assignments/101",
+      "updated_at": "2026-07-25T00:10:00Z",
+      "published": true,
+      "submission": { "workflow_state": "unsubmitted" }
+    },
+    {
+      "id": 102,
+      "course_id": 12,
+      "name": "Unscheduled preparation",
+      "due_at": null,
+      "html_url": "https://canvas.example.edu/courses/12/assignments/102",
+      "updated_at": "2026-07-25T00:11:00Z",
+      "published": true,
+      "submission": null
+    }
+  ]
+}

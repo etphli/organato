@@ -1,0 +1,450 @@
+import type {
+  AttachmentLink,
+  FieldOverride,
+  HistoryEntry,
+  OrganatoItem,
+  Subject,
+  WorkspaceSettings,
+} from "@organato/domain";
+
+type Row = Record<string, unknown>;
+
+const defaultSettings: WorkspaceSettings = {
+  timezone: "Australia/Sydney",
+  dateFormat: "D MMM YYYY",
+  timeFormat: "12h",
+  firstDayOfWeek: 1,
+  theme: "obsidian",
+  density: "compact",
+  sidebar: "expanded",
+  fontScale: 1,
+  reduceMotion: false,
+  highContrast: false,
+  underlineExternalLinks: false,
+  calendarDefaultView: "month",
+  upcomingAssignmentCount: 6,
+  upcomingCheckpointCount: 6,
+  completedVisibility: "end_of_day",
+  dailyDigestEnabled: true,
+  digestHour: 6,
+  reminderWindowDays: 7,
+  immediateImportAlert: true,
+  naturalTodoParsing: true,
+  autoExpandClassification: true,
+  showMiniCalendar: true,
+  showQuickTodo: true,
+  includeBothInPanels: true,
+  showWorkloadStrip: true,
+  stickyNameColumn: true,
+  inlineEditing: true,
+  showSourceIcons: true,
+  showSubmittedActive: true,
+  confirmBulkArchive: true,
+  todoCalendarDefault: true,
+  todoRemindersDefault: true,
+  recurrenceOnCompletion: true,
+  showAttachmentIndicator: true,
+  searchNotes: true,
+  fuzzySearch: true,
+  recentSearches: true,
+  showKeyboardHints: true,
+  multiKeyNavigation: true,
+  alwaysShowIconText: false,
+  screenReaderAnnouncements: true,
+  dragCalendarReschedule: true,
+};
+
+function boolean(value: unknown): boolean {
+  return Number(value) === 1;
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function parseJson<T>(value: unknown, fallback: T): T {
+  if (typeof value !== "string" || !value) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function mapSubject(row: Row): Subject {
+  return {
+    id: String(row.id),
+    canvasCourseId: nullableString(row.canvas_course_id),
+    sourceName: nullableString(row.source_name),
+    displayName: String(row.display_name),
+    shortName: nullableString(row.short_name),
+    colour: String(row.colour),
+    active: boolean(row.active),
+  };
+}
+
+function mapItem(
+  row: Row,
+  overrides: FieldOverride[],
+  attachments: AttachmentLink[],
+  history: HistoryEntry[],
+): OrganatoItem {
+  return {
+    id: String(row.id),
+    version: Number(row.version),
+    kind: row.kind as OrganatoItem["kind"],
+    classification: row.classification as OrganatoItem["classification"],
+    sourceType: row.source_type as OrganatoItem["sourceType"],
+    canvasAssignmentId: nullableString(row.canvas_assignment_id),
+    canvasCourseId: nullableString(row.canvas_course_id),
+    canvasHtmlUrl: nullableString(row.canvas_html_url),
+    sourceName: nullableString(row.source_name),
+    sourceDueAt: nullableString(row.source_due_at),
+    sourceUpdatedAt: nullableString(row.source_updated_at),
+    sourcePayloadHash: nullableString(row.source_payload_hash),
+    displayName: String(row.display_name),
+    dueAt: nullableString(row.due_at),
+    dueDateLocal: nullableString(row.due_date_local),
+    dueHasExplicitTime: boolean(row.due_has_explicit_time),
+    subjectId: nullableString(row.subject_id),
+    priority: nullableString(row.priority) as OrganatoItem["priority"],
+    workingStatus: row.working_status as OrganatoItem["workingStatus"],
+    completedAt: nullableString(row.completed_at),
+    submittedAt: nullableString(row.submitted_at),
+    notesMarkdown: String(row.notes_markdown ?? ""),
+    recurrenceRule: parseJson(row.recurrence_rule_json, null),
+    recurrenceSeriesId: nullableString(row.recurrence_series_id),
+    calendarEnabled: boolean(row.calendar_enabled),
+    remindersEnabled: boolean(row.reminders_enabled),
+    calendarSyncState:
+      row.calendar_sync_state as OrganatoItem["calendarSyncState"],
+    calendarNote: String(row.calendar_note ?? ""),
+    pinned: boolean(row.pinned),
+    sortRank: Number(row.sort_rank),
+    archivedAt: nullableString(row.archived_at),
+    archiveReason: nullableString(row.archive_reason),
+    sourceMissingSince: nullableString(row.source_missing_since),
+    missingSyncCount: Number(row.missing_sync_count),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+    overrides,
+    attachments,
+    history,
+  };
+}
+
+export async function listSubjects(db: D1Database): Promise<Subject[]> {
+  const result = await db
+    .prepare("SELECT * FROM subject ORDER BY display_name")
+    .all<Row>();
+  return result.results.map(mapSubject);
+}
+
+export async function listItems(
+  db: D1Database,
+  options: { archived?: boolean; limit?: number } = {},
+): Promise<OrganatoItem[]> {
+  const archivedClause = options.archived
+    ? "archived_at IS NOT NULL"
+    : "archived_at IS NULL";
+  const limit = Math.min(options.limit ?? 500, 2_000);
+  const results = await db.batch([
+    db
+      .prepare(
+        `SELECT * FROM item WHERE ${archivedClause} ORDER BY due_at IS NULL, due_at LIMIT ?`,
+      )
+      .bind(limit),
+    db
+      .prepare(
+        `SELECT * FROM field_override WHERE item_id IN (SELECT id FROM item WHERE ${archivedClause} LIMIT ?)`,
+      )
+      .bind(limit),
+    db
+      .prepare(
+        `SELECT * FROM attachment_link WHERE item_id IN (SELECT id FROM item WHERE ${archivedClause} LIMIT ?)`,
+      )
+      .bind(limit),
+    db
+      .prepare(
+        `SELECT * FROM item_history WHERE item_id IN (SELECT id FROM item WHERE ${archivedClause} LIMIT ?) ORDER BY created_at DESC`,
+      )
+      .bind(limit),
+  ]);
+  const itemResult = results[0]!;
+  const overrideResult = results[1]!;
+  const attachmentResult = results[2]!;
+  const historyResult = results[3]!;
+  const overrides = new Map<string, FieldOverride[]>();
+  for (const row of overrideResult.results as Row[]) {
+    const itemId = String(row.item_id);
+    const list = overrides.get(itemId) ?? [];
+    list.push({
+      fieldName: String(row.field_name) as FieldOverride["fieldName"],
+      value: parseJson(row.override_value_json, null),
+      sourceValueAtOverride: parseJson(row.source_value_at_override_json, null),
+      origin: row.origin as FieldOverride["origin"],
+      updatedAt: String(row.updated_at),
+    });
+    overrides.set(itemId, list);
+  }
+  const attachments = new Map<string, AttachmentLink[]>();
+  for (const row of attachmentResult.results as Row[]) {
+    const itemId = String(row.item_id);
+    const list = attachments.get(itemId) ?? [];
+    list.push({
+      id: String(row.id),
+      label: String(row.label),
+      url: String(row.url),
+      linkType: row.link_type as AttachmentLink["linkType"],
+      createdAt: String(row.created_at),
+    });
+    attachments.set(itemId, list);
+  }
+  const history = new Map<string, HistoryEntry[]>();
+  for (const row of historyResult.results as Row[]) {
+    const itemId = String(row.item_id);
+    const list = history.get(itemId) ?? [];
+    if (list.length < 20) {
+      list.push({
+        id: String(row.id),
+        actorType: row.actor_type as HistoryEntry["actorType"],
+        actorIdentity: String(row.actor_identity),
+        action: String(row.action),
+        summary: String(row.summary),
+        createdAt: String(row.created_at),
+        ...(row.before_json ? { before: parseJson(row.before_json, {}) } : {}),
+        ...(row.after_json ? { after: parseJson(row.after_json, {}) } : {}),
+      });
+    }
+    history.set(itemId, list);
+  }
+  return (itemResult.results as Row[]).map((row) =>
+    mapItem(
+      row,
+      overrides.get(String(row.id)) ?? [],
+      attachments.get(String(row.id)) ?? [],
+      history.get(String(row.id)) ?? [],
+    ),
+  );
+}
+
+export async function getItem(
+  db: D1Database,
+  id: string,
+): Promise<OrganatoItem | null> {
+  const row = await db
+    .prepare("SELECT * FROM item WHERE id = ?")
+    .bind(id)
+    .first<Row>();
+  if (!row) return null;
+  const [overrides, attachments, history] = await Promise.all([
+    db
+      .prepare("SELECT * FROM field_override WHERE item_id = ?")
+      .bind(id)
+      .all<Row>(),
+    db
+      .prepare("SELECT * FROM attachment_link WHERE item_id = ?")
+      .bind(id)
+      .all<Row>(),
+    db
+      .prepare(
+        "SELECT * FROM item_history WHERE item_id = ? ORDER BY created_at DESC LIMIT 50",
+      )
+      .bind(id)
+      .all<Row>(),
+  ]);
+  return mapItem(
+    row,
+    overrides.results.map((entry) => ({
+      fieldName: String(entry.field_name) as FieldOverride["fieldName"],
+      value: parseJson(entry.override_value_json, null),
+      sourceValueAtOverride: parseJson(
+        entry.source_value_at_override_json,
+        null,
+      ),
+      origin: entry.origin as FieldOverride["origin"],
+      updatedAt: String(entry.updated_at),
+    })),
+    attachments.results.map((entry) => ({
+      id: String(entry.id),
+      label: String(entry.label),
+      url: String(entry.url),
+      linkType: entry.link_type as AttachmentLink["linkType"],
+      createdAt: String(entry.created_at),
+    })),
+    history.results.map((entry) => ({
+      id: String(entry.id),
+      actorType: entry.actor_type as HistoryEntry["actorType"],
+      actorIdentity: String(entry.actor_identity),
+      action: String(entry.action),
+      summary: String(entry.summary),
+      createdAt: String(entry.created_at),
+    })),
+  );
+}
+
+const patchColumns = new Map<string, string>([
+  ["displayName", "display_name"],
+  ["dueAt", "due_at"],
+  ["dueDateLocal", "due_date_local"],
+  ["dueHasExplicitTime", "due_has_explicit_time"],
+  ["subjectId", "subject_id"],
+  ["priority", "priority"],
+  ["workingStatus", "working_status"],
+  ["notesMarkdown", "notes_markdown"],
+  ["calendarEnabled", "calendar_enabled"],
+  ["remindersEnabled", "reminders_enabled"],
+  ["calendarNote", "calendar_note"],
+  ["pinned", "pinned"],
+  ["sortRank", "sort_rank"],
+  ["recurrenceRule", "recurrence_rule_json"],
+  ["recurrenceSeriesId", "recurrence_series_id"],
+]);
+
+export async function patchItem(
+  db: D1Database,
+  id: string,
+  version: number,
+  patch: Record<string, unknown>,
+  actorEmail: string,
+  origin: "organato" | "google" = "organato",
+): Promise<OrganatoItem> {
+  const before = await getItem(db, id);
+  if (!before) throw new Error("not_found");
+  if (before.version !== version) throw new Error("version_conflict");
+  const entries = Object.entries(patch).filter(([field]) =>
+    patchColumns.has(field),
+  );
+  if (!entries.length) return before;
+  const assignments = entries.map(
+    ([field]) => `${patchColumns.get(field)} = ?`,
+  );
+  const values = entries.map(([field, value]) => {
+    if (
+      [
+        "dueHasExplicitTime",
+        "calendarEnabled",
+        "remindersEnabled",
+        "pinned",
+      ].includes(field)
+    ) {
+      return value ? 1 : 0;
+    }
+    if (field === "recurrenceRule") {
+      return value ? JSON.stringify(value) : null;
+    }
+    return value;
+  });
+  const now = new Date().toISOString();
+  const status = patch.workingStatus;
+  if (status === "completed") {
+    assignments.push("completed_at = ?", "submitted_at = NULL");
+    values.push(now);
+  } else if (status === "submitted") {
+    assignments.push("submitted_at = ?", "completed_at = NULL");
+    values.push(now);
+  } else if (typeof status === "string") {
+    assignments.push("completed_at = NULL", "submitted_at = NULL");
+  }
+  const historyId = crypto.randomUUID();
+  const batch: D1PreparedStatement[] = [
+    db
+      .prepare(
+        `UPDATE item SET ${assignments.join(", ")}, version = version + 1,
+         updated_at = ?, calendar_sync_state = CASE WHEN calendar_enabled = 1 THEN 'pending' ELSE calendar_sync_state END
+         WHERE id = ? AND version = ?`,
+      )
+      .bind(...values, now, id, version),
+    db
+      .prepare(
+        `INSERT INTO item_history
+          (id, item_id, actor_type, actor_identity, action, summary, before_json, after_json, undo_until, created_at)
+         VALUES (?, ?, ?, ?, 'edited', 'Item edited', ?, ?, ?, ?)`,
+      )
+      .bind(
+        historyId,
+        id,
+        origin === "google" ? "google" : "user",
+        actorEmail,
+        JSON.stringify(
+          Object.fromEntries(
+            entries.map(([field]) => [
+              field,
+              before[field as keyof OrganatoItem],
+            ]),
+          ),
+        ),
+        JSON.stringify(Object.fromEntries(entries)),
+        new Date(Date.now() + 10_000).toISOString(),
+        now,
+      ),
+  ];
+  if (before.sourceType === "canvas") {
+    for (const [field, value] of entries) {
+      const overrideField =
+        field === "displayName"
+          ? "name"
+          : field === "dueAt" || field === "dueDateLocal"
+            ? "due"
+            : field === "subjectId"
+              ? "subject"
+              : field === "calendarNote"
+                ? "calendarNote"
+                : null;
+      if (!overrideField) continue;
+      const sourceValue =
+        overrideField === "name"
+          ? before.sourceName
+          : overrideField === "due"
+            ? before.sourceDueAt
+            : overrideField === "subject"
+              ? before.canvasCourseId
+              : before.calendarNote;
+      batch.push(
+        db
+          .prepare(
+            `INSERT INTO field_override
+              (item_id, field_name, override_value_json, source_value_at_override_json, origin, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(item_id, field_name) DO UPDATE SET
+               override_value_json = excluded.override_value_json,
+               origin = excluded.origin,
+               updated_at = excluded.updated_at`,
+          )
+          .bind(
+            id,
+            overrideField,
+            JSON.stringify(value),
+            JSON.stringify(sourceValue),
+            origin,
+            now,
+            now,
+          ),
+      );
+    }
+  }
+  const results = await db.batch(batch);
+  if (!results[0]?.meta.changes) throw new Error("version_conflict");
+  return (await getItem(db, id))!;
+}
+
+export async function getSettings(db: D1Database): Promise<WorkspaceSettings> {
+  const row = await db
+    .prepare("SELECT settings_json FROM workspace WHERE id = 'workspace'")
+    .first<{ settings_json: string }>();
+  return { ...defaultSettings, ...parseJson(row?.settings_json, {}) };
+}
+
+export async function updateSettings(
+  db: D1Database,
+  patch: Partial<WorkspaceSettings>,
+): Promise<WorkspaceSettings> {
+  const settings = { ...(await getSettings(db)), ...patch };
+  await db
+    .prepare(
+      "UPDATE workspace SET settings_json = ?, updated_at = ? WHERE id = 'workspace'",
+    )
+    .bind(JSON.stringify(settings), new Date().toISOString())
+    .run();
+  return settings;
+}

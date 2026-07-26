@@ -1,0 +1,39 @@
+{
+  "name": "organato",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @organato/web --filter @organato/worker dev",
+    "dev:web": "pnpm --filter @organato/web dev",
+    "dev:worker": "pnpm --filter @organato/worker dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:coverage": "pnpm -r test:coverage",
+    "lint": "node node_modules/eslint/bin/eslint.js . --max-warnings=0",
+    "format": "node node_modules/prettier/bin/prettier.cjs --write .",
+    "format:check": "node node_modules/prettier/bin/prettier.cjs --check .",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm licenses:check && pnpm secrets:scan",
+    "licenses:check": "node scripts/check-licenses.mjs",
+    "secrets:scan": "node scripts/scan-secrets.mjs",
+    "scheduler:benchmark": "node scripts/benchmark-scheduler.mjs",
+    "scheduler:install": "node scripts/install-launchd.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "@types/node": "^24.1.0",
+    "eslint": "^9.32.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.3.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.38.0",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "organato",
+  "main": "apps/worker/src/index.ts",
+  "compatibility_date": "2026-07-25",
+  "workers_dev": true,
+  "preview_urls": true,
+  "assets": {
+    "directory": "apps/web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "organato-local",
+      "database_id": "replace-with-production-d1-id",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "vars": {
+    "APP_ORIGIN": "http://localhost:8787",
+    "ALLOWED_GOOGLE_EMAILS": "owner@example.com",
+    "GOOGLE_CLIENT_ID": "replace-with-client-id",
+    "CANVAS_BASE_URL": "https://canvas.example.edu",
+    "DEMO_MODE": "false",
+    "SCHEDULER_MODE": "local",
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
+}

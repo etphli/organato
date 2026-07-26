@@ -1,0 +1,25 @@
+export interface Env {
+  DB: D1Database;
+  ASSETS: Fetcher;
+  APP_ORIGIN: string;
+  ALLOWED_GOOGLE_EMAILS: string;
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
+  SESSION_SECRET: string;
+  DATA_ENCRYPTION_KEY: string;
+  CANVAS_BASE_URL: string;
+  SCHEDULER_TOKEN?: string;
+  SCHEDULER_MODE?: "cloudflare" | "local";
+  DEMO_MODE?: string;
+}
+
+export interface SessionUser {
+  email: string;
+  displayName: string;
+  csrfToken: string;
+  sessionIdHash: string;
+}
+
+export type Variables = {
+  user: SessionUser;
+};

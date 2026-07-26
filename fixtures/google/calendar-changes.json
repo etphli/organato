@@ -1,0 +1,29 @@
+{
+  "fixture": "redacted",
+  "items": [
+    {
+      "id": "organato-event-1",
+      "etag": "\"fixture-etag\"",
+      "status": "confirmed",
+      "updated": "2026-07-25T01:00:00Z",
+      "summary": "Comparative essay draft",
+      "description": "— Organato (managed) —\\nAssignment + checkpoint\\n\\n— Your calendar note —",
+      "start": { "dateTime": "2026-07-27T06:00:00Z" },
+      "extendedProperties": {
+        "private": {
+          "organatoItemId": "fixture-item-1",
+          "organatoSchemaVersion": "1"
+        }
+      }
+    },
+    {
+      "id": "organato-event-deleted",
+      "etag": "\"fixture-deleted\"",
+      "status": "cancelled",
+      "updated": "2026-07-25T01:05:00Z",
+      "summary": "",
+      "description": "",
+      "start": {}
+    }
+  ]
+}
