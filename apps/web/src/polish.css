@@ -238,6 +238,72 @@ textarea::placeholder {
   padding: 0 4px 64px;
 }
 
+.page-fallback {
+  min-height: 320px;
+  padding-top: 22px;
+}
+
+.page-fallback-heading {
+  align-items: center;
+  display: flex;
+  gap: 13px;
+  height: 42px;
+}
+
+.page-fallback-heading span,
+.page-fallback-row span {
+  animation: page-fallback-pulse 1.2s ease-in-out infinite alternate;
+  background: var(--surface-hover);
+  border-radius: 4px;
+  display: block;
+}
+
+.page-fallback-heading span:first-child {
+  height: 22px;
+  width: 148px;
+}
+
+.page-fallback-heading span:last-child {
+  height: 10px;
+  width: 56px;
+}
+
+.page-fallback-rule {
+  border-top: 1px solid var(--border);
+  margin: 17px 0 4px;
+}
+
+.page-fallback-row {
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 36px;
+  grid-template-columns: minmax(170px, 1fr) 120px 90px;
+  min-height: 52px;
+  padding: 18px 10px;
+}
+
+.page-fallback-row span {
+  height: 9px;
+}
+
+.page-fallback-row span:nth-child(2) {
+  opacity: 0.72;
+}
+
+.page-fallback-row span:nth-child(3) {
+  opacity: 0.52;
+}
+
+@keyframes page-fallback-pulse {
+  from {
+    opacity: 0.38;
+  }
+
+  to {
+    opacity: 0.72;
+  }
+}
+
 /* Page command hierarchy */
 
 .page-header {

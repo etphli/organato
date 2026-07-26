@@ -37,6 +37,37 @@ function ItemDeepLink() {
   return null;
 }
 
+function PageFallback() {
+  return (
+    <div
+      className="page page-fallback"
+      aria-label="Loading page"
+      aria-busy="true"
+    >
+      <div className="page-fallback-heading">
+        <span />
+        <span />
+      </div>
+      <div className="page-fallback-rule" />
+      <div className="page-fallback-row">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="page-fallback-row">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="page-fallback-row">
+        <span />
+        <span />
+        <span />
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const { dispatch, settings } = useOrganato();
   const navigate = useNavigate();
@@ -113,9 +144,7 @@ export function App() {
       <NetworkStatus />
       <PwaUpdateNotice />
       <AppShell>
-        <Suspense
-          fallback={<div className="page-loading" aria-label="Loading page" />}
-        >
+        <Suspense fallback={<PageFallback />}>
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route
