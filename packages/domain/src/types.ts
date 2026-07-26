@@ -193,6 +193,53 @@ export interface IntegrationHealth {
   lastError: string | null;
 }
 
+export interface CanvasConnectionStatus {
+  installation: {
+    name: string;
+    hostname: string;
+    readOnly: true;
+  };
+  state: IntegrationHealth["state"];
+  connection: {
+    userId: string;
+    userName: string;
+    connectedAt: string;
+    lastValidatedAt: string;
+    lastSuccessfulSyncAt: string | null;
+    nextExpectedSyncAt: string | null;
+  } | null;
+  counts: {
+    activeCourses: number;
+    upcomingItems: number;
+  };
+  latestSync: {
+    startedAt: string;
+    finishedAt: string | null;
+    result: string;
+    fetched: number;
+    created: number;
+    updated: number;
+    archived: number;
+  } | null;
+}
+
+export interface CanvasConnectResponse {
+  connection: NonNullable<CanvasConnectionStatus["connection"]>;
+  initialSync:
+    | {
+        status: "success" | "partial";
+        runId: string;
+        courses: number;
+        fetched: number;
+        created: number;
+        updated: number;
+      }
+    | {
+        status: "failed";
+        message: string;
+      };
+}
+
 export interface WorkspaceSnapshot {
   version: 1;
   exportedAt: string;

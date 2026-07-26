@@ -120,12 +120,13 @@ All allow-listed accounts enter one workspace. One account is separately designa
 
 These do not block product design:
 
-1. Exact Canvas/Reshet base URL.
-2. Initial allow-listed Google email addresses.
-3. Which Google account is the Calendar/Gmail integration owner.
-4. Which email addresses receive the digest.
-5. Whether the school Google Workspace account permits the requested scopes.
-6. Final Organato icon/mark.
+1. Which Google account is the Calendar/Gmail integration owner.
+2. Which email addresses receive the digest.
+3. Whether the school Google Workspace account permits the requested scopes.
+
+The Canvas/Reshet origin is confirmed as
+`https://emanuel.instructure.com`. The final Organato mark is the code-native
+incomplete orbital O with one organizing point.
 
 Secrets such as the Canvas token must be entered during protected setup and must not be written in this file.
 
@@ -161,3 +162,5 @@ When a decision changes:
 | 2026-07-25 | Link attachments in first complete release | Preserve cross-device support under free-only constraint                                                        |
 | 2026-07-25 | Use the free local scheduler by default    | The conservative 480-assignment benchmark measured about 19 ms, above the Workers Free 10 ms Cron CPU allowance |
 | 2026-07-26 | Restore backups through confirmed merge    | Preserve current data, require a pre-restore download, and keep retries idempotent                              |
+| 2026-07-26 | Pin Emanuel School Canvas server-side      | Remove technical URL entry from ordinary setup and enforce the confirmed origin                                 |
+| 2026-07-26 | Adopt the orbital Organato mark            | Create one distinctive, scalable identity across app shell, authentication, favicon, and PWA                    |

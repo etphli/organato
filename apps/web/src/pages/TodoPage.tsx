@@ -9,8 +9,8 @@ import { useMemo, useState } from "react";
 import { addDays, format } from "date-fns";
 import {
   compareItems,
-  dateOnlyCutoffUtc,
   daysRemainingLabel,
+  itemDeadline,
   visibleStatus,
 } from "@organato/domain";
 import { PageHeader } from "../components/PageHeader";
@@ -33,7 +33,7 @@ function parseQuickTodo(input: string) {
     name: cleaned,
     priority: priorityMatch?.[1]?.toLowerCase() ?? null,
     subject: subjectMatch?.[1] ?? null,
-    dueAt: tomorrow ? dateOnlyCutoffUtc(tomorrowKey).toISOString() : null,
+    dueDateLocal: tomorrow ? tomorrowKey : null,
   };
 }
 
@@ -55,7 +55,7 @@ export default function TodoPage() {
     if (!parsed.name) return;
     if (
       settings.naturalTodoParsing &&
-      (parsed.priority || parsed.subject || parsed.dueAt) &&
+      (parsed.priority || parsed.subject || parsed.dueDateLocal) &&
       !preview
     ) {
       setPreview(parsed);
@@ -73,7 +73,8 @@ export default function TodoPage() {
     dispatch({
       type: "addTodo",
       name: parsed.name,
-      dueAt: parsed.dueAt,
+      dueDateLocal: parsed.dueDateLocal,
+      dueHasExplicitTime: false,
       subjectId: subject?.id ?? null,
       priority: parsed.priority as "low" | "medium" | "high" | "urgent" | null,
     });
@@ -116,7 +117,7 @@ export default function TodoPage() {
         {preview ? (
           <div className="parse-preview" role="status">
             <span>
-              Create “{preview.name}”{preview.dueAt ? " · tomorrow" : ""}
+              Create “{preview.name}”{preview.dueDateLocal ? " · tomorrow" : ""}
               {preview.subject ? ` · #${preview.subject}` : ""}
               {preview.priority ? ` · ${preview.priority}` : ""}?
             </span>
@@ -171,13 +172,11 @@ export default function TodoPage() {
                 {todo.displayName}
               </button>
               <span className={status === "overdue" ? "danger-text" : ""}>
-                {daysRemainingLabel(
-                  todo.dueAt ? new Date(todo.dueAt) : null,
-                  now,
-                )}
+                {daysRemainingLabel(itemDeadline(todo), now, settings.timezone)}
                 <small>
-                  {todo.dueAt
-                    ? new Date(todo.dueAt).toLocaleDateString("en-AU", {
+                  {itemDeadline(todo)
+                    ? itemDeadline(todo)!.toLocaleDateString("en-AU", {
+                        timeZone: settings.timezone,
                         day: "numeric",
                         month: "short",
                       })

@@ -4,6 +4,8 @@ import {
   classifications,
   nextRecurrence,
   priorities,
+  type CanvasConnectResponse,
+  type CanvasConnectionStatus,
   validateBackup,
   workingStatuses,
 } from "@organato/domain";
@@ -18,7 +20,16 @@ import {
   patchItem,
   updateSettings,
 } from "./db";
+import {
+  canvasConnectSchema,
+  configuredCanvasInstallation,
+  createCanvasConnectionMetadata,
+  nextHourlySyncAt,
+  parseCanvasConnectionMetadata,
+  safeCanvasConnectionError,
+} from "./canvas-connection";
 import { encryptSecret, randomToken, rateLimit, sha256 } from "./security";
+import { runCanvasSync } from "./sync";
 import type { Env, Variables } from "./types";
 
 const prioritySchema = z.enum(priorities).nullable();
@@ -111,6 +122,115 @@ async function runBatches(
   for (let index = 0; index < statements.length; index += size) {
     await db.batch(statements.slice(index, index + size));
   }
+}
+
+function canvasConnectionState(
+  value: string | null,
+  reconnectNeeded: number,
+): CanvasConnectionStatus["state"] {
+  if (reconnectNeeded) return "action_needed";
+  if (
+    value === "healthy" ||
+    value === "delayed" ||
+    value === "partial" ||
+    value === "action_needed" ||
+    value === "disconnected"
+  ) {
+    return value;
+  }
+  return "action_needed";
+}
+
+async function getCanvasConnectionStatus(
+  env: Env,
+): Promise<CanvasConnectionStatus> {
+  const installation = configuredCanvasInstallation(env);
+  const [connection, latestSync, activeCourses, upcomingItems] =
+    await Promise.all([
+      env.DB.prepare(
+        `SELECT account_label, status, last_success_at, reconnect_needed,
+                metadata_json
+         FROM integration_connection WHERE provider = 'canvas'`,
+      ).first<{
+        account_label: string;
+        status: string;
+        last_success_at: string | null;
+        reconnect_needed: number;
+        metadata_json: string;
+      }>(),
+      env.DB.prepare(
+        `SELECT started_at, finished_at, result, fetched_count, created_count,
+                updated_count, archived_count
+         FROM sync_run WHERE provider = 'canvas'
+         ORDER BY started_at DESC LIMIT 1`,
+      ).first<{
+        started_at: string;
+        finished_at: string | null;
+        result: string;
+        fetched_count: number;
+        created_count: number;
+        updated_count: number;
+        archived_count: number;
+      }>(),
+      env.DB.prepare(
+        `SELECT COUNT(*) AS count FROM subject
+         WHERE canvas_course_id IS NOT NULL AND active = 1`,
+      ).first<{ count: number }>(),
+      env.DB.prepare(
+        `SELECT COUNT(*) AS count FROM item
+         WHERE source_type = 'canvas' AND archived_at IS NULL
+           AND working_status NOT IN ('completed', 'submitted')`,
+      ).first<{ count: number }>(),
+    ]);
+  const metadata = connection
+    ? parseCanvasConnectionMetadata(
+        connection.metadata_json,
+        connection.account_label,
+      )
+    : null;
+  const connected =
+    Boolean(connection) &&
+    connection?.status !== "disconnected" &&
+    Boolean(metadata);
+  return {
+    installation: {
+      name: installation.name,
+      hostname: installation.baseUrl.hostname,
+      readOnly: true,
+    },
+    state: connected
+      ? canvasConnectionState(
+          connection?.status ?? null,
+          connection?.reconnect_needed ?? 0,
+        )
+      : "disconnected",
+    connection:
+      connected && metadata
+        ? {
+            userId: metadata.userId,
+            userName: metadata.userName,
+            connectedAt: metadata.connectedAt,
+            lastValidatedAt: metadata.lastValidatedAt,
+            lastSuccessfulSyncAt: connection?.last_success_at ?? null,
+            nextExpectedSyncAt: nextHourlySyncAt(),
+          }
+        : null,
+    counts: {
+      activeCourses: Number(activeCourses?.count ?? 0),
+      upcomingItems: Number(upcomingItems?.count ?? 0),
+    },
+    latestSync: latestSync
+      ? {
+          startedAt: latestSync.started_at,
+          finishedAt: latestSync.finished_at,
+          result: latestSync.result,
+          fetched: Number(latestSync.fetched_count),
+          created: Number(latestSync.created_count),
+          updated: Number(latestSync.updated_count),
+          archived: Number(latestSync.archived_count),
+        }
+      : null,
+  };
 }
 
 export const apiRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -627,18 +747,23 @@ apiRoutes.delete("/views/:id", async (context) => {
 apiRoutes.get("/integrations", async (context) => {
   const result = await context.env.DB.prepare(
     `SELECT provider, account_label, status, scopes_json, last_success_at,
-            last_attempt_at, last_error_category, reconnect_needed, metadata_json
+            last_attempt_at, last_error_category, reconnect_needed
      FROM integration_connection`,
   ).all();
   return context.json({ integrations: result.results });
 });
 
+apiRoutes.get("/integrations/canvas/status", async (context) => {
+  try {
+    return context.json(await getCanvasConnectionStatus(context.env));
+  } catch (error) {
+    return context.json({ error: safeCanvasConnectionError(error) }, 503);
+  }
+});
+
 apiRoutes.post(
   "/integrations/canvas/connect",
-  zValidator(
-    "json",
-    z.object({ baseUrl: z.string().url(), token: z.string().min(10).max(500) }),
-  ),
+  zValidator("json", canvasConnectSchema),
   async (context) => {
     const allowed = await rateLimit(
       context,
@@ -647,54 +772,100 @@ apiRoutes.post(
     );
     if (!allowed) return context.json({ error: "Try again later." }, 429);
     const input = context.req.valid("json");
-    const provider = new CanvasRestProvider(input.baseUrl, input.token);
+    let installation: ReturnType<typeof configuredCanvasInstallation>;
     try {
-      const identity = await provider.validateConnection();
-      const encrypted = await encryptSecret(
-        input.token,
-        context.env.DATA_ENCRYPTION_KEY,
-        `integration:canvas:${identity.hostname}`,
-      );
-      await context.env.DB.prepare(
-        `INSERT INTO integration_connection
+      installation = configuredCanvasInstallation(context.env);
+    } catch (error) {
+      return context.json({ error: safeCanvasConnectionError(error) }, 503);
+    }
+    const provider = new CanvasRestProvider(
+      installation.baseUrl.origin,
+      input.token,
+    );
+    let identity: Awaited<ReturnType<typeof provider.validateConnection>>;
+    try {
+      identity = await provider.validateConnection(AbortSignal.timeout(15_000));
+    } catch (error) {
+      return context.json({ error: safeCanvasConnectionError(error) }, 400);
+    }
+    const now = new Date().toISOString();
+    const metadata = createCanvasConnectionMetadata({
+      baseUrl: provider.baseUrl,
+      userId: identity.id,
+      userName: identity.name,
+      now,
+    });
+    const encrypted = await encryptSecret(
+      input.token,
+      context.env.DATA_ENCRYPTION_KEY,
+      metadata.credentialAad,
+    );
+    await context.env.DB.prepare(
+      `INSERT INTO integration_connection
           (provider, account_label, status, scopes_json, encrypted_credential,
            credential_key_version, last_success_at, last_attempt_at, reconnect_needed,
            metadata_json, updated_at)
-         VALUES ('canvas', ?, 'healthy', '["read-only"]', ?, 1, ?, ?, 0, ?, ?)
+         VALUES ('canvas', ?, 'healthy', '["read-only"]', ?, 1, NULL, ?, 0, ?, ?)
          ON CONFLICT(provider) DO UPDATE SET
            account_label = excluded.account_label,
            status = excluded.status,
            encrypted_credential = excluded.encrypted_credential,
-           last_success_at = excluded.last_success_at,
            last_attempt_at = excluded.last_attempt_at,
+           last_error_category = NULL,
            reconnect_needed = 0,
            metadata_json = excluded.metadata_json,
            updated_at = excluded.updated_at`,
+    )
+      .bind(
+        `${identity.name} · ${identity.hostname}`,
+        encrypted,
+        now,
+        JSON.stringify(metadata),
+        now,
       )
-        .bind(
-          `${identity.name} · ${identity.hostname}`,
-          encrypted,
-          new Date().toISOString(),
-          new Date().toISOString(),
-          JSON.stringify({
-            baseUrl: input.baseUrl,
-            hostname: identity.hostname,
-          }),
-          new Date().toISOString(),
-        )
-        .run();
-      return context.json({ identity });
+      .run();
+    let initialSync: CanvasConnectResponse["initialSync"];
+    try {
+      const sync = await runCanvasSync(context.env, "manual");
+      initialSync = {
+        status: sync.result === "partial" ? "partial" : "success",
+        runId: sync.runId,
+        courses: sync.courses,
+        fetched: sync.fetched,
+        created: sync.created,
+        updated: sync.updated,
+      };
     } catch {
-      return context.json(
-        {
-          error:
-            "Canvas could not be connected. No token was stored and existing Organato data is unchanged.",
-        },
-        400,
-      );
+      initialSync = {
+        status: "failed",
+        message: "Reshet is connected, but the first import needs another try.",
+      };
     }
+    const status = await getCanvasConnectionStatus(context.env);
+    if (!status.connection) {
+      throw new Error("Canvas connection could not be read after saving.");
+    }
+    const response: CanvasConnectResponse = {
+      connection: status.connection,
+      initialSync,
+    };
+    return context.json(response, 201);
   },
 );
+
+apiRoutes.post("/integrations/canvas/disconnect", async (context) => {
+  const now = new Date().toISOString();
+  await context.env.DB.prepare(
+    `UPDATE integration_connection
+     SET status = 'disconnected', encrypted_credential = NULL,
+         reconnect_needed = 0, last_error_category = NULL,
+         last_attempt_at = ?, updated_at = ?
+     WHERE provider = 'canvas'`,
+  )
+    .bind(now, now)
+    .run();
+  return context.json(await getCanvasConnectionStatus(context.env));
+});
 
 apiRoutes.get("/statistics", async (context) => {
   const [active, archived, overdue, completed] = await context.env.DB.batch([
@@ -1091,11 +1262,12 @@ apiRoutes.post("/import/apply", async (context) => {
 
 apiRoutes.get("/sessions", async (context) => {
   const result = await context.env.DB.prepare(
-    `SELECT id_hash, user_agent, created_at, last_activity_at, idle_expires_at
+    `SELECT user_agent, created_at, last_activity_at, idle_expires_at,
+            CASE WHEN id_hash = ? THEN 1 ELSE 0 END AS is_current
      FROM session WHERE email_normalized = ? AND revoked_at IS NULL
      ORDER BY last_activity_at DESC`,
   )
-    .bind(context.get("user").email)
+    .bind(context.get("user").sessionIdHash, context.get("user").email)
     .all();
   return context.json({ sessions: result.results });
 });

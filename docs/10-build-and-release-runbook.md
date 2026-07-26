@@ -24,7 +24,7 @@ The committed Vite development profile enables redacted demo data only for `vite
 
 ## Required production values
 
-- Exact Canvas HTTPS base URL.
+- Pinned Canvas HTTPS origin (`https://emanuel.instructure.com` for this deployment).
 - Initial normalized Google owner email allow-list.
 - Google integration-owner email.
 - Digest recipients chosen from allowed owner identities.
@@ -62,12 +62,15 @@ Official references:
 ## Canvas setup
 
 1. Open Settings → Canvas / Reshet.
-2. Enter the exact HTTPS installation base URL and a personal access token.
+2. Enter a personal access token. The Emanuel School origin is configured and
+   enforced server-side.
 3. Organato validates the token against the current-user endpoint before encrypting it.
-4. Confirm the detected user and hostname.
-5. Run the first sync and compare the redacted diagnostics with the school's actual upcoming/personalized-date behavior.
+4. Confirm the detected user and school.
+5. Organato runs the first sync; compare the redacted diagnostics with the school's actual upcoming/personalized-date behavior.
 
-Organato pins the hostname, refuses credential-bearing cross-host redirects, follows pagination with loop detection, uses bounded course concurrency, and never calls a Canvas mutation endpoint.
+Organato pins the exact origin, rejects alternate ports and credential-bearing
+cross-origin redirects, follows pagination with loop detection, uses bounded
+course concurrency, and never calls a Canvas mutation endpoint.
 
 ## Scheduler decision
 

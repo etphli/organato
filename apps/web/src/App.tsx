@@ -10,6 +10,7 @@ import { AppShell } from "./components/AppShell";
 import { CommandPalette } from "./components/CommandPalette";
 import { Inspector } from "./components/Inspector";
 import { NetworkStatus } from "./components/NetworkStatus";
+import { PwaUpdateNotice } from "./components/PwaUpdateNotice";
 import { SearchOverlay } from "./components/SearchOverlay";
 import { Toast } from "./components/Toast";
 import { useOrganato } from "./state/OrganatoProvider";
@@ -110,6 +111,7 @@ export function App() {
   return (
     <>
       <NetworkStatus />
+      <PwaUpdateNotice />
       <AppShell>
         <Suspense
           fallback={<div className="page-loading" aria-label="Loading page" />}

@@ -58,8 +58,9 @@ Google subject identifier before creating a session.
 After Google sign-in succeeds:
 
 1. Open Settings → Canvas / Reshet.
-2. Enter the school's exact HTTPS Canvas base URL and a personal access token.
-3. Confirm the detected identity and run the first Canvas sync.
+2. Enter a personal access token. Emanuel School is already pinned as the
+   installation.
+3. Confirm the detected identity; Organato then runs the first Canvas sync.
 4. Open Settings → Google, connect the dedicated Organato Calendar and Gmail
    sender, review the requested Calendar and Gmail-send scopes, then send a test
    message.

@@ -88,6 +88,6 @@ flowchart LR
 
 ## Owner activation still required
 
-The deployment, database, generated secrets, owner allow-list, Google OAuth client, Calendar API, and Gmail API are configured. Sign in with either permitted Google identity, then enter the Canvas base URL and personal access token through Organato's protected Settings flow. Provider credentials never belong in Git.
+The deployment, database, generated secrets, owner allow-list, Google OAuth client, Calendar API, and Gmail API are configured. Emanuel School's Reshet installation is pinned server-side. Sign in with either permitted Google identity, then enter only a personal Canvas access token through Organato's protected Settings flow. Provider credentials never belong in Git.
 
 For local development, run `pnpm install`, then `pnpm dev:web`. See the [production handoff](docs/11-production-handoff.md) for the exact remaining activation steps and the [build and release runbook](docs/10-build-and-release-runbook.md) for the full `pnpm check` quality gate.

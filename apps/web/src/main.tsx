@@ -6,6 +6,7 @@ import { App } from "./App";
 import { AuthGate } from "./components/AuthGate";
 import { OrganatoProvider } from "./state/OrganatoProvider";
 import "./styles.css";
+import "./polish.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -14,31 +15,29 @@ const queryClient = new QueryClient({
   },
 });
 
-async function removeLegacyServiceWorker(): Promise<boolean> {
-  if (!("serviceWorker" in navigator)) return true;
-  const wasControlled = navigator.serviceWorker.controller !== null;
-  const registrations = await navigator.serviceWorker.getRegistrations();
-  await Promise.all(
-    registrations.map((registration) => registration.unregister()),
-  );
-  const isGoogleCallback =
-    window.location.pathname === "/auth/google/callback" ||
-    window.location.pathname === "/api/auth/google/callback";
-  if (
-    wasControlled &&
-    !isGoogleCallback &&
-    sessionStorage.getItem("organato_service_worker_reset") !== "complete"
-  ) {
-    sessionStorage.setItem("organato_service_worker_reset", "complete");
-    window.location.replace(`/?service-worker-reset=${Date.now()}`);
-    return false;
+async function prepareServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  if (import.meta.env.DEV) {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(
+      registrations.map((registration) => registration.unregister()),
+    );
+    return;
   }
-  sessionStorage.removeItem("organato_service_worker_reset");
-  return true;
+  const hadController = navigator.serviceWorker.controller !== null;
+  navigator.serviceWorker.addEventListener(
+    "controllerchange",
+    () => {
+      if (hadController) {
+        window.dispatchEvent(new Event("organato:pwa-update"));
+      }
+    },
+    { once: true },
+  );
+  await navigator.serviceWorker.register("/sw.js", { scope: "/" });
 }
 
-async function mount() {
-  if (!(await removeLegacyServiceWorker())) return;
+function mount() {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
@@ -52,6 +51,9 @@ async function mount() {
       </QueryClientProvider>
     </StrictMode>,
   );
+  window.addEventListener("load", () => {
+    void prepareServiceWorker();
+  });
 }
 
-void mount();
+mount();

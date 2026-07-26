@@ -32,9 +32,47 @@ const assignmentSchema = z.object({
     .optional(),
 });
 
+export type CanvasConnectionErrorCode =
+  | "invalid_base_url"
+  | "unexpected_origin"
+  | "unexpected_redirect"
+  | "token_rejected"
+  | "request_failed"
+  | "invalid_response"
+  | "pagination_limit";
+
+export class CanvasConnectionError extends Error {
+  constructor(
+    readonly code: CanvasConnectionErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CanvasConnectionError";
+  }
+}
+
 function validateBaseUrl(value: string): URL {
-  const url = new URL(value);
-  if (url.protocol !== "https:") throw new Error("Canvas must use HTTPS.");
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new CanvasConnectionError(
+      "invalid_base_url",
+      "Canvas needs a valid HTTPS address.",
+    );
+  }
+  if (url.protocol !== "https:") {
+    throw new CanvasConnectionError(
+      "invalid_base_url",
+      "Canvas must use HTTPS.",
+    );
+  }
+  if (url.username || url.password) {
+    throw new CanvasConnectionError(
+      "invalid_base_url",
+      "Canvas addresses cannot include credentials.",
+    );
+  }
   url.pathname = "/";
   url.search = "";
   url.hash = "";
@@ -65,11 +103,12 @@ export class CanvasRestProvider implements CanvasProvider {
     pathOrUrl: string,
     signal?: AbortSignal,
   ): Promise<Response> {
-    const url = pathOrUrl.startsWith("http")
-      ? new URL(pathOrUrl)
-      : new URL(pathOrUrl, this.baseUrl);
-    if (url.hostname !== this.baseUrl.hostname || url.protocol !== "https:") {
-      throw new Error("Canvas refused an unexpected cross-host request.");
+    const url = new URL(pathOrUrl, this.baseUrl);
+    if (url.origin !== this.baseUrl.origin) {
+      throw new CanvasConnectionError(
+        "unexpected_origin",
+        "Canvas refused an unexpected cross-origin request.",
+      );
     }
     const response = await this.fetcher(url, {
       headers: {
@@ -80,13 +119,23 @@ export class CanvasRestProvider implements CanvasProvider {
       ...(signal ? { signal } : {}),
     });
     if (response.status >= 300 && response.status < 400) {
-      throw new Error("Canvas refused an unexpected redirect.");
+      throw new CanvasConnectionError(
+        "unexpected_redirect",
+        "Canvas refused an unexpected redirect.",
+      );
     }
     if (response.status === 401 || response.status === 403) {
-      throw new Error("Canvas rejected the token.");
+      throw new CanvasConnectionError(
+        "token_rejected",
+        "Canvas rejected the token.",
+      );
     }
-    if (!response.ok)
-      throw new Error(`Canvas request failed (${response.status}).`);
+    if (!response.ok) {
+      throw new CanvasConnectionError(
+        "request_failed",
+        `Canvas request failed (${response.status}).`,
+      );
+    }
     return response;
   }
 
@@ -103,16 +152,38 @@ export class CanvasRestProvider implements CanvasProvider {
         throw new Error("Canvas pagination loop detected.");
       visited.add(next);
       const response = await this.request(next, signal);
-      const body = z.array(schema).parse(await response.json());
+      let body: T[];
+      try {
+        body = z.array(schema).parse(await response.json());
+      } catch {
+        throw new CanvasConnectionError(
+          "invalid_response",
+          "Canvas returned an unexpected response.",
+        );
+      }
       output.push(...body);
       next = nextLink(response.headers.get("Link"));
+    }
+    if (next) {
+      throw new CanvasConnectionError(
+        "pagination_limit",
+        "Canvas pagination exceeded the safe page limit.",
+      );
     }
     return output;
   }
 
-  async validateConnection(): Promise<CanvasIdentity> {
-    const response = await this.request("/api/v1/users/self/profile");
-    const user = userSchema.parse(await response.json());
+  async validateConnection(signal?: AbortSignal): Promise<CanvasIdentity> {
+    const response = await this.request("/api/v1/users/self/profile", signal);
+    let user: z.infer<typeof userSchema>;
+    try {
+      user = userSchema.parse(await response.json());
+    } catch {
+      throw new CanvasConnectionError(
+        "invalid_response",
+        "Canvas returned an unexpected identity response.",
+      );
+    }
     return { id: user.id, name: user.name, hostname: this.baseUrl.hostname };
   }
 

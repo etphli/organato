@@ -381,7 +381,7 @@ At minimum:
 
 ## 14. Operational release checklist
 
-- [ ] Exact Canvas URL confirmed.
+- [x] Exact Canvas URL confirmed (`https://emanuel.instructure.com`).
 - [ ] Allowed Google emails confirmed.
 - [ ] Integration owner confirmed.
 - [ ] Production origins and redirects exact.

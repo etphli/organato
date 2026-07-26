@@ -30,7 +30,7 @@ export interface CanvasSyncResult {
 }
 
 export interface CanvasProvider {
-  validateConnection(): Promise<CanvasIdentity>;
+  validateConnection(signal?: AbortSignal): Promise<CanvasIdentity>;
   fetchUpcomingAssignments(signal?: AbortSignal): Promise<CanvasSyncResult>;
 }
 

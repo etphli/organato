@@ -6,12 +6,10 @@ import {
   FileJson,
   KeyRound,
   RotateCcw,
-  Search,
-  ShieldCheck,
   Upload,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import {
   assertSecretFreeBackup,
   validateBackup,
@@ -19,26 +17,13 @@ import {
 } from "@organato/domain";
 import { PageHeader } from "../components/PageHeader";
 import { SubjectDot } from "../components/SubjectDot";
-import { useAuthOwner } from "../components/AuthGate";
+import { AccountAccessSection } from "../components/settings/AccountAccessSection";
+import { CanvasConnectionSection } from "../components/settings/CanvasConnectionSection";
+import {
+  SettingsNavigation,
+  settingsCategories,
+} from "../components/settings/SettingsNavigation";
 import { useOrganato } from "../state/OrganatoProvider";
-
-const categories = [
-  ["account", "Account & access"],
-  ["appearance", "Appearance"],
-  ["home", "Home"],
-  ["work", "Assignments & checkpoints"],
-  ["todo", "Todo"],
-  ["calendar", "Calendar"],
-  ["canvas", "Canvas / Reshet"],
-  ["email", "Email & reminders"],
-  ["subjects", "Subjects"],
-  ["search", "Search & shortcuts"],
-  ["accessibility", "Accessibility"],
-  ["data", "Data & archive"],
-  ["security", "Security"],
-  ["advanced", "Advanced"],
-  ["about", "About"],
-] as const;
 
 const genericOptions: Record<string, Array<[string, string]>> = {
   home: [
@@ -156,27 +141,21 @@ function ToggleRows({ category }: { category: string }) {
 }
 
 export default function SettingsPage() {
-  const owner = useAuthOwner();
   const { pathname } = useLocation();
   const active =
-    categories.find(([id]) => pathname.endsWith(`/${id}`))?.[0] ?? "account";
-  const { items, subjects, settings, integrations, views, dispatch } =
+    settingsCategories.find(([id]) => pathname.endsWith(`/${id}`))?.[0] ??
+    "account";
+  const { items, subjects, settings, integrations, views, dispatch, refresh } =
     useOrganato();
-  const [query, setQuery] = useState("");
   const [importSummary, setImportSummary] = useState<string | null>(null);
   const [pendingImport, setPendingImport] = useState<WorkspaceSnapshot | null>(
     null,
   );
-  const [canvasBaseUrl, setCanvasBaseUrl] = useState("");
-  const [canvasToken, setCanvasToken] = useState("");
   const [connectionBusy, setConnectionBusy] = useState<string | null>(null);
   const [addingSubject, setAddingSubject] = useState(false);
   const [newSubjectName, setNewSubjectName] = useState("");
   const [newSubjectColour, setNewSubjectColour] = useState("#a78bfa");
   const fileInput = useRef<HTMLInputElement>(null);
-  const visibleCategories = categories.filter(([, label]) =>
-    label.toLowerCase().includes(query.toLowerCase()),
-  );
   const archived = items.filter((item) => item.archivedAt);
   const activeCount = items.filter((item) => !item.archivedAt).length;
   const completedCount = items.filter(
@@ -469,125 +448,14 @@ export default function SettingsPage() {
 
   return (
     <div className="page settings-page">
-      <PageHeader title="Settings" meta="Private workspace" />
+      <PageHeader title="Settings" showSync={false} />
       <div className="settings-layout">
-        <aside className="settings-nav">
-          <label>
-            <Search size={15} />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search settings"
-            />
-          </label>
-          {visibleCategories.map(([id, label]) => (
-            <Link
-              key={id}
-              to={`/settings/${id}`}
-              className={active === id ? "active" : ""}
-            >
-              {label}
-            </Link>
-          ))}
-        </aside>
+        <SettingsNavigation active={active} />
         <section className="settings-content">
-          <h2>{categories.find(([id]) => id === active)?.[1]}</h2>
-          {active === "account" ? (
-            <>
-              <div className="settings-block">
-                <h3>Profile</h3>
-                <label className="field-row">
-                  <span>
-                    Display name<small>Shown only inside your workspace.</small>
-                  </span>
-                  <input value={owner?.displayName ?? "Owner"} readOnly />
-                </label>
-                <label className="field-row">
-                  <span>
-                    Workspace timezone<small>Daylight-saving aware.</small>
-                  </span>
-                  <select
-                    value={settings.timezone}
-                    onChange={(event) =>
-                      dispatch({
-                        type: "settings",
-                        patch: { timezone: event.target.value },
-                      })
-                    }
-                  >
-                    <option>Australia/Sydney</option>
-                  </select>
-                </label>
-              </div>
-              <div className="settings-block">
-                <h3>Allowed Google accounts</h3>
-                <div className="identity-row">
-                  <span className="avatar">AS</span>
-                  <span>
-                    <strong>{owner?.email ?? "Configured owner"}</strong>
-                    <small>
-                      Owner · Integration owner · Last sign-in today
-                    </small>
-                  </span>
-                  <button
-                    onClick={() =>
-                      dispatch({
-                        type: "toast",
-                        message:
-                          "Owner allow-list changes require deployment configuration",
-                      })
-                    }
-                  >
-                    Manage
-                  </button>
-                </div>
-                <button
-                  className="text-button"
-                  onClick={() =>
-                    dispatch({
-                      type: "toast",
-                      message:
-                        "Add normalized owner emails to ALLOWED_GOOGLE_EMAILS before deployment",
-                    })
-                  }
-                >
-                  + Add another owner email
-                </button>
-              </div>
-              <div className="settings-block">
-                <h3>Active sessions</h3>
-                <div className="identity-row">
-                  <ShieldCheck size={20} />
-                  <span>
-                    <strong>Safari on macOS</strong>
-                    <small>Current session · active now</small>
-                  </span>
-                  <button
-                    onClick={() => {
-                      void protectedPost("/api/sessions/revoke-others")
-                        .then(() =>
-                          dispatch({
-                            type: "toast",
-                            message: "Other active sessions were revoked",
-                          }),
-                        )
-                        .catch((error) =>
-                          dispatch({
-                            type: "toast",
-                            message:
-                              error instanceof Error
-                                ? error.message
-                                : "Sessions could not be updated",
-                          }),
-                        );
-                    }}
-                  >
-                    Revoke others
-                  </button>
-                </div>
-              </div>
-            </>
+          {active !== "canvas" ? (
+            <h2>{settingsCategories.find(([id]) => id === active)?.[1]}</h2>
           ) : null}
+          {active === "account" ? <AccountAccessSection /> : null}
           {active === "appearance" ? (
             <div className="settings-block">
               <h3>Interface</h3>
@@ -699,7 +567,9 @@ export default function SettingsPage() {
               <IntegrationCard provider="google_calendar" />
             </>
           ) : null}
-          {active === "canvas" ? <IntegrationCard provider="canvas" /> : null}
+          {active === "canvas" ? (
+            <CanvasConnectionSection onWorkspaceRefresh={refresh} />
+          ) : null}
           {active === "email" ? (
             <>
               <IntegrationCard provider="gmail" />
@@ -1027,7 +897,7 @@ export default function SettingsPage() {
           {active === "about" ? (
             <div className="settings-block">
               <h3>Organato 0.1.0</h3>
-              <p>Database schema 1 · build 25 July 2026</p>
+              <p>Database schema 1 · free self-hosted release</p>
               <a href="/privacy.html" target="_blank">
                 Privacy policy <ExternalLink size={12} />
               </a>
@@ -1062,35 +932,19 @@ export default function SettingsPage() {
   function IntegrationCard({
     provider,
   }: {
-    provider: "canvas" | "google_calendar" | "gmail";
+    provider: "google_calendar" | "gmail";
   }) {
     const integration = integrations.find(
       (entry) => entry.provider === provider,
     )!;
-    const connectCanvas = async () => {
-      setConnectionBusy(provider);
-      try {
-        await protectedPost("/api/integrations/canvas/connect", {
-          baseUrl: canvasBaseUrl,
-          token: canvasToken,
-        });
-        setCanvasToken("");
-        dispatch({
-          type: "toast",
-          message: "Canvas connection verified · token stored encrypted",
-        });
-      } catch (error) {
-        dispatch({
-          type: "toast",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Canvas connection failed safely",
-        });
-      } finally {
-        setConnectionBusy(null);
-      }
-    };
+    const connected = integration.state !== "disconnected";
+    const stateLabels = {
+      healthy: "Connected",
+      delayed: "Delayed",
+      partial: "Partially connected",
+      action_needed: "Action needed",
+      disconnected: "Not connected",
+    } as const;
     const connectGoogle = async () => {
       setConnectionBusy(provider);
       try {
@@ -1119,11 +973,9 @@ export default function SettingsPage() {
       setConnectionBusy(provider);
       try {
         const path =
-          provider === "canvas"
-            ? "/api/integrations/canvas/sync"
-            : provider === "google_calendar"
-              ? "/api/integrations/google/reconcile"
-              : "/api/integrations/google/test-email";
+          provider === "google_calendar"
+            ? "/api/integrations/google/reconcile"
+            : "/api/integrations/google/test-email";
         await protectedPost(path);
         dispatch({
           type: "toast",
@@ -1150,77 +1002,47 @@ export default function SettingsPage() {
       <div className="settings-block integration-card">
         <h3>{integration.label}</h3>
         <div className="integration-state">
-          <i className="health-dot" />
+          <i
+            className={`health-dot ${
+              integration.state === "healthy"
+                ? "healthy"
+                : integration.state === "disconnected"
+                  ? "neutral"
+                  : integration.state === "action_needed"
+                    ? "action-needed"
+                    : integration.state
+            }`}
+          />
           <span>
-            <strong>{integration.state.replaceAll("_", " ")}</strong>
+            <strong>{stateLabels[integration.state]}</strong>
             <small>
               {integration.lastSuccessAt
                 ? `Last success ${new Date(
                     integration.lastSuccessAt,
                   ).toLocaleString("en-AU")}`
-                : "Not connected yet"}
+                : connected
+                  ? "No successful operation recorded yet"
+                  : "Not connected yet"}
             </small>
           </span>
         </div>
         <p>
-          {provider === "canvas"
-            ? "HTTPS host pinned · upcoming active-course assignments only · read-only."
-            : provider === "google_calendar"
-              ? "Dedicated Organato calendar · unrelated events are never read."
-              : "Predetermined HTML/plain-text digest · at most 10 messages/day."}
+          {provider === "google_calendar"
+            ? "Dedicated Organato calendar · unrelated events are never read."
+            : "Predetermined HTML/plain-text digest · at most 10 messages/day."}
         </p>
-        {provider === "canvas" ? (
-          <div className="protected-setup">
-            <label>
-              Canvas / Reshet URL
-              <input
-                type="url"
-                autoComplete="url"
-                placeholder="https://school.instructure.com"
-                value={canvasBaseUrl}
-                onChange={(event) => setCanvasBaseUrl(event.target.value)}
-              />
-            </label>
-            <label>
-              Personal access token
-              <input
-                type="password"
-                autoComplete="off"
-                placeholder="Entered once · never exported"
-                value={canvasToken}
-                onChange={(event) => setCanvasToken(event.target.value)}
-              />
-            </label>
-            <button
-              disabled={
-                connectionBusy === provider ||
-                !canvasBaseUrl ||
-                canvasToken.length < 10
-              }
-              onClick={() => void connectCanvas()}
-            >
-              Verify and save securely
-            </button>
-          </div>
-        ) : null}
         <div className="button-row">
-          {provider !== "canvas" ? (
-            <button
-              disabled={connectionBusy === provider}
-              onClick={() => void connectGoogle()}
-            >
-              Reconnect
-            </button>
-          ) : null}
           <button
             disabled={connectionBusy === provider}
+            onClick={() => void connectGoogle()}
+          >
+            {connected ? "Reconnect" : "Connect"}
+          </button>
+          <button
+            disabled={connectionBusy === provider || !connected}
             onClick={() => void runAction()}
           >
-            {provider === "gmail"
-              ? "Send test"
-              : provider === "canvas"
-                ? "Sync now"
-                : "Reconcile now"}
+            {provider === "gmail" ? "Send test" : "Reconcile now"}
           </button>
         </div>
       </div>

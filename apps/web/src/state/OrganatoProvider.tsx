@@ -90,6 +90,8 @@ type Action =
       type: "addTodo";
       name: string;
       dueAt?: string | null;
+      dueDateLocal?: string | null;
+      dueHasExplicitTime?: boolean;
       subjectId?: string | null;
       priority?: OrganatoItem["priority"];
     }
@@ -483,8 +485,12 @@ function reducer(state: State, action: Action): State {
       sourcePayloadHash: null,
       displayName: action.name,
       dueAt: action.dueAt ?? null,
-      dueDateLocal: null,
-      dueHasExplicitTime: Boolean(action.dueAt),
+      dueDateLocal:
+        action.type === "addTodo" ? (action.dueDateLocal ?? null) : null,
+      dueHasExplicitTime:
+        action.type === "addTodo"
+          ? (action.dueHasExplicitTime ?? Boolean(action.dueAt))
+          : Boolean(action.dueAt),
       subjectId: action.subjectId ?? null,
       priority: action.priority ?? null,
       workingStatus: "not_started",
@@ -495,7 +501,10 @@ function reducer(state: State, action: Action): State {
       recurrenceSeriesId: null,
       calendarEnabled: isTodo ? state.settings.todoCalendarDefault : true,
       remindersEnabled: isTodo ? state.settings.todoRemindersDefault : true,
-      calendarSyncState: action.dueAt ? "pending" : "synced",
+      calendarSyncState:
+        action.dueAt || (action.type === "addTodo" && action.dueDateLocal)
+          ? "pending"
+          : "synced",
       calendarNote: "",
       pinned: false,
       sortRank: 0,
@@ -536,6 +545,7 @@ interface ContextValue extends State {
   subjectsById: Map<string, Subject>;
   selectedItem: OrganatoItem | null;
   dispatch: React.Dispatch<Action>;
+  refresh(): Promise<void>;
   syncNow(): void;
 }
 
@@ -717,8 +727,14 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                 classification: isTodo ? "unclassified" : action.classification,
                 displayName: action.name,
                 dueAt: action.dueAt ?? null,
-                dueDateLocal: null,
-                dueHasExplicitTime: Boolean(action.dueAt),
+                dueDateLocal:
+                  isTodo && "dueDateLocal" in action
+                    ? (action.dueDateLocal ?? null)
+                    : null,
+                dueHasExplicitTime:
+                  isTodo && "dueHasExplicitTime" in action
+                    ? (action.dueHasExplicitTime ?? Boolean(action.dueAt))
+                    : Boolean(action.dueAt),
                 subjectId: action.subjectId ?? null,
                 priority: action.priority ?? null,
                 recurrenceRule: null,
@@ -933,9 +949,10 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
       views: state.views,
       integrations: state.integrations,
       dispatch,
+      refresh,
       syncNow,
     }),
-    [dispatch, state, syncNow],
+    [dispatch, refresh, state, syncNow],
   );
   if (!state.ready) {
     return <div className="auth-loading" aria-label="Loading workspace" />;

@@ -10,6 +10,7 @@ import {
   GmailSendProvider,
   projectCalendarEvent,
 } from "@organato/integrations";
+import { parseCanvasConnectionMetadata } from "./canvas-connection";
 import { getItem, getSettings, listItems, listSubjects, patchItem } from "./db";
 import { loadGoogleConnection } from "./google-connection";
 import { decryptSecret, sha256 } from "./security";
@@ -21,23 +22,39 @@ function subjectColour(index: number): string {
   ]!;
 }
 
+export interface CanvasSyncOutcome {
+  runId: string;
+  createdIds: string[];
+  result: "success" | "partial" | "skipped";
+  courses: number;
+  fetched: number;
+  created: number;
+  updated: number;
+}
+
 export async function runCanvasSync(
   env: Env,
   trigger: "scheduled" | "manual",
-): Promise<{ runId: string; createdIds: string[] }> {
+): Promise<CanvasSyncOutcome> {
   const connection = await env.DB.prepare(
-    `SELECT encrypted_credential, metadata_json FROM integration_connection
+    `SELECT encrypted_credential, metadata_json, account_label
+     FROM integration_connection
      WHERE provider = 'canvas' AND status <> 'disconnected'`,
-  ).first<{ encrypted_credential: string; metadata_json: string }>();
+  ).first<{
+    encrypted_credential: string;
+    metadata_json: string;
+    account_label: string;
+  }>();
   if (!connection) throw new Error("Canvas is not connected.");
-  const metadata = JSON.parse(connection.metadata_json) as {
-    baseUrl: string;
-    hostname: string;
-  };
+  const metadata = parseCanvasConnectionMetadata(
+    connection.metadata_json,
+    connection.account_label,
+  );
+  if (!metadata) throw new Error("Canvas connection metadata is invalid.");
   const token = await decryptSecret(
     connection.encrypted_credential,
     env.DATA_ENCRYPTION_KEY,
-    `integration:canvas:${metadata.hostname}`,
+    metadata.credentialAad,
   );
   const runId = crypto.randomUUID();
   const scheduledKey =
@@ -51,58 +68,71 @@ export async function runCanvasSync(
   )
     .bind(runId, trigger, scheduledKey, new Date().toISOString())
     .run();
-  if (!lock.meta.changes) return { runId, createdIds: [] };
-  const provider = new CanvasRestProvider(metadata.baseUrl, token);
-  const result = await provider.fetchUpcomingAssignments();
-  const now = new Date().toISOString();
-  const createdIds: string[] = [];
-  let updated = 0;
-  const seenAssignmentIds = new Set(
-    result.assignments.map((assignment) => assignment.id),
-  );
-  const baseHash = await sha256(metadata.baseUrl);
+  if (!lock.meta.changes) {
+    return {
+      runId,
+      createdIds: [],
+      result: "skipped",
+      courses: 0,
+      fetched: 0,
+      created: 0,
+      updated: 0,
+    };
+  }
+  try {
+    const provider = new CanvasRestProvider(metadata.baseUrl, token);
+    const result = await provider.fetchUpcomingAssignments(
+      AbortSignal.timeout(45_000),
+    );
+    const now = new Date().toISOString();
+    const createdIds: string[] = [];
+    let updated = 0;
+    const seenAssignmentIds = new Set(
+      result.assignments.map((assignment) => assignment.id),
+    );
+    const baseHash = await sha256(provider.baseUrl.origin);
 
-  for (const [index, course] of result.courses.entries()) {
-    await env.DB.prepare(
-      `INSERT INTO subject
+    for (const [index, course] of result.courses.entries()) {
+      await env.DB.prepare(
+        `INSERT INTO subject
         (id, canvas_course_id, source_name, display_name, colour, active, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 1, ?, ?)
        ON CONFLICT(canvas_course_id) DO UPDATE SET
          source_name = excluded.source_name,
          active = 1,
          updated_at = excluded.updated_at`,
-    )
-      .bind(
-        `canvas-course-${course.id}`,
-        course.id,
-        course.name,
-        course.name,
-        subjectColour(index),
-        now,
-        now,
       )
-      .run();
-  }
+        .bind(
+          `canvas-course-${course.id}`,
+          course.id,
+          course.name,
+          course.name,
+          subjectColour(index),
+          now,
+          now,
+        )
+        .run();
+    }
 
-  for (const assignment of result.assignments) {
-    const existing = await env.DB.prepare(
-      "SELECT id, working_status FROM item WHERE canvas_base_url_hash = ? AND canvas_assignment_id = ?",
-    )
-      .bind(baseHash, assignment.id)
-      .first<{ id: string; working_status: string }>();
-    const payloadHash = await sha256(
-      JSON.stringify([
-        assignment.name,
-        assignment.dueAt,
-        assignment.htmlUrl,
-        assignment.updatedAt,
-        assignment.submitted,
-      ]),
-    );
-    if (!existing) {
-      const id = crypto.randomUUID();
-      await env.DB.prepare(
-        `INSERT INTO item
+    for (const assignment of result.assignments) {
+      const existing = await env.DB.prepare(
+        "SELECT id, working_status FROM item WHERE canvas_base_url_hash = ? AND canvas_assignment_id = ?",
+      )
+        .bind(baseHash, assignment.id)
+        .first<{ id: string; working_status: string }>();
+      const payloadHash = await sha256(
+        JSON.stringify([
+          assignment.name,
+          assignment.dueAt,
+          assignment.htmlUrl,
+          assignment.updatedAt,
+          assignment.submitted,
+        ]),
+      );
+      if (!existing) {
+        const id = crypto.randomUUID();
+        await env.DB.prepare(
+          `INSERT INTO item
           (id, kind, classification, source_type, canvas_base_url_hash, canvas_assignment_id,
            canvas_course_id, canvas_html_url, source_name, source_due_at, source_updated_at,
            source_payload_hash, display_name, due_at, due_has_explicit_time, subject_id,
@@ -110,30 +140,30 @@ export async function runCanvasSync(
            calendar_sync_state, created_at, updated_at)
          VALUES (?, 'work', 'unclassified', 'canvas', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?,
                  ?, ?, 1, 1, 'pending', ?, ?)`,
-      )
-        .bind(
-          id,
-          baseHash,
-          assignment.id,
-          assignment.courseId,
-          assignment.htmlUrl,
-          assignment.name,
-          assignment.dueAt,
-          assignment.updatedAt,
-          payloadHash,
-          assignment.name,
-          assignment.dueAt,
-          `canvas-course-${assignment.courseId}`,
-          assignment.submitted ? "submitted" : "not_started",
-          assignment.submitted ? now : null,
-          now,
-          now,
         )
-        .run();
-      createdIds.push(id);
-    } else {
-      await env.DB.prepare(
-        `UPDATE item SET
+          .bind(
+            id,
+            baseHash,
+            assignment.id,
+            assignment.courseId,
+            assignment.htmlUrl,
+            assignment.name,
+            assignment.dueAt,
+            assignment.updatedAt,
+            payloadHash,
+            assignment.name,
+            assignment.dueAt,
+            `canvas-course-${assignment.courseId}`,
+            assignment.submitted ? "submitted" : "not_started",
+            assignment.submitted ? now : null,
+            now,
+            now,
+          )
+          .run();
+        createdIds.push(id);
+      } else {
+        await env.DB.prepare(
+          `UPDATE item SET
            source_name = ?, source_due_at = ?, source_updated_at = ?, source_payload_hash = ?,
            canvas_html_url = ?, missing_sync_count = 0, source_missing_since = NULL,
            display_name = CASE WHEN NOT EXISTS (
@@ -150,70 +180,102 @@ export async function runCanvasSync(
            version = version + 1,
            updated_at = ?
          WHERE id = ?`,
-      )
-        .bind(
-          assignment.name,
-          assignment.dueAt,
-          assignment.updatedAt,
-          payloadHash,
-          assignment.htmlUrl,
-          assignment.name,
-          assignment.dueAt,
-          assignment.submitted ? 1 : 0,
-          assignment.submitted ? 1 : 0,
-          now,
-          now,
-          existing.id,
         )
-        .run();
-      updated += 1;
+          .bind(
+            assignment.name,
+            assignment.dueAt,
+            assignment.updatedAt,
+            payloadHash,
+            assignment.htmlUrl,
+            assignment.name,
+            assignment.dueAt,
+            assignment.submitted ? 1 : 0,
+            assignment.submitted ? 1 : 0,
+            now,
+            now,
+            existing.id,
+          )
+          .run();
+        updated += 1;
+      }
     }
-  }
 
-  const existingCanvas = await env.DB.prepare(
-    `SELECT id, canvas_assignment_id, missing_sync_count, manual_archive
+    const existingCanvas = await env.DB.prepare(
+      `SELECT id, canvas_assignment_id, missing_sync_count, manual_archive
      FROM item WHERE source_type = 'canvas' AND canvas_base_url_hash = ?`,
-  )
-    .bind(baseHash)
-    .all<{
-      id: string;
-      canvas_assignment_id: string;
-      missing_sync_count: number;
-      manual_archive: number;
-    }>();
-  for (const item of existingCanvas.results) {
-    if (seenAssignmentIds.has(item.canvas_assignment_id)) continue;
-    const count = item.missing_sync_count + 1;
-    await env.DB.prepare(
-      `UPDATE item SET missing_sync_count = ?, source_missing_since = COALESCE(source_missing_since, ?),
+    )
+      .bind(baseHash)
+      .all<{
+        id: string;
+        canvas_assignment_id: string;
+        missing_sync_count: number;
+        manual_archive: number;
+      }>();
+    for (const item of existingCanvas.results) {
+      if (seenAssignmentIds.has(item.canvas_assignment_id)) continue;
+      const count = item.missing_sync_count + 1;
+      await env.DB.prepare(
+        `UPDATE item SET missing_sync_count = ?, source_missing_since = COALESCE(source_missing_since, ?),
        archived_at = CASE WHEN ? >= 2 AND manual_archive = 0 THEN ? ELSE archived_at END,
        archive_reason = CASE WHEN ? >= 2 AND manual_archive = 0 THEN 'Removed from Canvas' ELSE archive_reason END,
        calendar_sync_state = CASE WHEN ? >= 2 THEN 'pending' ELSE calendar_sync_state END
        WHERE id = ?`,
-    )
-      .bind(count, now, count, now, count, count, item.id)
-      .run();
-  }
-  await env.DB.prepare(
-    `UPDATE sync_run SET finished_at = ?, fetched_count = ?, created_count = ?,
+      )
+        .bind(count, now, count, now, count, count, item.id)
+        .run();
+    }
+    await env.DB.prepare(
+      `UPDATE sync_run SET finished_at = ?, fetched_count = ?, created_count = ?,
      updated_count = ?, result = ? WHERE id = ?`,
-  )
-    .bind(
-      new Date().toISOString(),
-      result.assignments.length,
-      createdIds.length,
-      updated,
-      result.partialFailures.length ? "partial" : "success",
-      runId,
     )
-    .run();
-  await env.DB.prepare(
-    `UPDATE integration_connection SET status = ?, last_success_at = ?, last_attempt_at = ?,
+      .bind(
+        new Date().toISOString(),
+        result.assignments.length,
+        createdIds.length,
+        updated,
+        result.partialFailures.length ? "partial" : "success",
+        runId,
+      )
+      .run();
+    await env.DB.prepare(
+      `UPDATE integration_connection SET status = ?, last_success_at = ?, last_attempt_at = ?,
      last_error_category = NULL, updated_at = ? WHERE provider = 'canvas'`,
-  )
-    .bind(result.partialFailures.length ? "partial" : "healthy", now, now, now)
-    .run();
-  return { runId, createdIds };
+    )
+      .bind(
+        result.partialFailures.length ? "partial" : "healthy",
+        now,
+        now,
+        now,
+      )
+      .run();
+    return {
+      runId,
+      createdIds,
+      result: result.partialFailures.length ? "partial" : "success",
+      courses: result.courses.length,
+      fetched: result.assignments.length,
+      created: createdIds.length,
+      updated,
+    };
+  } catch (error) {
+    const failedAt = new Date().toISOString();
+    await Promise.all([
+      env.DB.prepare(
+        `UPDATE sync_run SET finished_at = ?, result = 'failed',
+         error_category = 'canvas_sync_failed' WHERE id = ?`,
+      )
+        .bind(failedAt, runId)
+        .run(),
+      env.DB.prepare(
+        `UPDATE integration_connection SET status = 'action_needed',
+         last_attempt_at = ?, last_error_category = 'canvas_sync_failed',
+         updated_at = ? WHERE provider = 'canvas'`,
+      )
+        .bind(failedAt, failedAt)
+        .run(),
+    ]).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function runCalendarReconciliation(env: Env): Promise<void> {

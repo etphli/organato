@@ -11,7 +11,10 @@ import {
 import {
   Archive,
   Columns3,
+  Combine,
+  ExternalLink,
   Filter,
+  GitCompareArrows,
   MoreHorizontal,
   Plus,
   SlidersHorizontal,
@@ -19,6 +22,7 @@ import {
 import { useMemo, useState } from "react";
 import {
   daysRemainingLabel,
+  itemDeadline,
   isInView,
   visibleStatus,
   type OrganatoItem,
@@ -117,41 +121,56 @@ export default function WorkPage({
             <strong>{row.original.displayName}</strong>
             {settings.showSourceIcons &&
             row.original.sourceType === "canvas" ? (
-              <small title="Canvas source">↗</small>
+              <small title="Canvas source" aria-label="Canvas source">
+                <ExternalLink size={12} />
+              </small>
             ) : null}
             {settings.showSourceIcons && row.original.overrides.length ? (
-              <small title="Manual override">↔</small>
+              <small title="Manual override" aria-label="Manual override">
+                <GitCompareArrows size={12} />
+              </small>
             ) : null}
             {row.original.classification === "both" ? (
-              <small title="Both">◫</small>
+              <small title="Assignment and checkpoint" aria-label="Both">
+                <Combine size={12} />
+              </small>
             ) : null}
           </span>
         ),
       }),
-      columnHelper.accessor("dueAt", {
-        id: "due",
-        size: 150,
-        header: "Due",
-        sortingFn: "datetime",
-        cell: ({ getValue }) =>
-          getValue() ? (
-            <span className="date-cell">
-              {new Date(getValue()!).toLocaleDateString("en-AU", {
-                day: "numeric",
-                month: "short",
-                year: "numeric",
-              })}
-              <small>
-                {new Date(getValue()!).toLocaleTimeString("en-AU", {
-                  hour: "numeric",
-                  minute: "2-digit",
+      columnHelper.accessor(
+        (item) => itemDeadline(item)?.toISOString() ?? null,
+        {
+          id: "due",
+          size: 150,
+          header: "Due",
+          sortingFn: "datetime",
+          cell: ({ getValue, row }) =>
+            getValue() ? (
+              <span className="date-cell">
+                {new Date(getValue()!).toLocaleDateString("en-AU", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                  timeZone: settings.timezone,
                 })}
-              </small>
-            </span>
-          ) : (
-            <span className="muted-text">—</span>
-          ),
-      }),
+                {row.original.dueHasExplicitTime ? (
+                  <small>
+                    {new Date(getValue()!).toLocaleTimeString("en-AU", {
+                      hour: "numeric",
+                      minute: "2-digit",
+                      timeZone: settings.timezone,
+                    })}
+                  </small>
+                ) : (
+                  <small>All day</small>
+                )}
+              </span>
+            ) : (
+              <span className="muted-text">—</span>
+            ),
+        },
+      ),
       columnHelper.display({
         id: "days",
         size: 125,
@@ -165,8 +184,9 @@ export default function WorkPage({
             }
           >
             {daysRemainingLabel(
-              row.original.dueAt ? new Date(row.original.dueAt) : null,
+              itemDeadline(row.original),
               now,
+              settings.timezone,
             )}
           </span>
         ),
@@ -254,7 +274,13 @@ export default function WorkPage({
         ),
       }),
     ],
-    [dispatch, settings.inlineEditing, settings.showSourceIcons, subjectsById],
+    [
+      dispatch,
+      settings.inlineEditing,
+      settings.showSourceIcons,
+      settings.timezone,
+      subjectsById,
+    ],
   );
   const table = useReactTable({
     data,
@@ -269,6 +295,27 @@ export default function WorkPage({
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
   });
+  const applySavedView = (id: string) => {
+    const selected = pageViews.find((view) => view.id === id);
+    setActiveView(id);
+    setQuery(selected?.filters.query ?? "");
+    setPriorityFilter(selected?.filters.priorities?.[0] ?? "");
+    if (selected?.sort.length) {
+      setSorting(
+        selected.sort.map((rule) => ({
+          id: rule.field,
+          desc: rule.direction === "desc",
+        })),
+      );
+    }
+    if (selected?.columns.length) {
+      table.getAllLeafColumns().forEach((column) => {
+        if (!["select", "actions"].includes(column.id)) {
+          column.toggleVisibility(selected.columns.includes(column.id));
+        }
+      });
+    }
+  };
   return (
     <div className="page work-page">
       <PageHeader
@@ -280,30 +327,7 @@ export default function WorkPage({
               className="view-picker"
               aria-label="Saved view"
               value={activeView}
-              onChange={(event) => {
-                const id = event.target.value;
-                const selected = pageViews.find((view) => view.id === id);
-                setActiveView(id);
-                setQuery(selected?.filters.query ?? "");
-                setPriorityFilter(selected?.filters.priorities?.[0] ?? "");
-                if (selected?.sort.length) {
-                  setSorting(
-                    selected.sort.map((rule) => ({
-                      id: rule.field,
-                      desc: rule.direction === "desc",
-                    })),
-                  );
-                }
-                if (selected?.columns.length) {
-                  table.getAllLeafColumns().forEach((column) => {
-                    if (!["select", "actions"].includes(column.id)) {
-                      column.toggleVisibility(
-                        selected.columns.includes(column.id),
-                      );
-                    }
-                  });
-                }
-              }}
+              onChange={(event) => applySavedView(event.target.value)}
             >
               <option value="">All active</option>
               {pageViews.map((view) => (
@@ -313,19 +337,19 @@ export default function WorkPage({
               ))}
             </select>
             <button
-              className="text-button icon-labelled"
+              className="text-button icon-labelled work-secondary-action"
               onClick={() => setShowFilters((value) => !value)}
             >
               <Filter size={16} /> Filter
             </button>
             <button
-              className="text-button icon-labelled"
+              className="text-button icon-labelled work-secondary-action"
               onClick={() => setSorting([{ id: "priority", desc: true }])}
             >
               <SlidersHorizontal size={16} /> Sort
             </button>
             <button
-              className="text-button icon-labelled"
+              className="text-button icon-labelled work-secondary-action"
               onClick={() => setShowColumns((value) => !value)}
             >
               <Columns3 size={16} /> Columns
@@ -336,6 +360,46 @@ export default function WorkPage({
             >
               <Plus size={16} /> New
             </button>
+            <details className="mobile-actions-menu">
+              <summary aria-label="More page actions">
+                <MoreHorizontal size={19} />
+              </summary>
+              <div role="menu">
+                <label>
+                  View
+                  <select
+                    aria-label="Saved view"
+                    value={activeView}
+                    onChange={(event) => applySavedView(event.target.value)}
+                  >
+                    <option value="">All active</option>
+                    {pageViews.map((view) => (
+                      <option key={view.id} value={view.id}>
+                        {view.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  role="menuitem"
+                  onClick={() => setShowFilters((value) => !value)}
+                >
+                  <Filter size={16} /> Filter
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => setSorting([{ id: "priority", desc: true }])}
+                >
+                  <SlidersHorizontal size={16} /> Sort by priority
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => setShowColumns((value) => !value)}
+                >
+                  <Columns3 size={16} /> Columns
+                </button>
+              </div>
+            </details>
           </>
         }
       />

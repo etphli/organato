@@ -1,18 +1,28 @@
-import { ExternalLink, MoreHorizontal } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  MoreHorizontal,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   addDays,
+  addMonths,
   format,
   isSameDay,
   isSameMonth,
   startOfMonth,
   startOfWeek,
+  subMonths,
 } from "date-fns";
 import {
   compareItems,
+  dateOnlyCutoffUtc,
   daysRemainingLabel,
   isInView,
+  localDateKey,
   type Classification,
+  type OrganatoItem,
 } from "@organato/domain";
 import { PageHeader } from "../components/PageHeader";
 import { SubjectDot } from "../components/SubjectDot";
@@ -20,8 +30,18 @@ import { useOrganato } from "../state/OrganatoProvider";
 
 const today = new Date();
 
+function itemDueDate(
+  item: Pick<OrganatoItem, "dueAt" | "dueDateLocal">,
+  timezone = "Australia/Sydney",
+) {
+  if (item.dueAt) return new Date(item.dueAt);
+  if (item.dueDateLocal) return dateOnlyCutoffUtc(item.dueDateLocal, timezone);
+  return null;
+}
+
 function ClassificationInbox() {
-  const { items, subjectsById, settings, dispatch } = useOrganato();
+  const { items, subjectsById, settings, integrations, dispatch } =
+    useOrganato();
   const unclassified = items.filter(
     (item) =>
       item.kind === "work" &&
@@ -29,12 +49,18 @@ function ClassificationInbox() {
       !item.archivedAt,
   );
   const active = unclassified[0];
-  if (!active)
-    return (
-      <p className="classification-empty">
-        Nothing to classify. Canvas is up to date.
-      </p>
+  if (!active) {
+    const canvas = integrations.find(
+      (integration) => integration.provider === "canvas",
     );
+    const message =
+      canvas?.state === "disconnected"
+        ? "Nothing to classify. Connect Reshet when you’re ready to import upcoming work."
+        : canvas?.state === "action_needed"
+          ? "Nothing to classify. Reshet needs attention in Settings."
+          : "Nothing to classify. Reshet has no new work waiting.";
+    return <p className="classification-empty">{message}</p>;
+  }
   const classify = (classification: Classification) =>
     dispatch({ type: "classify", id: active.id, classification });
   return (
@@ -119,21 +145,66 @@ function ClassificationInbox() {
 }
 
 function MiniCalendar() {
-  const monthStart = startOfMonth(today);
+  const { items, settings, subjectsById, dispatch } = useOrganato();
+  const [monthStart, setMonthStart] = useState(() => startOfMonth(today));
+  const [selectedDate, setSelectedDate] = useState(() => today);
   const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 });
-  const calendarDays = Array.from({ length: 35 }, (_, index) =>
+  const calendarDays = Array.from({ length: 42 }, (_, index) =>
     addDays(gridStart, index),
   );
+  const activeItems = useMemo(
+    () =>
+      items.filter(
+        (item) => !item.archivedAt && itemDueDate(item, settings.timezone),
+      ),
+    [items, settings.timezone],
+  );
+  const itemsByDate = useMemo(() => {
+    const grouped = new Map<string, OrganatoItem[]>();
+    activeItems.forEach((item) => {
+      const due = itemDueDate(item, settings.timezone);
+      const key =
+        item.dueDateLocal ??
+        (due ? localDateKey(due, settings.timezone) : null);
+      if (!key) return;
+      grouped.set(key, [...(grouped.get(key) ?? []), item]);
+    });
+    grouped.forEach((entries, key) => {
+      grouped.set(
+        key,
+        entries.toSorted((a, b) => compareItems(a, b, today)),
+      );
+    });
+    return grouped;
+  }, [activeItems, settings.timezone]);
+  const selectedKey = format(selectedDate, "yyyy-MM-dd");
+  const selectedItems = (itemsByDate.get(selectedKey) ?? []).slice(0, 3);
   return (
-    <section
-      className="mini-calendar"
-      aria-label={format(monthStart, "MMMM yyyy")}
-    >
+    <section className="mini-calendar" aria-label="Upcoming calendar">
       <header>
         <h2>{format(monthStart, "MMMM yyyy")}</h2>
         <div>
-          <button aria-label="Previous month">‹</button>
-          <button aria-label="Next month">›</button>
+          <button
+            aria-label="Previous month"
+            onClick={() => setMonthStart((current) => subMonths(current, 1))}
+          >
+            <ChevronLeft size={15} />
+          </button>
+          <button
+            aria-label="Today"
+            onClick={() => {
+              setMonthStart(startOfMonth(today));
+              setSelectedDate(today);
+            }}
+          >
+            <span className="mini-today-label">Today</span>
+          </button>
+          <button
+            aria-label="Next month"
+            onClick={() => setMonthStart((current) => addMonths(current, 1))}
+          >
+            <ChevronRight size={15} />
+          </button>
         </div>
       </header>
       <div className="calendar-weekdays">
@@ -142,17 +213,47 @@ function MiniCalendar() {
         ))}
       </div>
       <div className="mini-calendar-grid">
-        {calendarDays.map((day) => (
-          <button
-            className={`${isSameDay(day, today) ? "today" : ""}${
-              !isSameMonth(day, monthStart) ? " muted" : ""
-            }`}
-            key={day.toISOString()}
-          >
-            {day.getDate()}
-            {isSameDay(day, today) ? <span /> : null}
-          </button>
-        ))}
+        {calendarDays.map((day) => {
+          const key = format(day, "yyyy-MM-dd");
+          const count = itemsByDate.get(key)?.length ?? 0;
+          return (
+            <button
+              className={`${isSameDay(day, today) ? "today" : ""}${
+                isSameDay(day, selectedDate) ? " selected" : ""
+              }${!isSameMonth(day, monthStart) ? " muted" : ""}`}
+              key={day.toISOString()}
+              onClick={() => setSelectedDate(day)}
+              aria-label={`${format(day, "EEEE d MMMM")}${
+                count ? `, ${count} scheduled` : ""
+              }`}
+              aria-pressed={isSameDay(day, selectedDate)}
+            >
+              {day.getDate()}
+              {count ? <span className="mini-event-count">{count}</span> : null}
+            </button>
+          );
+        })}
+      </div>
+      <div className="mini-calendar-selection">
+        <strong>{format(selectedDate, "EEEE, d MMMM")}</strong>
+        {selectedItems.length ? (
+          selectedItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => dispatch({ type: "select", id: item.id })}
+            >
+              <SubjectDot subjectId={item.subjectId} />
+              <span>{item.displayName}</span>
+              <small>
+                {subjectsById.get(item.subjectId ?? "")?.displayName ??
+                  (item.kind === "todo" ? "Todo" : "Work")}
+              </small>
+            </button>
+          ))
+        ) : (
+          <span>Nothing due.</span>
+        )}
+        <a href={`/calendar?date=${selectedKey}`}>Open calendar</a>
       </div>
     </section>
   );
@@ -221,6 +322,9 @@ function TodayList() {
           <MoreHorizontal size={15} aria-hidden="true" />
         </div>
       ))}
+      {!todos.length ? (
+        <p className="home-empty-state">Nothing needs attention today.</p>
+      ) : null}
     </section>
   );
 }
@@ -266,37 +370,47 @@ function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
           <span>
             <strong>
               {daysRemainingLabel(
-                item.dueAt ? new Date(item.dueAt) : null,
+                itemDueDate(item, settings.timezone),
                 today,
+                settings.timezone,
               )}
             </strong>
             <small>
-              {item.dueAt
-                ? new Date(item.dueAt).toLocaleDateString("en-AU", {
-                    weekday: "short",
-                    day: "numeric",
-                    month: "short",
-                  })
+              {itemDueDate(item, settings.timezone)
+                ? itemDueDate(item, settings.timezone)!.toLocaleDateString(
+                    "en-AU",
+                    {
+                      timeZone: settings.timezone,
+                      weekday: "short",
+                      day: "numeric",
+                      month: "short",
+                    },
+                  )
                 : "No due date"}
             </small>
           </span>
         </button>
       ))}
+      {!upcoming.length ? (
+        <p className="home-empty-state">
+          No upcoming {page === "assignments" ? "assignments" : "checkpoints"}.
+        </p>
+      ) : null}
       <a href={`/${page}`}>View all {page} →</a>
     </section>
   );
 }
 
 function WorkloadStrip() {
-  const { items } = useOrganato();
+  const { items, settings } = useOrganato();
   const days = Array.from({ length: 7 }, (_, index) => {
     const date = addDays(today, index);
     const count = items.filter(
       (item) =>
         !item.archivedAt &&
         !["completed", "submitted"].includes(item.workingStatus) &&
-        item.dueAt &&
-        isSameDay(new Date(item.dueAt), date),
+        itemDueDate(item, settings.timezone) &&
+        isSameDay(itemDueDate(item, settings.timezone)!, date),
     ).length;
     const level =
       count === 0
@@ -306,26 +420,18 @@ function WorkloadStrip() {
           : count < 4
             ? "Medium"
             : "High";
-    const colour =
-      count === 0
-        ? "var(--muted)"
-        : count === 1
-          ? "#7bd66a"
-          : count < 4
-            ? "#f59e0b"
-            : "#f87171";
-    return [format(date, "EEE d MMM"), level, count, colour] as const;
+    return [format(date, "EEE d MMM"), level, count] as const;
   });
   return (
     <section className="workload-strip">
       <h2>7-day workload</h2>
       <div>
-        {days.map(([date, level, count, colour]) => (
+        {days.map(([date, level, count]) => (
           <span key={date}>
             <small>{date}</small>
             <strong>{level}</strong>
             <em>
-              <i style={{ background: colour }} />
+              <i className={`workload-level workload-${level.toLowerCase()}`} />
               {count} {count === 1 ? "item" : "items"}
             </em>
           </span>
