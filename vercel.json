@@ -4,10 +4,86 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "outputDirectory": "apps/web/dist",
   "framework": null,
+  "headers": [
+    {
+      "source": "/api/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store, no-cache, max-age=0, must-revalidate"
+        },
+        {
+          "key": "CDN-Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "Vercel-CDN-Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "Pragma",
+          "value": "no-cache"
+        }
+      ]
+    },
+    {
+      "source": "/auth/google/callback",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store, no-cache, max-age=0, must-revalidate"
+        },
+        {
+          "key": "CDN-Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "Vercel-CDN-Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "Pragma",
+          "value": "no-cache"
+        }
+      ]
+    }
+  ],
   "rewrites": [
+    {
+      "source": "/api/auth/google/callback",
+      "destination": "/index.html"
+    },
     {
       "source": "/api/:path*",
       "destination": "https://organato.etphli.workers.dev/api/:path*"
+    },
+    {
+      "source": "/auth/google/callback",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/assignments",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/checkpoints",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/calendar",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/todo",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/settings/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/items/:path*",
+      "destination": "/index.html"
     }
   ]
 }

@@ -17,6 +17,38 @@ interface SessionResponse {
   csrfToken: string;
 }
 
+interface ExchangeResponse {
+  authenticated: true;
+  csrfToken: string;
+  returnTo: string;
+}
+
+export async function exchangeGoogleCallbackIfPresent(): Promise<boolean> {
+  const isGoogleCallback =
+    window.location.pathname === "/auth/google/callback" ||
+    window.location.pathname === "/api/auth/google/callback";
+  if (!isGoogleCallback) return false;
+  const query = new URLSearchParams(window.location.search);
+  const response = await fetch("/api/auth/google/exchange", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      code: query.get("code"),
+      state: query.get("state"),
+    }),
+  });
+  if (!response.ok) throw new Error("exchange_failed");
+  const exchange = (await response.json()) as ExchangeResponse;
+  sessionStorage.setItem("organato_csrf", exchange.csrfToken);
+  window.history.replaceState(
+    null,
+    "",
+    exchange.returnTo.startsWith("/") ? exchange.returnTo : "/",
+  );
+  return true;
+}
+
 const AuthContext = createContext<SessionOwner | null>(null);
 
 export function useAuthOwner() {
@@ -41,28 +73,45 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (demoMode) return;
-    const fragment = new URLSearchParams(window.location.hash.slice(1));
-    const csrf = fragment.get("csrf");
-    if (csrf) {
-      sessionStorage.setItem("organato_csrf", csrf);
-      window.history.replaceState(
-        null,
-        "",
-        `${window.location.pathname}${window.location.search}`,
-      );
+    async function finishSignIn() {
+      const callbackExchanged = await exchangeGoogleCallbackIfPresent();
+      if (!callbackExchanged) {
+        const fragment = new URLSearchParams(window.location.hash.slice(1));
+        const csrf = fragment.get("csrf");
+        if (csrf) {
+          sessionStorage.setItem("organato_csrf", csrf);
+          window.history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${window.location.search}`,
+          );
+        }
+      }
+      const response = await fetch("/api/session", {
+        credentials: "same-origin",
+      });
+      if (!response.ok) throw new Error("signed_out");
+      const session = (await response.json()) as SessionResponse;
+      sessionStorage.setItem("organato_csrf", session.csrfToken);
+      setState({ status: "signed_in", owner: session.owner });
     }
-    void fetch("/api/session", { credentials: "same-origin" })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("signed_out");
-        const session = (await response.json()) as SessionResponse;
-        sessionStorage.setItem("organato_csrf", session.csrfToken);
-        setState({ status: "signed_in", owner: session.owner });
-      })
-      .catch(() =>
-        setState(
-          navigator.onLine ? { status: "signed_out" } : { status: "offline" },
-        ),
+
+    void finishSignIn().catch(() => {
+      const callbackFailed =
+        window.location.pathname === "/auth/google/callback" ||
+        window.location.pathname === "/api/auth/google/callback";
+      if (callbackFailed) window.history.replaceState(null, "", "/");
+      setState(
+        navigator.onLine
+          ? callbackFailed
+            ? {
+                status: "signed_out",
+                message: "Google sign-in could not finish. Please try again.",
+              }
+            : { status: "signed_out" }
+          : { status: "offline" },
       );
+    });
   }, [demoMode]);
 
   if (state.status === "checking") {

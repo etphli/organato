@@ -14,28 +14,44 @@ const queryClient = new QueryClient({
   },
 });
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <AuthGate>
-          <OrganatoProvider>
-            <App />
-          </OrganatoProvider>
-        </AuthGate>
-      </BrowserRouter>
-    </QueryClientProvider>
-  </StrictMode>,
-);
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    void navigator.serviceWorker
-      .getRegistrations()
-      .then((registrations) =>
-        Promise.all(
-          registrations.map((registration) => registration.unregister()),
-        ),
-      );
-  });
+async function removeLegacyServiceWorker(): Promise<boolean> {
+  if (!("serviceWorker" in navigator)) return true;
+  const wasControlled = navigator.serviceWorker.controller !== null;
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  await Promise.all(
+    registrations.map((registration) => registration.unregister()),
+  );
+  const isGoogleCallback =
+    window.location.pathname === "/auth/google/callback" ||
+    window.location.pathname === "/api/auth/google/callback";
+  if (
+    wasControlled &&
+    !isGoogleCallback &&
+    sessionStorage.getItem("organato_service_worker_reset") !== "complete"
+  ) {
+    sessionStorage.setItem("organato_service_worker_reset", "complete");
+    window.location.replace(`/?service-worker-reset=${Date.now()}`);
+    return false;
+  }
+  sessionStorage.removeItem("organato_service_worker_reset");
+  return true;
 }
+
+async function mount() {
+  if (!(await removeLegacyServiceWorker())) return;
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <AuthGate>
+            <OrganatoProvider>
+              <App />
+            </OrganatoProvider>
+          </AuthGate>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </StrictMode>,
+  );
+}
+
+void mount();

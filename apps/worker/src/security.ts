@@ -104,6 +104,17 @@ export async function decryptSecret(
 export function securityHeaders(): MiddlewareHandler<{ Bindings: Env }> {
   return async (context, next) => {
     await next();
+    const pathname = new URL(context.req.url).pathname;
+    if (pathname.startsWith("/api/")) {
+      context.header(
+        "Cache-Control",
+        "private, no-store, no-cache, max-age=0, must-revalidate",
+      );
+      context.header("CDN-Cache-Control", "no-store");
+      context.header("Vercel-CDN-Cache-Control", "no-store");
+      context.header("Pragma", "no-cache");
+      context.header("Vary", "Cookie, Authorization");
+    }
     context.header(
       "Content-Security-Policy",
       "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://lh3.googleusercontent.com; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://gmail.googleapis.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com",
