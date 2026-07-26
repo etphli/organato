@@ -1,9 +1,10 @@
 import { Search, Settings2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { visibleStatus } from "@organato/domain";
 import { useOrganato } from "../state/OrganatoProvider";
 import { SubjectDot } from "./SubjectDot";
+import { useDialogFocus } from "./useDialogFocus";
 
 function fuzzyIncludes(text: string, needle: string): boolean {
   let index = 0;
@@ -16,6 +17,8 @@ function fuzzyIncludes(text: string, needle: string): boolean {
 
 export function SearchOverlay() {
   const { searchOpen, dispatch, items, subjectsById, settings } = useOrganato();
+  const dialogRef = useRef<HTMLElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [recent, setRecent] = useState<string[]>(() => {
     try {
@@ -27,6 +30,12 @@ export function SearchOverlay() {
     }
   });
   const navigate = useNavigate();
+  useDialogFocus(
+    searchOpen,
+    dialogRef,
+    inputRef,
+    searchOpen ? "search-open" : "search-closed",
+  );
   const rememberSearch = () => {
     const value = query.trim();
     if (!settings.recentSearches || !value) return;
@@ -72,6 +81,7 @@ export function SearchOverlay() {
       onMouseDown={() => dispatch({ type: "search", open: false })}
     >
       <section
+        ref={dialogRef}
         className="search-dialog"
         role="dialog"
         aria-modal="true"
@@ -81,7 +91,8 @@ export function SearchOverlay() {
         <label className="search-input">
           <Search size={19} aria-hidden="true" />
           <input
-            autoFocus
+            ref={inputRef}
+            aria-label="Search Organato"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search work, todos, subjects, and notes…"

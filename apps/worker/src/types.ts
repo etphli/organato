@@ -8,6 +8,7 @@ export interface Env {
   SESSION_SECRET: string;
   DATA_ENCRYPTION_KEY: string;
   CANVAS_BASE_URL: string;
+  CANVAS_DISPLAY_NAME?: string;
   SCHEDULER_TOKEN?: string;
   SCHEDULER_MODE?: "cloudflare" | "local";
   DEMO_MODE?: string;
@@ -18,6 +19,7 @@ export interface SessionUser {
   displayName: string;
   csrfToken: string;
   sessionIdHash: string;
+  authenticatedAt: string;
 }
 
 export type Variables = {

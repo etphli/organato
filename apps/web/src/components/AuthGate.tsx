@@ -5,6 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { BrandMark } from "./BrandMark";
 
 interface SessionOwner {
   email: string;
@@ -121,7 +122,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return (
       <main className="auth-page">
         <section>
-          <span className="auth-mark">O</span>
+          <span className="auth-mark">
+            <BrandMark size={24} />
+          </span>
           <h1>Organato is offline</h1>
           <p>
             Reconnect to load private workspace data. Organato does not save or
@@ -135,7 +138,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return (
       <main className="auth-page">
         <section>
-          <span className="auth-mark">O</span>
+          <span className="auth-mark">
+            <BrandMark size={24} />
+          </span>
           <h1>Organato</h1>
           <p>Your private school work and todos, in one quiet place.</p>
           <button

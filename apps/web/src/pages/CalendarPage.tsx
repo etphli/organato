@@ -1,236 +1,256 @@
-import { ChevronLeft, ChevronRight, ExternalLink, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
-import {
-  addDays,
-  addMonths,
-  addWeeks,
-  endOfWeek,
-  format,
-  isSameDay,
-  startOfMonth,
-  startOfWeek,
-} from "date-fns";
+import { useCallback, useMemo, useState } from "react";
 import { PageHeader } from "../components/PageHeader";
-import { SubjectDot } from "../components/SubjectDot";
 import { useOrganato } from "../state/OrganatoProvider";
+import { AgendaView } from "./calendar/AgendaView";
+import {
+  CalendarLegend,
+  CalendarToolbar,
+  CalendarViewSwitcher,
+  MobileCalendarViewMenu,
+} from "./calendar/CalendarControls";
+import { MonthView } from "./calendar/MonthView";
+import { CalendarQuickCreate } from "./calendar/QuickCreate";
+import { WeekView } from "./calendar/WeekView";
+import {
+  buildCalendarEntries,
+  defaultCalendarFilters,
+  entriesByDate,
+  filtersActiveCount,
+  localDateTimeToIso,
+  monthDates,
+  moveAnchor,
+  rangeTitle,
+  rescheduleEntry,
+  todayKey,
+  weekDates,
+  type CalendarEntry,
+  type CalendarView,
+} from "./calendar/model";
+import { useCalendarPreferences } from "./calendar/useCalendarPreferences";
+import "./calendar/calendar.css";
+
+interface QuickCreateState {
+  dateKey: string;
+  minutes: number | null;
+}
 
 export default function CalendarPage() {
-  const { items, subjectsById, settings, dispatch } = useOrganato();
-  const [anchor, setAnchor] = useState(() => new Date());
-  const [view, setView] = useState<"month" | "week" | "agenda">(() =>
-    window.matchMedia("(max-width: 760px)").matches
-      ? "agenda"
-      : settings.calendarDefaultView,
+  const { items, subjects, subjectsById, settings, integrations, dispatch } =
+    useOrganato();
+  const [preferences, setPreferences] = useCalendarPreferences(
+    settings.calendarDefaultView,
+    settings.timezone,
   );
-  const monthStart = startOfMonth(anchor);
-  const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 });
-  const monthDays = Array.from({ length: 42 }, (_, index) =>
-    addDays(gridStart, index),
+  const [quickCreate, setQuickCreate] = useState<QuickCreateState | null>(null);
+  const todayDateKey = todayKey(settings.timezone);
+  const entries = useMemo(
+    () =>
+      buildCalendarEntries(items, subjectsById, settings, preferences.filters),
+    [items, preferences.filters, settings, subjectsById],
   );
-  const dated = useMemo(
-    () => items.filter((item) => !item.archivedAt && item.dueAt),
-    [items],
-  );
-  const byDate = useMemo(() => {
-    const map = new Map<string, typeof dated>();
-    for (const item of dated) {
-      const key = format(new Date(item.dueAt!), "yyyy-MM-dd");
-      map.set(key, [...(map.get(key) ?? []), item]);
-    }
-    return map;
-  }, [dated]);
-  const weekStart = startOfWeek(anchor, { weekStartsOn: 1 });
-  const weekEnd = endOfWeek(anchor, { weekStartsOn: 1 });
-  const agenda = dated
-    .filter((item) => {
-      if (view !== "week") return true;
-      const due = new Date(item.dueAt!);
-      return due >= weekStart && due <= weekEnd;
-    })
-    .toSorted(
-      (a, b) => new Date(a.dueAt!).getTime() - new Date(b.dueAt!).getTime(),
+  const groupedEntries = useMemo(() => entriesByDate(entries), [entries]);
+  const visibleSubjects = useMemo(() => {
+    const entrySubjectIds = new Set(
+      entries
+        .map((entry) => entry.item.subjectId)
+        .filter((id): id is string => Boolean(id)),
     );
+    const present = subjects.filter(
+      (subject) => subject.active && entrySubjectIds.has(subject.id),
+    );
+    return present.length
+      ? present
+      : subjects.filter((subject) => subject.active).slice(0, 6);
+  }, [entries, subjects]);
+  const calendarIntegration = integrations.find(
+    (integration) => integration.provider === "google_calendar",
+  );
+  const monthViewDates = useMemo(
+    () => monthDates(preferences.anchorKey, settings.firstDayOfWeek),
+    [preferences.anchorKey, settings.firstDayOfWeek],
+  );
+  const weekViewDates = useMemo(
+    () => weekDates(preferences.anchorKey, settings.firstDayOfWeek),
+    [preferences.anchorKey, settings.firstDayOfWeek],
+  );
+  const filterCount = filtersActiveCount(preferences.filters);
+
+  const changeView = useCallback(
+    (view: CalendarView) => {
+      setPreferences((current) => ({ ...current, view }));
+    },
+    [setPreferences],
+  );
+  const selectDate = useCallback(
+    (selectedDateKey: string) => {
+      setPreferences((current) => ({ ...current, selectedDateKey }));
+    },
+    [setPreferences],
+  );
+  const openCreate = useCallback((dateKey: string, minutes: number | null) => {
+    setQuickCreate({ dateKey, minutes });
+  }, []);
+  const openEntry = useCallback(
+    (entry: CalendarEntry) => {
+      dispatch({ type: "select", id: entry.item.id });
+    },
+    [dispatch],
+  );
+  const moveEntry = useCallback(
+    (entry: CalendarEntry, dateKey: string, minutes = entry.startMinutes) => {
+      dispatch({
+        type: "patchItem",
+        id: entry.item.id,
+        patch: rescheduleEntry(entry, dateKey, settings.timezone, minutes),
+      });
+    },
+    [dispatch, settings.timezone],
+  );
+  const clearFilters = useCallback(() => {
+    setPreferences((current) => ({
+      ...current,
+      filters: defaultCalendarFilters,
+    }));
+  }, [setPreferences]);
+  const movePeriod = useCallback(
+    (amount: number) => {
+      setPreferences((current) => {
+        const anchorKey = moveAnchor(current.anchorKey, current.view, amount);
+        return {
+          ...current,
+          anchorKey,
+          selectedDateKey: anchorKey,
+        };
+      });
+    },
+    [setPreferences],
+  );
+  const returnToToday = useCallback(() => {
+    setPreferences((current) => ({
+      ...current,
+      anchorKey: todayDateKey,
+      selectedDateKey: todayDateKey,
+    }));
+  }, [setPreferences, todayDateKey]);
+
   return (
-    <div className="page calendar-page">
+    <div className="page calendar-page oc-calendar-page">
       <PageHeader
         title="Calendar"
-        meta={format(anchor, "MMMM yyyy")}
+        meta={rangeTitle(
+          preferences.anchorKey,
+          preferences.view,
+          settings.firstDayOfWeek,
+        )}
         actions={
-          <div
-            className="view-switcher"
-            role="group"
-            aria-label="Calendar view"
-          >
-            {(["month", "week", "agenda"] as const).map((option) => (
-              <button
-                className={view === option ? "active" : ""}
-                key={option}
-                onClick={() => setView(option)}
-              >
-                {option}
-              </button>
-            ))}
-          </div>
+          <>
+            <CalendarViewSwitcher
+              view={preferences.view}
+              onChange={changeView}
+            />
+            <MobileCalendarViewMenu
+              view={preferences.view}
+              onChange={changeView}
+            />
+          </>
         }
       />
-      <div className="calendar-toolbar">
-        <div>
-          <button
-            aria-label="Previous period"
-            onClick={() =>
-              setAnchor((date) =>
-                view === "month" ? addMonths(date, -1) : addWeeks(date, -1),
-              )
+      <CalendarToolbar
+        preferences={preferences}
+        setPreferences={setPreferences}
+        subjects={subjects.filter((subject) => subject.active)}
+        integration={calendarIntegration}
+        onPrevious={() => movePeriod(-1)}
+        onToday={returnToToday}
+        onNext={() => movePeriod(1)}
+      />
+      <main className="oc-calendar-surface">
+        {preferences.view === "month" ? (
+          <MonthView
+            anchorKey={preferences.anchorKey}
+            dates={monthViewDates}
+            entries={groupedEntries}
+            selectedDateKey={preferences.selectedDateKey}
+            todayDateKey={todayDateKey}
+            weekStartsOn={settings.firstDayOfWeek}
+            dragEnabled={settings.dragCalendarReschedule}
+            filtersActive={filterCount > 0}
+            onSelectDate={selectDate}
+            onCreate={(dateKey) => openCreate(dateKey, null)}
+            onOpenEntry={openEntry}
+            onMoveEntry={(entry, dateKey) =>
+              moveEntry(entry, dateKey, entry.startMinutes)
             }
-          >
-            <ChevronLeft size={17} />
-          </button>
-          <button onClick={() => setAnchor(new Date())}>Today</button>
-          <button
-            aria-label="Next period"
-            onClick={() =>
-              setAnchor((date) =>
-                view === "month" ? addMonths(date, 1) : addWeeks(date, 1),
-              )
-            }
-          >
-            <ChevronRight size={17} />
-          </button>
-        </div>
-        <span>
-          <i className="health-dot" /> Google Calendar connected · reconciled 3
-          min ago
-        </span>
-        <a
-          href="https://calendar.google.com"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Open Organato calendar <ExternalLink size={12} />
-        </a>
-      </div>
-      {view === "month" ? (
-        <section
-          className="month-calendar"
-          aria-label={`${format(anchor, "MMMM yyyy")} calendar`}
-        >
-          <div className="month-weekdays">
-            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
-              <span key={day}>{day}</span>
-            ))}
-          </div>
-          <div className="month-grid">
-            {monthDays.map((date) => {
-              const key = format(date, "yyyy-MM-dd");
-              const dayItems = byDate.get(key) ?? [];
-              const outside = date.getMonth() !== anchor.getMonth();
-              return (
-                <div
-                  className={`month-day${outside ? " outside" : ""}${
-                    isSameDay(date, new Date()) ? " today" : ""
-                  }`}
-                  key={key}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    const itemId = event.dataTransfer.getData("text/plain");
-                    const item = items.find((entry) => entry.id === itemId);
-                    if (!item) return;
-                    const old = item.dueAt ? new Date(item.dueAt) : date;
-                    const moved = new Date(date);
-                    moved.setHours(old.getHours(), old.getMinutes());
-                    dispatch({
-                      type: "patchItem",
-                      id: item.id,
-                      patch: {
-                        dueAt: moved.toISOString(),
-                        calendarSyncState: "pending",
-                      },
-                    });
-                  }}
-                >
-                  <button
-                    className="day-number"
-                    onClick={() =>
-                      dispatch({
-                        type: "addTodo",
-                        name: "New todo",
-                        dueAt: date.toISOString(),
-                      })
-                    }
-                  >
-                    {date.getDate()}
-                  </button>
-                  <div className="day-events">
-                    {dayItems.slice(0, 3).map((item) => (
-                      <button
-                        draggable
-                        key={item.id}
-                        onDragStart={(event) =>
-                          event.dataTransfer.setData("text/plain", item.id)
-                        }
-                        onClick={() =>
-                          dispatch({ type: "select", id: item.id })
-                        }
-                      >
-                        <SubjectDot subjectId={item.subjectId} />
-                        <span>{item.displayName}</span>
-                        {item.dueHasExplicitTime ? (
-                          <small>
-                            {format(new Date(item.dueAt!), "h:mm a")}
-                          </small>
-                        ) : null}
-                      </button>
-                    ))}
-                    {dayItems.length > 3 ? (
-                      <small>+{dayItems.length - 3} more</small>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      ) : (
-        <section className="agenda-list">
-          <h2>
-            {view === "week"
-              ? `Week of ${format(
-                  startOfWeek(anchor, { weekStartsOn: 1 }),
-                  "d MMM",
-                )}`
-              : "Agenda"}
-          </h2>
-          {agenda.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => dispatch({ type: "select", id: item.id })}
-            >
-              <time>
-                {format(new Date(item.dueAt!), "EEE d MMM")}
-                <small>
-                  {item.dueHasExplicitTime
-                    ? format(new Date(item.dueAt!), "h:mm a")
-                    : "All day"}
-                </small>
-              </time>
-              <SubjectDot subjectId={item.subjectId} />
-              <span>
-                <strong>{item.displayName}</strong>
-                <small>
-                  {subjectsById.get(item.subjectId ?? "")?.displayName} ·{" "}
-                  {item.kind === "todo" ? "Todo" : item.classification}
-                </small>
-              </span>
-            </button>
-          ))}
-          <button
-            className="agenda-new"
-            onClick={() => dispatch({ type: "addTodo", name: "New todo" })}
-          >
-            <Plus size={16} /> Create todo
-          </button>
-        </section>
-      )}
+            onClearFilters={clearFilters}
+          />
+        ) : null}
+        {preferences.view === "week" ? (
+          <WeekView
+            dates={weekViewDates}
+            entries={groupedEntries}
+            selectedDateKey={preferences.selectedDateKey}
+            todayDateKey={todayDateKey}
+            timezone={settings.timezone}
+            dragEnabled={settings.dragCalendarReschedule}
+            filtersActive={filterCount > 0}
+            onSelectDate={selectDate}
+            onCreate={openCreate}
+            onOpenEntry={openEntry}
+            onMoveEntry={moveEntry}
+            onClearFilters={clearFilters}
+          />
+        ) : null}
+        {preferences.view === "agenda" ? (
+          <AgendaView
+            anchorKey={preferences.anchorKey}
+            entries={entries}
+            selectedDateKey={preferences.selectedDateKey}
+            todayDateKey={todayDateKey}
+            filtersActive={filterCount > 0}
+            onSelectDate={selectDate}
+            onCreate={(dateKey) => openCreate(dateKey, null)}
+            onOpenEntry={openEntry}
+            onClearFilters={clearFilters}
+          />
+        ) : null}
+      </main>
+      {preferences.view === "month" ? (
+        <CalendarLegend
+          subjects={visibleSubjects}
+          filters={preferences.filters}
+          onChange={(filters) =>
+            setPreferences((current) => ({ ...current, filters }))
+          }
+        />
+      ) : null}
+      {quickCreate ? (
+        <CalendarQuickCreate
+          dateKey={quickCreate.dateKey}
+          initialMinutes={quickCreate.minutes}
+          onCancel={() => setQuickCreate(null)}
+          onSave={({ name, dateKey, time }) => {
+            dispatch(
+              time
+                ? {
+                    type: "addTodo",
+                    name,
+                    dueAt: localDateTimeToIso(dateKey, time, settings.timezone),
+                    dueDateLocal: null,
+                    dueHasExplicitTime: true,
+                  }
+                : {
+                    type: "addTodo",
+                    name,
+                    dueAt: null,
+                    dueDateLocal: dateKey,
+                    dueHasExplicitTime: false,
+                  },
+            );
+            setQuickCreate(null);
+            selectDate(dateKey);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

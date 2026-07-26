@@ -10,6 +10,7 @@ import { AppShell } from "./components/AppShell";
 import { CommandPalette } from "./components/CommandPalette";
 import { Inspector } from "./components/Inspector";
 import { NetworkStatus } from "./components/NetworkStatus";
+import { PwaUpdateNotice } from "./components/PwaUpdateNotice";
 import { SearchOverlay } from "./components/SearchOverlay";
 import { Toast } from "./components/Toast";
 import { useOrganato } from "./state/OrganatoProvider";
@@ -34,6 +35,37 @@ function ItemDeepLink() {
   }, [dispatch, id, items, navigate]);
 
   return null;
+}
+
+function PageFallback() {
+  return (
+    <div
+      className="page page-fallback"
+      aria-label="Loading page"
+      aria-busy="true"
+    >
+      <div className="page-fallback-heading">
+        <span />
+        <span />
+      </div>
+      <div className="page-fallback-rule" />
+      <div className="page-fallback-row">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="page-fallback-row">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="page-fallback-row">
+        <span />
+        <span />
+        <span />
+      </div>
+    </div>
+  );
 }
 
 export function App() {
@@ -110,10 +142,9 @@ export function App() {
   return (
     <>
       <NetworkStatus />
+      <PwaUpdateNotice />
       <AppShell>
-        <Suspense
-          fallback={<div className="page-loading" aria-label="Loading page" />}
-        >
+        <Suspense fallback={<PageFallback />}>
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route

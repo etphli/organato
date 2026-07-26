@@ -10,6 +10,8 @@ import {
   runCalendarReconciliation,
   runCanvasSync,
   runDailyDigest,
+  runRetentionCleanup,
+  retryLatestDelivery,
   sendTestEmail,
   sendUrgentImport,
 } from "./sync";
@@ -32,7 +34,7 @@ app.get("/health", (context) =>
 app.route("/api/auth", authRoutes);
 
 app.get("/api/integrations/google/callback", async (context) =>
-  googleIntegrationCallback(context.req.raw, context.env),
+  googleIntegrationCallback(context.req.raw, context.env, context.executionCtx),
 );
 
 app.post("/api/internal/schedule", async (context) => {
@@ -53,26 +55,44 @@ app.post("/api/internal/schedule", async (context) => {
       `SELECT 1 AS connected FROM integration_connection
        WHERE provider = 'canvas' AND status <> 'disconnected'`,
     ).first<{ connected: number }>();
-    if (!canvasConnection) {
-      return context.json({
-        ok: true,
-        job,
-        skipped: "canvas_not_connected",
-      });
+    let canvasResult: "synced" | "failed" | "not_connected" = "not_connected";
+    if (canvasConnection) {
+      try {
+        const result = await runCanvasSync(context.env, "scheduled");
+        await sendUrgentImport(context.env, result.runId, result.createdIds);
+        canvasResult = "synced";
+      } catch {
+        canvasResult = "failed";
+      }
     }
-    const result = await runCanvasSync(context.env, "scheduled");
     await runCalendarReconciliation(context.env);
-    await sendUrgentImport(context.env, result.runId, result.createdIds);
-    return context.json({ ok: true, job });
+    return context.json({ ok: true, job, canvas: canvasResult });
   }
   if (job === "digest") {
-    await runDailyDigest(context.env, new Date());
+    const now = new Date();
+    await runDailyDigest(context.env, now);
+    await runRetentionCleanup(context.env, now);
     return context.json({ ok: true, job });
   }
   return context.json({ error: "Unknown job." }, 400);
 });
 
 app.use("/api/*", requireSession());
+app.use("/api/*", async (context, next) => {
+  if (
+    !["GET", "HEAD", "OPTIONS"].includes(context.req.method) &&
+    !context.req
+      .header("Content-Type")
+      ?.toLowerCase()
+      .startsWith("application/json")
+  ) {
+    return context.json(
+      { error: "Expected an application/json request." },
+      415,
+    );
+  }
+  await next();
+});
 
 app.route("/api/integrations/google", googleIntegrationRoutes);
 
@@ -134,6 +154,33 @@ app.post("/api/integrations/google/test-email", async (context) => {
         error:
           "The test email could not be sent. Existing reminder settings are unchanged; reconnect Google and retry.",
       },
+      502,
+    );
+  }
+});
+
+app.post("/api/integrations/google/retry-latest", async (context) => {
+  if (
+    !(await rateLimit(
+      context,
+      `gmail-retry:${context.get("user").email.toLowerCase()}`,
+      5,
+      60,
+    ))
+  ) {
+    return context.json(
+      { error: "Retry limit reached. Try again in an hour." },
+      429,
+    );
+  }
+  try {
+    const retried = await retryLatestDelivery(context.env);
+    return retried
+      ? context.json({ ok: true })
+      : context.json({ error: "No retryable delivery was found." }, 404);
+  } catch {
+    return context.json(
+      { error: "The latest delivery still could not be sent." },
       502,
     );
   }
@@ -202,23 +249,39 @@ async function scheduled(
   const now = new Date(controller.scheduledTime);
   if (now.getUTCMinutes() === 0) {
     executionContext.waitUntil(
-      runCanvasSync(env, "scheduled")
-        .then(async (result) => {
-          await runCalendarReconciliation(env);
-          await sendUrgentImport(env, result.runId, result.createdIds);
-        })
-        .catch(async () => {
-          await env.DB.prepare(
-            `UPDATE integration_connection SET status = 'action_needed',
-             last_attempt_at = ?, last_error_category = 'scheduled_sync_failed',
-             updated_at = ? WHERE provider = 'canvas'`,
-          )
-            .bind(new Date().toISOString(), new Date().toISOString())
-            .run();
-        }),
+      (async () => {
+        const canvasConnection = await env.DB.prepare(
+          `SELECT 1 AS connected FROM integration_connection
+           WHERE provider = 'canvas' AND status <> 'disconnected'`,
+        ).first();
+        if (canvasConnection) {
+          try {
+            const result = await runCanvasSync(env, "scheduled");
+            await sendUrgentImport(env, result.runId, result.createdIds);
+          } catch {
+            await env.DB.prepare(
+              `UPDATE integration_connection SET status = 'action_needed',
+               last_attempt_at = ?, last_error_category = 'scheduled_sync_failed',
+               updated_at = ? WHERE provider = 'canvas'`,
+            )
+              .bind(new Date().toISOString(), new Date().toISOString())
+              .run();
+          }
+        }
+        await runCalendarReconciliation(env);
+      })().catch(async () => {
+        await env.DB.prepare(
+          `UPDATE integration_connection SET status = 'delayed',
+           last_attempt_at = ?, last_error_category = 'scheduled_calendar_failed',
+           updated_at = ? WHERE provider = 'google'`,
+        )
+          .bind(new Date().toISOString(), new Date().toISOString())
+          .run();
+      }),
     );
   }
   executionContext.waitUntil(runDailyDigest(env, now));
+  executionContext.waitUntil(runRetentionCleanup(env, now));
 }
 
 export default {

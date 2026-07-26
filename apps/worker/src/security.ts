@@ -1,9 +1,10 @@
 import type { Context, MiddlewareHandler } from "hono";
-import { getCookie, setCookie } from "hono/cookie";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Env, SessionUser, Variables } from "./types";
 
 const encoder = new TextEncoder();
 const sessionCookie = "organato_session";
+const csrfCookie = "organato_csrf";
 
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -135,6 +136,54 @@ export function securityHeaders(): MiddlewareHandler<{ Bindings: Env }> {
   };
 }
 
+export function requestMatchesOrigin(request: Request, appOrigin: string) {
+  const expected = new URL(appOrigin).origin;
+  const origin = request.headers.get("Origin");
+  if (origin) return origin === expected;
+  const referer = request.headers.get("Referer");
+  if (!referer) return false;
+  try {
+    return new URL(referer).origin === expected;
+  } catch {
+    return false;
+  }
+}
+
+export function hasRecentAuthentication(
+  authenticatedAt: string,
+  now = new Date(),
+  maximumAgeMinutes = 10,
+) {
+  const timestamp = new Date(authenticatedAt).getTime();
+  return (
+    Number.isFinite(timestamp) &&
+    timestamp <= now.getTime() &&
+    now.getTime() - timestamp <= maximumAgeMinutes * 60_000
+  );
+}
+
+export async function recordSecurityEvent(
+  db: D1Database,
+  category: string,
+  actorEmail: string | null,
+  summary: string,
+) {
+  await db
+    .prepare(
+      `INSERT INTO security_event
+        (id, category, actor_email, summary, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      crypto.randomUUID(),
+      category.slice(0, 100),
+      actorEmail?.toLowerCase() ?? null,
+      summary.slice(0, 500),
+      new Date().toISOString(),
+    )
+    .run();
+}
+
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let result = 0;
@@ -177,7 +226,53 @@ export async function createSession(
     path: "/",
     maxAge: 30 * 86_400,
   });
+  setCookie(context, csrfCookie, csrfToken, {
+    secure: new URL(context.env.APP_ORIGIN).protocol === "https:",
+    httpOnly: false,
+    sameSite: "Strict",
+    path: "/",
+    maxAge: 30 * 86_400,
+  });
   return { csrfToken };
+}
+
+export function clearSessionCookies(
+  context: Context<{ Bindings: Env; Variables: Variables }>,
+) {
+  deleteCookie(context, sessionCookie, { path: "/" });
+  deleteCookie(context, csrfCookie, { path: "/" });
+}
+
+export async function getOrCreateCsrfToken(
+  context: Context<{ Bindings: Env; Variables: Variables }>,
+) {
+  const user = context.get("user");
+  if (user.sessionIdHash === "demo") return "demo-csrf";
+  const existing = getCookie(context, csrfCookie);
+  if (existing) {
+    const row = await context.env.DB.prepare(
+      "SELECT csrf_hash FROM session WHERE id_hash = ? AND revoked_at IS NULL",
+    )
+      .bind(user.sessionIdHash)
+      .first<{ csrf_hash: string }>();
+    if (row && safeEqual(await sha256(existing), row.csrf_hash)) {
+      return existing;
+    }
+  }
+  const csrfToken = randomToken();
+  await context.env.DB.prepare(
+    "UPDATE session SET csrf_hash = ? WHERE id_hash = ? AND revoked_at IS NULL",
+  )
+    .bind(await sha256(csrfToken), user.sessionIdHash)
+    .run();
+  setCookie(context, csrfCookie, csrfToken, {
+    secure: new URL(context.env.APP_ORIGIN).protocol === "https:",
+    httpOnly: false,
+    sameSite: "Strict",
+    path: "/",
+    maxAge: 30 * 86_400,
+  });
+  return csrfToken;
 }
 
 export function requireSession(): MiddlewareHandler<{
@@ -191,6 +286,7 @@ export function requireSession(): MiddlewareHandler<{
         displayName: "Alex Smith",
         csrfToken: "demo-csrf",
         sessionIdHash: "demo",
+        authenticatedAt: new Date().toISOString(),
       });
       await next();
       return;
@@ -200,7 +296,8 @@ export function requireSession(): MiddlewareHandler<{
       return context.json({ error: "Authentication required." }, 401);
     const sessionHash = await sha256(sessionId);
     const row = await context.env.DB.prepare(
-      `SELECT s.id_hash, s.csrf_hash, s.idle_expires_at, s.absolute_expires_at,
+      `SELECT s.id_hash, s.csrf_hash, s.created_at, s.idle_expires_at,
+              s.absolute_expires_at,
               i.email_normalized, i.display_name, i.enabled
        FROM session s
        JOIN allowed_identity i ON i.email_normalized = s.email_normalized
@@ -210,6 +307,7 @@ export function requireSession(): MiddlewareHandler<{
       .first<{
         id_hash: string;
         csrf_hash: string;
+        created_at: string;
         idle_expires_at: string;
         absolute_expires_at: string;
         email_normalized: string;
@@ -230,28 +328,54 @@ export function requireSession(): MiddlewareHandler<{
       displayName: row.display_name,
       csrfToken,
       sessionIdHash: row.id_hash,
+      authenticatedAt: row.created_at,
     };
     context.set("user", user);
     if (!["GET", "HEAD", "OPTIONS"].includes(context.req.method)) {
-      const origin = context.req.header("Origin");
-      if (origin !== context.env.APP_ORIGIN) {
+      if (!requestMatchesOrigin(context.req.raw, context.env.APP_ORIGIN)) {
         return context.json({ error: "Request origin was rejected." }, 403);
       }
       if (!csrfToken || !safeEqual(await sha256(csrfToken), row.csrf_hash)) {
         return context.json({ error: "CSRF validation failed." }, 403);
       }
     }
+    const nextIdleExpiry = new Date(
+      Math.min(
+        Date.now() + 7 * 86_400_000,
+        new Date(row.absolute_expires_at).getTime(),
+      ),
+    ).toISOString();
     context.executionCtx.waitUntil(
       context.env.DB.prepare(
         "UPDATE session SET last_activity_at = ?, idle_expires_at = ? WHERE id_hash = ?",
       )
-        .bind(
-          new Date().toISOString(),
-          new Date(Date.now() + 7 * 86_400_000).toISOString(),
-          row.id_hash,
-        )
+        .bind(new Date().toISOString(), nextIdleExpiry, row.id_hash)
         .run(),
     );
+    await next();
+  };
+}
+
+export function requireRecentSession(
+  maximumAgeMinutes = 10,
+): MiddlewareHandler<{ Bindings: Env; Variables: Variables }> {
+  return async (context, next) => {
+    if (
+      context.env.DEMO_MODE !== "true" &&
+      !hasRecentAuthentication(
+        context.get("user").authenticatedAt,
+        new Date(),
+        maximumAgeMinutes,
+      )
+    ) {
+      return context.json(
+        {
+          error: "Confirm your Google sign-in before continuing.",
+          code: "reauthentication_required",
+        },
+        403,
+      );
+    }
     await next();
   };
 }

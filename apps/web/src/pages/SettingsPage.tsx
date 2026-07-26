@@ -6,39 +6,25 @@ import {
   FileJson,
   KeyRound,
   RotateCcw,
-  Search,
-  ShieldCheck,
   Upload,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   assertSecretFreeBackup,
   validateBackup,
+  type OrganatoItem,
   type WorkspaceSnapshot,
 } from "@organato/domain";
 import { PageHeader } from "../components/PageHeader";
 import { SubjectDot } from "../components/SubjectDot";
-import { useAuthOwner } from "../components/AuthGate";
+import { AccountAccessSection } from "../components/settings/AccountAccessSection";
+import { CanvasConnectionSection } from "../components/settings/CanvasConnectionSection";
+import {
+  SettingsNavigation,
+  settingsCategories,
+} from "../components/settings/SettingsNavigation";
 import { useOrganato } from "../state/OrganatoProvider";
-
-const categories = [
-  ["account", "Account & access"],
-  ["appearance", "Appearance"],
-  ["home", "Home"],
-  ["work", "Assignments & checkpoints"],
-  ["todo", "Todo"],
-  ["calendar", "Calendar"],
-  ["canvas", "Canvas / Reshet"],
-  ["email", "Email & reminders"],
-  ["subjects", "Subjects"],
-  ["search", "Search & shortcuts"],
-  ["accessibility", "Accessibility"],
-  ["data", "Data & archive"],
-  ["security", "Security"],
-  ["advanced", "Advanced"],
-  ["about", "About"],
-] as const;
 
 const genericOptions: Record<string, Array<[string, string]>> = {
   home: [
@@ -99,6 +85,47 @@ function download(filename: string, content: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
+function csvCell(value: unknown) {
+  const text = value == null ? "" : String(value);
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function itemCsv(rows: OrganatoItem[], subjectNames: Map<string, string>) {
+  const headers = [
+    "Name",
+    "Kind",
+    "Classification",
+    "Subject",
+    "Due",
+    "Priority",
+    "Status",
+    "Source",
+    "Calendar",
+    "Archive reason",
+    "Notes",
+  ];
+  return [
+    headers.map(csvCell).join(","),
+    ...rows.map((item) =>
+      [
+        item.displayName,
+        item.kind,
+        item.classification,
+        item.subjectId ? subjectNames.get(item.subjectId) : "",
+        item.dueAt ?? item.dueDateLocal ?? "",
+        item.priority,
+        item.workingStatus,
+        item.sourceType,
+        item.calendarEnabled ? "Included" : "Excluded",
+        item.archiveReason,
+        item.notesMarkdown,
+      ]
+        .map(csvCell)
+        .join(","),
+    ),
+  ].join("\r\n");
+}
+
 function ToggleRows({ category }: { category: string }) {
   const { settings, dispatch } = useOrganato();
   const settingFields: Record<string, keyof typeof settings> = {
@@ -155,29 +182,199 @@ function ToggleRows({ category }: { category: string }) {
   );
 }
 
+interface DeliverySummary {
+  delivery_key: string;
+  delivery_type: string;
+  local_date: string;
+  status: string;
+  attempt_count: number;
+  created_at: string;
+  sent_at: string | null;
+  next_attempt_at: string | null;
+  last_error_category: string | null;
+}
+
+function DeliveryHistory() {
+  const { dispatch } = useOrganato();
+  const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
+  const [deliveries, setDeliveries] = useState<DeliverySummary[]>([]);
+  const [loading, setLoading] = useState(!demoMode);
+  const [retrying, setRetrying] = useState(false);
+
+  const load = async () => {
+    if (demoMode) return;
+    setLoading(true);
+    try {
+      const response = await fetch("/api/reminder-deliveries", {
+        credentials: "same-origin",
+      });
+      if (!response.ok) throw new Error("delivery_history_unavailable");
+      const result = (await response.json()) as {
+        deliveries: DeliverySummary[];
+      };
+      setDeliveries(result.deliveries);
+    } catch {
+      dispatch({ type: "toast", message: "Delivery history is unavailable" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+    // This component loads once when the Email settings surface opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demoMode]);
+
+  const retryLatest = async () => {
+    setRetrying(true);
+    try {
+      const response = await fetch("/api/integrations/google/retry-latest", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": sessionStorage.getItem("organato_csrf") ?? "",
+        },
+        body: "{}",
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!response.ok)
+        throw new Error(result.error ?? "Delivery could not be retried.");
+      await load();
+      dispatch({ type: "toast", message: "Latest delivery sent" });
+    } catch (error) {
+      dispatch({
+        type: "toast",
+        message:
+          error instanceof Error ? error.message : "Retry could not complete",
+      });
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  const hasRetryable = deliveries.some(
+    (delivery) => delivery.status === "failed_transient",
+  );
+  return (
+    <div className="settings-block">
+      <div className="settings-block-heading">
+        <h3>Delivery history</h3>
+        {hasRetryable ? (
+          <button
+            className="text-button"
+            disabled={retrying}
+            onClick={() => void retryLatest()}
+          >
+            Retry latest
+          </button>
+        ) : null}
+      </div>
+      {loading ? (
+        <p className="settings-quiet-state">Loading delivery history…</p>
+      ) : deliveries.length ? (
+        deliveries.slice(0, 10).map((delivery) => (
+          <div className="delivery-row" key={delivery.delivery_key}>
+            <span
+              className={`delivery-status ${delivery.status}`}
+              aria-hidden="true"
+            />
+            <span>
+              <strong>
+                {delivery.delivery_type === "urgent_import"
+                  ? "Canvas import alert"
+                  : "Daily digest"}
+              </strong>
+              <small>
+                {delivery.local_date} · {delivery.status.replaceAll("_", " ")}
+                {delivery.attempt_count > 1
+                  ? ` · ${delivery.attempt_count} attempts`
+                  : ""}
+              </small>
+            </span>
+            <time dateTime={delivery.sent_at ?? delivery.created_at}>
+              {new Date(
+                delivery.sent_at ?? delivery.created_at,
+              ).toLocaleDateString("en-AU", {
+                day: "numeric",
+                month: "short",
+              })}
+            </time>
+          </div>
+        ))
+      ) : (
+        <p className="settings-quiet-state">No reminder deliveries yet.</p>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
-  const owner = useAuthOwner();
   const { pathname } = useLocation();
   const active =
-    categories.find(([id]) => pathname.endsWith(`/${id}`))?.[0] ?? "account";
-  const { items, subjects, settings, integrations, views, dispatch } =
+    settingsCategories.find(([id]) => pathname.endsWith(`/${id}`))?.[0] ??
+    "account";
+  const { items, subjects, settings, integrations, views, dispatch, refresh } =
     useOrganato();
-  const [query, setQuery] = useState("");
   const [importSummary, setImportSummary] = useState<string | null>(null);
   const [pendingImport, setPendingImport] = useState<WorkspaceSnapshot | null>(
     null,
   );
-  const [canvasBaseUrl, setCanvasBaseUrl] = useState("");
-  const [canvasToken, setCanvasToken] = useState("");
   const [connectionBusy, setConnectionBusy] = useState<string | null>(null);
   const [addingSubject, setAddingSubject] = useState(false);
   const [newSubjectName, setNewSubjectName] = useState("");
   const [newSubjectColour, setNewSubjectColour] = useState("#a78bfa");
-  const fileInput = useRef<HTMLInputElement>(null);
-  const visibleCategories = categories.filter(([, label]) =>
-    label.toLowerCase().includes(query.toLowerCase()),
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteExternalAcknowledged, setDeleteExternalAcknowledged] =
+    useState(false);
+  const [deleteBackupAcknowledged, setDeleteBackupAcknowledged] =
+    useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [archiveQuery, setArchiveQuery] = useState("");
+  const [archiveKind, setArchiveKind] = useState<"all" | "work" | "todo">(
+    "all",
   );
+  const [archiveSubject, setArchiveSubject] = useState("all");
+  const [archiveReason, setArchiveReason] = useState("all");
+  const [archiveYear, setArchiveYear] = useState("all");
+  const [archiveSelection, setArchiveSelection] = useState<string[]>([]);
+  const [archivePreviewId, setArchivePreviewId] = useState<string | null>(null);
+  const [itemDeleteConfirmation, setItemDeleteConfirmation] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
   const archived = items.filter((item) => item.archivedAt);
+  const filteredArchive = useMemo(() => {
+    const query = archiveQuery.trim().toLowerCase();
+    return archived.filter(
+      (item) =>
+        (archiveKind === "all" || item.kind === archiveKind) &&
+        (archiveSubject === "all" || item.subjectId === archiveSubject) &&
+        (archiveReason === "all" ||
+          (item.archiveReason ?? "Archived") === archiveReason) &&
+        (archiveYear === "all" ||
+          item.archivedAt?.slice(0, 4) === archiveYear) &&
+        (!query ||
+          item.displayName.toLowerCase().includes(query) ||
+          item.archiveReason?.toLowerCase().includes(query) ||
+          subjects
+            .find((subject) => subject.id === item.subjectId)
+            ?.displayName.toLowerCase()
+            .includes(query)),
+    );
+  }, [
+    archiveKind,
+    archiveQuery,
+    archiveReason,
+    archiveSubject,
+    archiveYear,
+    archived,
+    subjects,
+  ]);
+  const archivePreview =
+    archived.find((item) => item.id === archivePreviewId) ?? null;
   const activeCount = items.filter((item) => !item.archivedAt).length;
   const completedCount = items.filter(
     (item) => item.workingStatus === "completed",
@@ -201,12 +398,113 @@ export default function SettingsPage() {
     [items, settings, subjects, views],
   );
 
-  const exportJson = () => {
-    const output = JSON.stringify(snapshot, null, 2);
+  const loadFullSnapshot = async () => {
+    if (import.meta.env.VITE_DEMO_MODE === "true") return snapshot;
+    const response = await fetch("/api/export", {
+      credentials: "same-origin",
+    });
+    const output = await response.text();
+    if (!response.ok) {
+      const result = JSON.parse(output) as { error?: string };
+      throw new Error(result.error ?? "Backup could not be exported.");
+    }
     if (!assertSecretFreeBackup(output))
       throw new Error("Backup safety check failed.");
-    download("organato-backup.json", output, "application/json");
-    dispatch({ type: "toast", message: "Secret-free backup exported" });
+    const parsed = validateBackup(JSON.parse(output));
+    if (!parsed.success) throw new Error("Exported backup failed validation.");
+    return parsed.data as WorkspaceSnapshot;
+  };
+  const exportJson = async () => {
+    try {
+      const exported = await loadFullSnapshot();
+      const output = JSON.stringify(exported, null, 2);
+      if (!assertSecretFreeBackup(output))
+        throw new Error("Backup safety check failed.");
+      download("organato-backup.json", output, "application/json");
+      setDeleteBackupAcknowledged(true);
+      dispatch({ type: "toast", message: "Secret-free backup exported" });
+    } catch (error) {
+      dispatch({
+        type: "toast",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Backup could not be exported",
+      });
+      throw error;
+    }
+  };
+  const exportCsvSet = async () => {
+    try {
+      const exported = await loadFullSnapshot();
+      const subjectNames = new Map(
+        exported.subjects.map((subject) => [subject.id, subject.displayName]),
+      );
+      const files: Array<[string, OrganatoItem[]]> = [
+        [
+          "organato-assignments.csv",
+          exported.items.filter(
+            (item) =>
+              !item.archivedAt &&
+              ["assignment", "both"].includes(item.classification),
+          ),
+        ],
+        [
+          "organato-checkpoints.csv",
+          exported.items.filter(
+            (item) =>
+              !item.archivedAt &&
+              ["checkpoint", "both"].includes(item.classification),
+          ),
+        ],
+        [
+          "organato-todos.csv",
+          exported.items.filter(
+            (item) => !item.archivedAt && item.kind === "todo",
+          ),
+        ],
+        [
+          "organato-archive.csv",
+          exported.items.filter((item) => Boolean(item.archivedAt)),
+        ],
+      ];
+      for (const [filename, rows] of files) {
+        download(
+          filename,
+          `\uFEFF${itemCsv(rows, subjectNames)}`,
+          "text/csv;charset=utf-8",
+        );
+      }
+      download(
+        "organato-subjects.csv",
+        `\uFEFF${[
+          ["Name", "Short name", "Colour", "Active", "Canvas course ID"]
+            .map(csvCell)
+            .join(","),
+          ...exported.subjects.map((subject) =>
+            [
+              subject.displayName,
+              subject.shortName,
+              subject.colour,
+              subject.active ? "Yes" : "No",
+              subject.canvasCourseId,
+            ]
+              .map(csvCell)
+              .join(","),
+          ),
+        ].join("\r\n")}`,
+        "text/csv;charset=utf-8",
+      );
+      dispatch({ type: "toast", message: "Five complete CSV exports created" });
+    } catch (error) {
+      dispatch({
+        type: "toast",
+        message:
+          error instanceof Error
+            ? error.message
+            : "CSV exports could not be created",
+      });
+    }
   };
   const handleImport = async (file: File) => {
     const text = await file.text();
@@ -279,7 +577,7 @@ export default function SettingsPage() {
     setConnectionBusy("restore");
     try {
       if (import.meta.env.VITE_DEMO_MODE === "true") {
-        exportJson();
+        await exportJson();
         const mergeById = <T extends { id: string }>(
           current: T[],
           imported: T[],
@@ -384,10 +682,7 @@ export default function SettingsPage() {
       });
       return;
     }
-    await fetch("/api/auth/logout", {
-      method: "POST",
-      credentials: "same-origin",
-    });
+    await protectedPost("/api/auth/logout");
     window.location.reload();
   };
   const revokeAllSessions = async () => {
@@ -398,10 +693,6 @@ export default function SettingsPage() {
       dispatch({ type: "toast", message: "All demo sessions revoked" });
       return;
     }
-    await fetch("/api/auth/logout", {
-      method: "POST",
-      credentials: "same-origin",
-    });
     window.location.reload();
   };
   const downloadDiagnostic = async () => {
@@ -466,128 +757,99 @@ export default function SettingsPage() {
     await protectedPost(paths[label]!);
     dispatch({ type: "toast", message: `${label} completed` });
   };
+  const permanentlyDeleteWorkspace = async () => {
+    if (deleteConfirmation !== "Organato" || !deleteExternalAcknowledged) {
+      return;
+    }
+    setConnectionBusy("delete-all");
+    setDeleteError(null);
+    try {
+      if (import.meta.env.VITE_DEMO_MODE === "true") {
+        dispatch({
+          type: "hydrate",
+          items: [],
+          subjects: [],
+          settings,
+          integrations,
+          views: [],
+        });
+        setDeleteOpen(false);
+        dispatch({ type: "toast", message: "Demo workspace cleared" });
+        return;
+      }
+      await protectedPost("/api/data/delete-all", {
+        confirmation: deleteConfirmation,
+        acknowledgeExternalData: deleteExternalAcknowledged,
+        acknowledgeBackupOffer: deleteBackupAcknowledged,
+      });
+      sessionStorage.removeItem("organato_csrf");
+      window.location.assign("/");
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error
+          ? error.message
+          : "Permanent deletion could not be completed.",
+      );
+    } finally {
+      setConnectionBusy(null);
+    }
+  };
+  const permanentlyDeleteItem = async () => {
+    if (
+      !archivePreview ||
+      itemDeleteConfirmation !== archivePreview.displayName
+    ) {
+      return;
+    }
+    setConnectionBusy(`delete-item:${archivePreview.id}`);
+    setDeleteError(null);
+    try {
+      if (import.meta.env.VITE_DEMO_MODE !== "true") {
+        await protectedPost(
+          `/api/items/${encodeURIComponent(archivePreview.id)}/permanent-delete`,
+          {
+            version: archivePreview.version,
+            confirmation: itemDeleteConfirmation,
+          },
+        );
+        await refresh();
+      } else {
+        dispatch({
+          type: "hydrate",
+          items: items.filter((item) => item.id !== archivePreview.id),
+          subjects,
+          settings,
+          integrations,
+          views,
+        });
+      }
+      setArchiveSelection((current) =>
+        current.filter((id) => id !== archivePreview.id),
+      );
+      setArchivePreviewId(null);
+      setItemDeleteConfirmation("");
+      dispatch({ type: "toast", message: "Archived item permanently deleted" });
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error
+          ? error.message
+          : "The archived item could not be deleted.",
+      );
+    } finally {
+      setConnectionBusy(null);
+    }
+  };
 
   return (
     <div className="page settings-page">
-      <PageHeader title="Settings" meta="Private workspace" />
+      <PageHeader title="Settings" showSync={false} />
       <div className="settings-layout">
-        <aside className="settings-nav">
-          <label>
-            <Search size={15} />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search settings"
-            />
-          </label>
-          {visibleCategories.map(([id, label]) => (
-            <Link
-              key={id}
-              to={`/settings/${id}`}
-              className={active === id ? "active" : ""}
-            >
-              {label}
-            </Link>
-          ))}
-        </aside>
+        <SettingsNavigation active={active} />
         <section className="settings-content">
-          <h2>{categories.find(([id]) => id === active)?.[1]}</h2>
-          {active === "account" ? (
-            <>
-              <div className="settings-block">
-                <h3>Profile</h3>
-                <label className="field-row">
-                  <span>
-                    Display name<small>Shown only inside your workspace.</small>
-                  </span>
-                  <input value={owner?.displayName ?? "Owner"} readOnly />
-                </label>
-                <label className="field-row">
-                  <span>
-                    Workspace timezone<small>Daylight-saving aware.</small>
-                  </span>
-                  <select
-                    value={settings.timezone}
-                    onChange={(event) =>
-                      dispatch({
-                        type: "settings",
-                        patch: { timezone: event.target.value },
-                      })
-                    }
-                  >
-                    <option>Australia/Sydney</option>
-                  </select>
-                </label>
-              </div>
-              <div className="settings-block">
-                <h3>Allowed Google accounts</h3>
-                <div className="identity-row">
-                  <span className="avatar">AS</span>
-                  <span>
-                    <strong>{owner?.email ?? "Configured owner"}</strong>
-                    <small>
-                      Owner · Integration owner · Last sign-in today
-                    </small>
-                  </span>
-                  <button
-                    onClick={() =>
-                      dispatch({
-                        type: "toast",
-                        message:
-                          "Owner allow-list changes require deployment configuration",
-                      })
-                    }
-                  >
-                    Manage
-                  </button>
-                </div>
-                <button
-                  className="text-button"
-                  onClick={() =>
-                    dispatch({
-                      type: "toast",
-                      message:
-                        "Add normalized owner emails to ALLOWED_GOOGLE_EMAILS before deployment",
-                    })
-                  }
-                >
-                  + Add another owner email
-                </button>
-              </div>
-              <div className="settings-block">
-                <h3>Active sessions</h3>
-                <div className="identity-row">
-                  <ShieldCheck size={20} />
-                  <span>
-                    <strong>Safari on macOS</strong>
-                    <small>Current session · active now</small>
-                  </span>
-                  <button
-                    onClick={() => {
-                      void protectedPost("/api/sessions/revoke-others")
-                        .then(() =>
-                          dispatch({
-                            type: "toast",
-                            message: "Other active sessions were revoked",
-                          }),
-                        )
-                        .catch((error) =>
-                          dispatch({
-                            type: "toast",
-                            message:
-                              error instanceof Error
-                                ? error.message
-                                : "Sessions could not be updated",
-                          }),
-                        );
-                    }}
-                  >
-                    Revoke others
-                  </button>
-                </div>
-              </div>
-            </>
+          {active !== "canvas" ? (
+            <h2>{settingsCategories.find(([id]) => id === active)?.[1]}</h2>
           ) : null}
+          {active === "account" ? <AccountAccessSection /> : null}
           {active === "appearance" ? (
             <div className="settings-block">
               <h3>Interface</h3>
@@ -699,7 +961,9 @@ export default function SettingsPage() {
               <IntegrationCard provider="google_calendar" />
             </>
           ) : null}
-          {active === "canvas" ? <IntegrationCard provider="canvas" /> : null}
+          {active === "canvas" ? (
+            <CanvasConnectionSection onWorkspaceRefresh={refresh} />
+          ) : null}
           {active === "email" ? (
             <>
               <IntegrationCard provider="gmail" />
@@ -746,6 +1010,7 @@ export default function SettingsPage() {
                   />
                 </label>
               </div>
+              <DeliveryHistory />
             </>
           ) : null}
           {active === "subjects" ? (
@@ -869,17 +1134,143 @@ export default function SettingsPage() {
                 </span>
               </div>
               <div className="settings-block">
-                <h3>Archive</h3>
-                {archived.length ? (
-                  archived.map((item) => (
+                <div className="settings-block-heading">
+                  <h3>Archive</h3>
+                  <span className="settings-count">
+                    {filteredArchive.length} shown
+                  </span>
+                </div>
+                <div className="archive-tools">
+                  <input
+                    type="search"
+                    aria-label="Search archived items"
+                    placeholder="Search archive"
+                    value={archiveQuery}
+                    onChange={(event) => setArchiveQuery(event.target.value)}
+                  />
+                  <select
+                    aria-label="Filter archive by item type"
+                    value={archiveKind}
+                    onChange={(event) =>
+                      setArchiveKind(
+                        event.target.value as "all" | "work" | "todo",
+                      )
+                    }
+                  >
+                    <option value="all">All types</option>
+                    <option value="work">School work</option>
+                    <option value="todo">Todos</option>
+                  </select>
+                  <select
+                    aria-label="Filter archive by subject"
+                    value={archiveSubject}
+                    onChange={(event) => setArchiveSubject(event.target.value)}
+                  >
+                    <option value="all">All subjects</option>
+                    {subjects.map((subject) => (
+                      <option key={subject.id} value={subject.id}>
+                        {subject.displayName}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Filter archive by reason"
+                    value={archiveReason}
+                    onChange={(event) => setArchiveReason(event.target.value)}
+                  >
+                    <option value="all">All reasons</option>
+                    {[
+                      ...new Set(
+                        archived.map(
+                          (item) => item.archiveReason ?? "Archived",
+                        ),
+                      ),
+                    ].map((reason) => (
+                      <option key={reason} value={reason}>
+                        {reason}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Filter archive by year"
+                    value={archiveYear}
+                    onChange={(event) => setArchiveYear(event.target.value)}
+                  >
+                    <option value="all">All years</option>
+                    {[
+                      ...new Set(
+                        archived
+                          .map((item) => item.archivedAt?.slice(0, 4))
+                          .filter((year): year is string => Boolean(year)),
+                      ),
+                    ]
+                      .sort()
+                      .reverse()
+                      .map((year) => (
+                        <option key={year} value={year}>
+                          {year}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                {archiveSelection.length ? (
+                  <div className="archive-selection-bar">
+                    <span>{archiveSelection.length} selected</span>
+                    <button
+                      onClick={() => {
+                        const selected = archived.filter((item) =>
+                          archiveSelection.includes(item.id),
+                        );
+                        const subjectNames = new Map(
+                          subjects.map((subject) => [
+                            subject.id,
+                            subject.displayName,
+                          ]),
+                        );
+                        download(
+                          "organato-archive-selection.csv",
+                          `\uFEFF${itemCsv(selected, subjectNames)}`,
+                          "text/csv;charset=utf-8",
+                        );
+                      }}
+                    >
+                      Export selected
+                    </button>
+                    <button onClick={() => setArchiveSelection([])}>
+                      Clear
+                    </button>
+                  </div>
+                ) : null}
+                {filteredArchive.length ? (
+                  filteredArchive.map((item) => (
                     <div className="archive-row" key={item.id}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${item.displayName}`}
+                        checked={archiveSelection.includes(item.id)}
+                        onChange={(event) =>
+                          setArchiveSelection((current) =>
+                            event.target.checked
+                              ? [...new Set([...current, item.id])]
+                              : current.filter((id) => id !== item.id),
+                          )
+                        }
+                      />
                       <Archive size={15} />
-                      <span>
+                      <button
+                        className="archive-item-preview"
+                        onClick={() => {
+                          setArchivePreviewId(item.id);
+                          setItemDeleteConfirmation("");
+                          setDeleteError(null);
+                        }}
+                      >
                         <strong>{item.displayName}</strong>
                         <small>
-                          {item.archiveReason} · {item.classification}
+                          {item.archiveReason ?? "Archived"} ·{" "}
+                          {item.classification}
                         </small>
-                      </span>
+                      </button>
                       <button
                         onClick={() =>
                           dispatch({ type: "restore", id: item.id })
@@ -890,8 +1281,88 @@ export default function SettingsPage() {
                     </div>
                   ))
                 ) : (
-                  <p className="empty-line">No archived items.</p>
+                  <p className="empty-line">
+                    {archived.length
+                      ? "No archived items match these filters."
+                      : "No archived items."}
+                  </p>
                 )}
+                {archivePreview ? (
+                  <div className="archive-preview">
+                    <div>
+                      <span>
+                        {archivePreview.kind === "todo"
+                          ? "Todo"
+                          : archivePreview.classification}
+                      </span>
+                      <button
+                        aria-label="Close archive preview"
+                        onClick={() => {
+                          setArchivePreviewId(null);
+                          setDeleteError(null);
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <h4>{archivePreview.displayName}</h4>
+                    <p>
+                      {archivePreview.archiveReason ?? "Archived"} ·{" "}
+                      {archivePreview.archivedAt
+                        ? new Date(
+                            archivePreview.archivedAt,
+                          ).toLocaleDateString("en-AU")
+                        : "Unknown date"}
+                    </p>
+                    {archivePreview.notesMarkdown ? (
+                      <p className="archive-preview-notes">
+                        {archivePreview.notesMarkdown}
+                      </p>
+                    ) : null}
+                    {archivePreview.history.length ? (
+                      <ol>
+                        {archivePreview.history.slice(0, 5).map((entry) => (
+                          <li key={entry.id}>
+                            <strong>{entry.summary}</strong>
+                            <small>
+                              {new Date(entry.createdAt).toLocaleString(
+                                "en-AU",
+                              )}
+                            </small>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : null}
+                    <div className="archive-delete-control">
+                      <label>
+                        Type <strong>{archivePreview.displayName}</strong> to
+                        permanently delete this item
+                        <input
+                          value={itemDeleteConfirmation}
+                          onChange={(event) =>
+                            setItemDeleteConfirmation(event.target.value)
+                          }
+                        />
+                      </label>
+                      <button
+                        className="danger-button"
+                        disabled={
+                          itemDeleteConfirmation !==
+                            archivePreview.displayName ||
+                          connectionBusy === `delete-item:${archivePreview.id}`
+                        }
+                        onClick={() => void permanentlyDeleteItem()}
+                      >
+                        Permanently delete item
+                      </button>
+                    </div>
+                    {deleteError ? (
+                      <p className="settings-inline-error" role="alert">
+                        {deleteError}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
               <div className="settings-block">
                 <h3>Export & backup</h3>
@@ -900,19 +1371,14 @@ export default function SettingsPage() {
                   secrets, or encryption keys.
                 </p>
                 <div className="button-row">
-                  <button className="new-button" onClick={exportJson}>
+                  <button
+                    className="new-button"
+                    onClick={() => void exportJson()}
+                  >
                     <FileJson size={15} /> Export full JSON
                   </button>
-                  <button
-                    onClick={() =>
-                      download(
-                        "organato-items.csv",
-                        `Name,Type,Status\n${items.map((item) => `"${item.displayName.replaceAll('"', '""')}",${item.kind},${item.workingStatus}`).join("\n")}`,
-                        "text/csv",
-                      )
-                    }
-                  >
-                    <Download size={15} /> Export CSV
+                  <button onClick={() => void exportCsvSet()}>
+                    <Download size={15} /> Export complete CSV set
                   </button>
                 </div>
               </div>
@@ -947,6 +1413,82 @@ export default function SettingsPage() {
                     Apply validated merge
                   </button>
                 ) : null}
+              </div>
+              <div className="settings-block danger-zone">
+                <h3>Permanent deletion</h3>
+                <p>
+                  Delete every Organato item, subject, integration credential,
+                  reminder record, saved view, approved identity, and session.
+                  Original records in Canvas and Google are not deleted.
+                </p>
+                {!deleteOpen ? (
+                  <button
+                    className="danger-text"
+                    onClick={() => setDeleteOpen(true)}
+                  >
+                    Delete all Organato data
+                  </button>
+                ) : (
+                  <div className="delete-confirmation">
+                    <div className="button-row">
+                      <button onClick={() => void exportJson()}>
+                        <Download size={15} /> Download backup first
+                      </button>
+                    </div>
+                    <label>
+                      Type <strong>Organato</strong> to confirm
+                      <input
+                        autoComplete="off"
+                        value={deleteConfirmation}
+                        onChange={(event) =>
+                          setDeleteConfirmation(event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="delete-acknowledgement">
+                      <input
+                        type="checkbox"
+                        checked={deleteExternalAcknowledged}
+                        onChange={(event) =>
+                          setDeleteExternalAcknowledged(event.target.checked)
+                        }
+                      />
+                      <span>
+                        I understand this does not delete the original Canvas or
+                        Google data and cannot be undone without a backup.
+                      </span>
+                    </label>
+                    <div className="button-row">
+                      <button
+                        className="danger-button"
+                        disabled={
+                          deleteConfirmation !== "Organato" ||
+                          !deleteExternalAcknowledged ||
+                          connectionBusy === "delete-all"
+                        }
+                        onClick={() => void permanentlyDeleteWorkspace()}
+                      >
+                        Permanently delete everything
+                      </button>
+                      <button
+                        disabled={connectionBusy === "delete-all"}
+                        onClick={() => {
+                          setDeleteOpen(false);
+                          setDeleteConfirmation("");
+                          setDeleteExternalAcknowledged(false);
+                          setDeleteError(null);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {deleteError ? (
+                      <p className="settings-inline-error" role="alert">
+                        {deleteError}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
               </div>
             </>
           ) : null}
@@ -1027,7 +1569,7 @@ export default function SettingsPage() {
           {active === "about" ? (
             <div className="settings-block">
               <h3>Organato 0.1.0</h3>
-              <p>Database schema 1 · build 25 July 2026</p>
+              <p>Database schema 1 · free self-hosted release</p>
               <a href="/privacy.html" target="_blank">
                 Privacy policy <ExternalLink size={12} />
               </a>
@@ -1062,35 +1604,19 @@ export default function SettingsPage() {
   function IntegrationCard({
     provider,
   }: {
-    provider: "canvas" | "google_calendar" | "gmail";
+    provider: "google_calendar" | "gmail";
   }) {
     const integration = integrations.find(
       (entry) => entry.provider === provider,
     )!;
-    const connectCanvas = async () => {
-      setConnectionBusy(provider);
-      try {
-        await protectedPost("/api/integrations/canvas/connect", {
-          baseUrl: canvasBaseUrl,
-          token: canvasToken,
-        });
-        setCanvasToken("");
-        dispatch({
-          type: "toast",
-          message: "Canvas connection verified · token stored encrypted",
-        });
-      } catch (error) {
-        dispatch({
-          type: "toast",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Canvas connection failed safely",
-        });
-      } finally {
-        setConnectionBusy(null);
-      }
-    };
+    const connected = integration.state !== "disconnected";
+    const stateLabels = {
+      healthy: "Connected",
+      delayed: "Delayed",
+      partial: "Partially connected",
+      action_needed: "Action needed",
+      disconnected: "Not connected",
+    } as const;
     const connectGoogle = async () => {
       setConnectionBusy(provider);
       try {
@@ -1119,11 +1645,9 @@ export default function SettingsPage() {
       setConnectionBusy(provider);
       try {
         const path =
-          provider === "canvas"
-            ? "/api/integrations/canvas/sync"
-            : provider === "google_calendar"
-              ? "/api/integrations/google/reconcile"
-              : "/api/integrations/google/test-email";
+          provider === "google_calendar"
+            ? "/api/integrations/google/reconcile"
+            : "/api/integrations/google/test-email";
         await protectedPost(path);
         dispatch({
           type: "toast",
@@ -1146,81 +1670,82 @@ export default function SettingsPage() {
         setConnectionBusy(null);
       }
     };
+    const disconnectGoogle = async () => {
+      if (
+        !window.confirm(
+          "Disconnect Calendar and Gmail from Organato? Existing Organato data stays in place.",
+        )
+      ) {
+        return;
+      }
+      setConnectionBusy("google-disconnect");
+      try {
+        await protectedPost("/api/integrations/google/disconnect");
+        await refresh();
+        dispatch({ type: "toast", message: "Google disconnected" });
+      } catch (error) {
+        dispatch({
+          type: "toast",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Google could not be disconnected",
+        });
+      } finally {
+        setConnectionBusy(null);
+      }
+    };
     return (
       <div className="settings-block integration-card">
         <h3>{integration.label}</h3>
         <div className="integration-state">
-          <i className="health-dot" />
+          <i
+            className={`health-dot ${
+              integration.state === "healthy"
+                ? "healthy"
+                : integration.state === "disconnected"
+                  ? "neutral"
+                  : integration.state === "action_needed"
+                    ? "action-needed"
+                    : integration.state
+            }`}
+          />
           <span>
-            <strong>{integration.state.replaceAll("_", " ")}</strong>
+            <strong>{stateLabels[integration.state]}</strong>
             <small>
               {integration.lastSuccessAt
                 ? `Last success ${new Date(
                     integration.lastSuccessAt,
                   ).toLocaleString("en-AU")}`
-                : "Not connected yet"}
+                : connected
+                  ? "No successful operation recorded yet"
+                  : "Not connected yet"}
             </small>
           </span>
         </div>
         <p>
-          {provider === "canvas"
-            ? "HTTPS host pinned · upcoming active-course assignments only · read-only."
-            : provider === "google_calendar"
-              ? "Dedicated Organato calendar · unrelated events are never read."
-              : "Predetermined HTML/plain-text digest · at most 10 messages/day."}
+          {provider === "google_calendar"
+            ? "Dedicated Organato calendar · unrelated events are never read."
+            : "Predetermined HTML/plain-text digest · at most 10 messages/day."}
         </p>
-        {provider === "canvas" ? (
-          <div className="protected-setup">
-            <label>
-              Canvas / Reshet URL
-              <input
-                type="url"
-                autoComplete="url"
-                placeholder="https://school.instructure.com"
-                value={canvasBaseUrl}
-                onChange={(event) => setCanvasBaseUrl(event.target.value)}
-              />
-            </label>
-            <label>
-              Personal access token
-              <input
-                type="password"
-                autoComplete="off"
-                placeholder="Entered once · never exported"
-                value={canvasToken}
-                onChange={(event) => setCanvasToken(event.target.value)}
-              />
-            </label>
-            <button
-              disabled={
-                connectionBusy === provider ||
-                !canvasBaseUrl ||
-                canvasToken.length < 10
-              }
-              onClick={() => void connectCanvas()}
-            >
-              Verify and save securely
-            </button>
-          </div>
-        ) : null}
         <div className="button-row">
-          {provider !== "canvas" ? (
-            <button
-              disabled={connectionBusy === provider}
-              onClick={() => void connectGoogle()}
-            >
-              Reconnect
-            </button>
-          ) : null}
           <button
             disabled={connectionBusy === provider}
+            onClick={() => void connectGoogle()}
+          >
+            {connected ? "Reconnect" : "Connect"}
+          </button>
+          <button
+            disabled={connectionBusy === provider || !connected}
             onClick={() => void runAction()}
           >
-            {provider === "gmail"
-              ? "Send test"
-              : provider === "canvas"
-                ? "Sync now"
-                : "Reconcile now"}
+            {provider === "gmail" ? "Send test" : "Reconcile now"}
+          </button>
+          <button
+            disabled={Boolean(connectionBusy) || !connected}
+            onClick={() => void disconnectGoogle()}
+          >
+            Disconnect Google
           </button>
         </div>
       </div>

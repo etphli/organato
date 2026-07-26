@@ -5,12 +5,13 @@ import {
   Plus,
   Repeat2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { addDays, format } from "date-fns";
 import {
   compareItems,
-  dateOnlyCutoffUtc,
   daysRemainingLabel,
+  itemDeadline,
   visibleStatus,
 } from "@organato/domain";
 import { PageHeader } from "../components/PageHeader";
@@ -33,12 +34,14 @@ function parseQuickTodo(input: string) {
     name: cleaned,
     priority: priorityMatch?.[1]?.toLowerCase() ?? null,
     subject: subjectMatch?.[1] ?? null,
-    dueAt: tomorrow ? dateOnlyCutoffUtc(tomorrowKey).toISOString() : null,
+    dueDateLocal: tomorrow ? tomorrowKey : null,
   };
 }
 
 export default function TodoPage() {
   const { items, subjects, subjectsById, settings, dispatch } = useOrganato();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const quickAddRef = useRef<HTMLInputElement>(null);
   const [entry, setEntry] = useState("");
   const [preview, setPreview] = useState<ReturnType<
     typeof parseQuickTodo
@@ -50,12 +53,19 @@ export default function TodoPage() {
         .toSorted((a, b) => compareItems(a, b, now)),
     [items],
   );
+  useEffect(() => {
+    if (searchParams.get("new") !== "1") return;
+    quickAddRef.current?.focus();
+    const next = new URLSearchParams(searchParams);
+    next.delete("new");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
   const submit = () => {
     const parsed = parseQuickTodo(entry);
     if (!parsed.name) return;
     if (
       settings.naturalTodoParsing &&
-      (parsed.priority || parsed.subject || parsed.dueAt) &&
+      (parsed.priority || parsed.subject || parsed.dueDateLocal) &&
       !preview
     ) {
       setPreview(parsed);
@@ -73,7 +83,8 @@ export default function TodoPage() {
     dispatch({
       type: "addTodo",
       name: parsed.name,
-      dueAt: parsed.dueAt,
+      dueDateLocal: parsed.dueDateLocal,
+      dueHasExplicitTime: false,
       subjectId: subject?.id ?? null,
       priority: parsed.priority as "low" | "medium" | "high" | "urgent" | null,
     });
@@ -88,7 +99,7 @@ export default function TodoPage() {
         actions={
           <button
             className="new-button"
-            onClick={() => document.getElementById("todo-quick-add")?.focus()}
+            onClick={() => quickAddRef.current?.focus()}
           >
             <Plus size={16} /> New
           </button>
@@ -103,7 +114,9 @@ export default function TodoPage() {
         >
           <Plus size={18} aria-hidden="true" />
           <input
+            ref={quickAddRef}
             id="todo-quick-add"
+            aria-label="New todo"
             value={entry}
             onChange={(event) => {
               setEntry(event.target.value);
@@ -116,7 +129,7 @@ export default function TodoPage() {
         {preview ? (
           <div className="parse-preview" role="status">
             <span>
-              Create “{preview.name}”{preview.dueAt ? " · tomorrow" : ""}
+              Create “{preview.name}”{preview.dueDateLocal ? " · tomorrow" : ""}
               {preview.subject ? ` · #${preview.subject}` : ""}
               {preview.priority ? ` · ${preview.priority}` : ""}?
             </span>
@@ -171,13 +184,11 @@ export default function TodoPage() {
                 {todo.displayName}
               </button>
               <span className={status === "overdue" ? "danger-text" : ""}>
-                {daysRemainingLabel(
-                  todo.dueAt ? new Date(todo.dueAt) : null,
-                  now,
-                )}
+                {daysRemainingLabel(itemDeadline(todo), now, settings.timezone)}
                 <small>
-                  {todo.dueAt
-                    ? new Date(todo.dueAt).toLocaleDateString("en-AU", {
+                  {itemDeadline(todo)
+                    ? itemDeadline(todo)!.toLocaleDateString("en-AU", {
+                        timeZone: settings.timezone,
                         day: "numeric",
                         month: "short",
                       })
@@ -185,6 +196,7 @@ export default function TodoPage() {
                 </small>
               </span>
               <select
+                aria-label={`Subject for ${todo.displayName}`}
                 value={todo.subjectId ?? ""}
                 onChange={(event) =>
                   dispatch({
@@ -207,6 +219,7 @@ export default function TodoPage() {
                   "No subject"}
               </span>
               <select
+                aria-label={`Priority for ${todo.displayName}`}
                 value={todo.priority ?? ""}
                 onChange={(event) =>
                   dispatch({
@@ -237,6 +250,7 @@ export default function TodoPage() {
               <button
                 className="row-menu"
                 onClick={() => dispatch({ type: "select", id: todo.id })}
+                aria-label={`More actions for ${todo.displayName}`}
               >
                 <MoreHorizontal size={16} />
               </button>

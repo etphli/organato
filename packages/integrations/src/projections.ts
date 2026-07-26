@@ -1,5 +1,6 @@
 import {
   itemDeadline,
+  localDateKey,
   type OrganatoItem,
   type Subject,
 } from "@organato/domain";
@@ -9,6 +10,12 @@ function escapeDescription(value: string): string {
   return value.replaceAll("\r", "").trim();
 }
 
+function nextLocalDate(localDate: string): string {
+  const next = new Date(`${localDate}T00:00:00.000Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().slice(0, 10);
+}
+
 export function projectCalendarEvent(
   item: OrganatoItem,
   subject: Subject | undefined,
@@ -16,15 +23,17 @@ export function projectCalendarEvent(
 ): CalendarEventProjection | null {
   const deadline = itemDeadline(item);
   if (!deadline || item.archivedAt || !item.calendarEnabled) return null;
+  const allDayDate =
+    !item.dueHasExplicitTime && (item.dueDateLocal ?? localDateKey(deadline));
   const start = item.dueHasExplicitTime
     ? { dateTime: deadline.toISOString(), timeZone: "Australia/Sydney" }
-    : { date: item.dueDateLocal ?? deadline.toISOString().slice(0, 10) };
+    : { date: allDayDate || localDateKey(deadline) };
   const end = item.dueHasExplicitTime
     ? {
         dateTime: new Date(deadline.getTime() + 30 * 60_000).toISOString(),
         timeZone: "Australia/Sydney",
       }
-    : { date: item.dueDateLocal ?? deadline.toISOString().slice(0, 10) };
+    : { date: nextLocalDate(allDayDate || localDateKey(deadline)) };
   const type =
     item.kind === "todo"
       ? "Todo"
@@ -53,6 +62,7 @@ export function projectCalendarEvent(
     ].join("\n"),
     privateProperties: {
       organatoItemId: item.id,
+      organatoItemVersion: String(item.version),
       organatoSchemaVersion: "1",
       organatoSourceType: item.sourceType,
     },

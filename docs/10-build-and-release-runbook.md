@@ -9,7 +9,8 @@ The repository contains:
 - `packages/domain`: provider-independent item, date, status, recurrence, reminder, and backup rules.
 - `packages/integrations`: real and fake Canvas, Google Calendar, and Gmail adapters.
 - `packages/email`: versioned, escaped HTML/plain-text digest renderer.
-- `migrations`: immutable D1 schema with external-identity, active-due, archive, Calendar-pending, reminder, and history indexes.
+- `migrations`: immutable D1 migrations for external identities, active-due
+  items, archives, Calendar work, durable reminder retries, and history indexes.
 - `scripts`: licence/secret gates, CPU benchmark, and free local `launchd` scheduler fallback.
 
 ## Local setup
@@ -24,7 +25,7 @@ The committed Vite development profile enables redacted demo data only for `vite
 
 ## Required production values
 
-- Exact Canvas HTTPS base URL.
+- Pinned Canvas HTTPS origin (`https://emanuel.instructure.com` for this deployment).
 - Initial normalized Google owner email allow-list.
 - Google integration-owner email.
 - Digest recipients chosen from allowed owner identities.
@@ -62,12 +63,15 @@ Official references:
 ## Canvas setup
 
 1. Open Settings → Canvas / Reshet.
-2. Enter the exact HTTPS installation base URL and a personal access token.
+2. Enter a personal access token. The Emanuel School origin is configured and
+   enforced server-side.
 3. Organato validates the token against the current-user endpoint before encrypting it.
-4. Confirm the detected user and hostname.
-5. Run the first sync and compare the redacted diagnostics with the school's actual upcoming/personalized-date behavior.
+4. Confirm the detected user and school.
+5. Organato runs the first sync; compare the redacted diagnostics with the school's actual upcoming/personalized-date behavior.
 
-Organato pins the hostname, refuses credential-bearing cross-host redirects, follows pagination with loop detection, uses bounded course concurrency, and never calls a Canvas mutation endpoint.
+Organato pins the exact origin, rejects alternate ports and credential-bearing
+cross-origin redirects, follows pagination with loop detection, uses bounded
+course concurrency, and never calls a Canvas mutation endpoint.
 
 ## Scheduler decision
 
@@ -108,7 +112,13 @@ Run:
 pnpm check
 ```
 
-This covers formatting, lint, TypeScript, unit/component/contract tests, production build, dependency licence allow-listing, and secret scanning. Before release, also perform:
+This covers formatting, lint, TypeScript, unit/component/contract tests,
+production build, dependency licence allow-listing, production dependency
+auditing, and secret scanning. `GHSA-qwww-vcr4-c8h2` is explicitly ignored
+because the official advisory says it applies only to unstable React Server
+Component APIs; Organato is a client-rendered Vite SPA and imports none of those
+APIs. Remove the ignore when React Router publishes a compatible 7.x fix or
+Organato moves to React Router 8. Before release, also perform:
 
 - Authorized/unauthorized Google sign-in.
 - Canvas real-instance mapping and cross-host redirect test.
@@ -125,7 +135,8 @@ This covers formatting, lint, TypeScript, unit/component/contract tests, product
 
 1. Create separate preview and production D1 databases.
 2. Replace the placeholder production D1 ID in `wrangler.jsonc`.
-3. Apply `migrations/0001_initial.sql`.
+3. Apply every pending migration with
+   `pnpm dlx wrangler@4.114.0 d1 migrations apply organato-production --remote --config wrangler.jsonc`.
 4. Set non-secret vars and all Worker secrets.
 5. Build with `pnpm build`.
 6. Run `pnpm check`.
@@ -133,6 +144,10 @@ This covers formatting, lint, TypeScript, unit/component/contract tests, product
 8. Confirm the Cloudflare account remains on Workers Free and has no payment method.
 9. Deploy with Wrangler and complete owner-only smoke tests.
 10. Download the first secret-free JSON backup.
+
+Never edit or re-run an already-applied migration. Add a sequential migration,
+inspect the pending list, apply it to a local D1 database first, and only then
+apply it to production.
 
 ## Recovery
 

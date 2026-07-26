@@ -17,7 +17,8 @@ import type {
   Subject,
   WorkspaceSettings,
 } from "@organato/domain";
-import { nextRecurrence } from "@organato/domain";
+import { nextRecurrenceDeadline } from "@organato/domain";
+import { BrandMark } from "../components/BrandMark";
 import {
   seedIntegrations,
   seedItems,
@@ -33,6 +34,7 @@ interface State {
   integrations: IntegrationHealth[];
   views: SavedView[];
   ready: boolean;
+  bootError: string | null;
   selectedItemId: string | null;
   commandOpen: boolean;
   searchOpen: boolean;
@@ -90,6 +92,8 @@ type Action =
       type: "addTodo";
       name: string;
       dueAt?: string | null;
+      dueDateLocal?: string | null;
+      dueHasExplicitTime?: boolean;
       subjectId?: string | null;
       priority?: OrganatoItem["priority"];
     }
@@ -106,11 +110,36 @@ type Action =
   | { type: "search"; open: boolean }
   | { type: "syncing"; value: boolean }
   | { type: "toast"; message: string | null }
+  | { type: "bootStarted" }
+  | { type: "bootFailed"; message: string }
   | { type: "undo" }
   | { type: "reset" };
 
 const storageKey = "organato-demo-state-v1";
 const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
+const serverMutationTypes = new Set<Action["type"]>([
+  "resetOverride",
+  "patchSubject",
+  "addSubject",
+  "undo",
+  "saveView",
+  "addAttachment",
+  "patchItem",
+  "classify",
+  "archive",
+  "restore",
+  "addTodo",
+  "addWork",
+  "settings",
+]);
+
+function isOffline(): boolean {
+  return typeof navigator !== "undefined" && !navigator.onLine;
+}
+
+function isServerMutation(action: Action): boolean {
+  return serverMutationTypes.has(action.type);
+}
 
 function initialState(): State {
   if (demoMode) {
@@ -126,6 +155,7 @@ function initialState(): State {
           integrations: seedIntegrations,
           views: "views" in parsed ? (parsed as State).views : seedViews,
           ready: true,
+          bootError: null,
           selectedItemId: null,
           commandOpen: false,
           searchOpen: false,
@@ -145,6 +175,7 @@ function initialState(): State {
     integrations: seedIntegrations,
     views: demoMode ? seedViews : [],
     ready: demoMode,
+    bootError: null,
     selectedItemId: null,
     commandOpen: false,
     searchOpen: false,
@@ -179,16 +210,33 @@ function reducer(state: State, action: Action): State {
       integrations: action.integrations,
       views: action.views,
       ready: true,
+      bootError: null,
       toast: null,
     });
   }
-  if (action.type === "replaceItem") {
+  if (action.type === "bootStarted") {
+    return { ...state, bootError: null };
+  }
+  if (action.type === "bootFailed") {
     return {
       ...state,
-      items: state.items.map((item) =>
-        item.id === action.item.id ? action.item : item,
-      ),
+      ready: false,
+      bootError: action.message,
     };
+  }
+  if (action.type === "replaceItem") {
+    const exists = state.items.some((item) => item.id === action.item.id);
+    return {
+      ...state,
+      items: exists
+        ? state.items.map((item) =>
+            item.id === action.item.id ? action.item : item,
+          )
+        : [action.item, ...state.items],
+    };
+  }
+  if (isOffline() && isServerMutation(action)) {
+    return { ...state, toast: "Offline · this change was not saved" };
   }
   if (action.type === "resetOverride") {
     const current = state.items.find((item) => item.id === action.id);
@@ -206,7 +254,11 @@ function reducer(state: State, action: Action): State {
                 ? { displayName: item.sourceName }
                 : {}),
               ...(action.fieldName === "due"
-                ? { dueAt: item.sourceDueAt }
+                ? {
+                    dueAt: item.sourceDueAt,
+                    dueDateLocal: null,
+                    dueHasExplicitTime: Boolean(item.sourceDueAt),
+                  }
                 : {}),
               ...(action.fieldName === "subject"
                 ? { subjectId: sourceSubject?.id ?? null }
@@ -313,44 +365,26 @@ function reducer(state: State, action: Action): State {
     localStorage.removeItem(storageKey);
     return initialState();
   }
-  if (
-    typeof navigator !== "undefined" &&
-    !navigator.onLine &&
-    [
-      "patchItem",
-      "classify",
-      "archive",
-      "restore",
-      "addTodo",
-      "addWork",
-      "settings",
-      "undo",
-      "addAttachment",
-      "resetOverride",
-      "patchSubject",
-      "addSubject",
-    ].includes(action.type)
-  ) {
-    return { ...state, toast: "Offline · this change was not saved" };
-  }
   if (action.type === "patchItem") {
     const current = state.items.find((item) => item.id === action.id);
     const completedNow =
       current?.workingStatus !== "completed" &&
       action.patch.workingStatus === "completed";
-    const occurrence =
+    const nextDeadline =
       completedNow &&
       state.settings.recurrenceOnCompletion &&
-      current?.recurrenceRule &&
-      current.dueAt
+      current?.recurrenceRule
+        ? nextRecurrenceDeadline(current, current.recurrenceRule)
+        : null;
+    const occurrence =
+      demoMode && current?.recurrenceRule && nextDeadline
         ? {
             ...current,
             id: crypto.randomUUID(),
             version: 1,
-            dueAt: nextRecurrence(
-              new Date(current.dueAt),
-              current.recurrenceRule,
-            ).toISOString(),
+            ...nextDeadline,
+            recurrenceSeriesId:
+              current.recurrenceSeriesId ?? current.recurrenceRule.seriesId,
             workingStatus: "not_started" as const,
             completedAt: null,
             submittedAt: null,
@@ -483,8 +517,12 @@ function reducer(state: State, action: Action): State {
       sourcePayloadHash: null,
       displayName: action.name,
       dueAt: action.dueAt ?? null,
-      dueDateLocal: null,
-      dueHasExplicitTime: Boolean(action.dueAt),
+      dueDateLocal:
+        action.type === "addTodo" ? (action.dueDateLocal ?? null) : null,
+      dueHasExplicitTime:
+        action.type === "addTodo"
+          ? (action.dueHasExplicitTime ?? Boolean(action.dueAt))
+          : Boolean(action.dueAt),
       subjectId: action.subjectId ?? null,
       priority: action.priority ?? null,
       workingStatus: "not_started",
@@ -495,7 +533,10 @@ function reducer(state: State, action: Action): State {
       recurrenceSeriesId: null,
       calendarEnabled: isTodo ? state.settings.todoCalendarDefault : true,
       remindersEnabled: isTodo ? state.settings.todoRemindersDefault : true,
-      calendarSyncState: action.dueAt ? "pending" : "synced",
+      calendarSyncState:
+        action.dueAt || (action.type === "addTodo" && action.dueDateLocal)
+          ? "pending"
+          : "synced",
       calendarNote: "",
       pinned: false,
       sortRank: 0,
@@ -536,6 +577,7 @@ interface ContextValue extends State {
   subjectsById: Map<string, Subject>;
   selectedItem: OrganatoItem | null;
   dispatch: React.Dispatch<Action>;
+  refresh(): Promise<void>;
   syncNow(): void;
 }
 
@@ -624,17 +666,24 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
     });
   }, [apiRequest]);
 
-  useEffect(() => {
-    void refresh().catch((error) => {
+  const loadWorkspace = useCallback(async () => {
+    baseDispatch({ type: "bootStarted" });
+    try {
+      await refresh();
+    } catch {
       baseDispatch({
-        type: "toast",
+        type: "bootFailed",
         message:
-          error instanceof Error
-            ? error.message
-            : "Workspace data could not be loaded.",
+          typeof navigator !== "undefined" && !navigator.onLine
+            ? "Reconnect to load your private workspace, then try again."
+            : "One or more workspace requests failed. Your data is safe; try again.",
       });
-    });
+    }
   }, [refresh]);
+
+  useEffect(() => {
+    void loadWorkspace();
+  }, [loadWorkspace]);
 
   const mutationQueue = useRef(Promise.resolve());
   const dispatch = useCallback(
@@ -645,6 +694,9 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
           : null;
       const undoState = state.undo;
       baseDispatch(action);
+      if (isOffline() && isServerMutation(action)) {
+        return;
+      }
       if (
         demoMode ||
         [
@@ -655,6 +707,8 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
           "search",
           "syncing",
           "toast",
+          "bootStarted",
+          "bootFailed",
           "reset",
         ].includes(action.type)
       ) {
@@ -663,17 +717,23 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
       mutationQueue.current = mutationQueue.current
         .then(async () => {
           if (action.type === "patchItem" && current) {
-            const result = await apiRequest<{ item: OrganatoItem }>(
-              `/api/items/${encodeURIComponent(action.id)}`,
-              {
-                method: "PATCH",
-                body: JSON.stringify({
-                  version: current.version,
-                  ...action.patch,
-                }),
-              },
-            );
+            const result = await apiRequest<{
+              item: OrganatoItem;
+              nextOccurrence?: OrganatoItem | null;
+            }>(`/api/items/${encodeURIComponent(action.id)}`, {
+              method: "PATCH",
+              body: JSON.stringify({
+                version: current.version,
+                ...action.patch,
+              }),
+            });
             baseDispatch({ type: "replaceItem", item: result.item });
+            if (result.nextOccurrence) {
+              baseDispatch({
+                type: "replaceItem",
+                item: result.nextOccurrence,
+              });
+            }
             return;
           }
           if (action.type === "classify" && current) {
@@ -691,19 +751,25 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
             return;
           }
           if (action.type === "archive") {
-            await apiRequest(
+            if (!current) return;
+            const result = await apiRequest<{ item: OrganatoItem }>(
               `/api/items/${encodeURIComponent(action.id)}/archive`,
               {
                 method: "POST",
-                body: JSON.stringify({}),
+                body: JSON.stringify({ version: current.version }),
               },
             );
+            baseDispatch({ type: "replaceItem", item: result.item });
             return;
           }
           if (action.type === "restore") {
+            if (!current) return;
             const result = await apiRequest<{ item: OrganatoItem }>(
               `/api/items/${encodeURIComponent(action.id)}/restore`,
-              { method: "POST", body: JSON.stringify({}) },
+              {
+                method: "POST",
+                body: JSON.stringify({ version: current.version }),
+              },
             );
             baseDispatch({ type: "replaceItem", item: result.item });
             return;
@@ -717,8 +783,14 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                 classification: isTodo ? "unclassified" : action.classification,
                 displayName: action.name,
                 dueAt: action.dueAt ?? null,
-                dueDateLocal: null,
-                dueHasExplicitTime: Boolean(action.dueAt),
+                dueDateLocal:
+                  isTodo && "dueDateLocal" in action
+                    ? (action.dueDateLocal ?? null)
+                    : null,
+                dueHasExplicitTime:
+                  isTodo && "dueHasExplicitTime" in action
+                    ? (action.dueHasExplicitTime ?? Boolean(action.dueAt))
+                    : Boolean(action.dueAt),
                 subjectId: action.subjectId ?? null,
                 priority: action.priority ?? null,
                 recurrenceRule: null,
@@ -858,9 +930,13 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                   ? "archive"
                   : null;
             if (path) {
+              if (!currentItem) return;
               await apiRequest(
                 `/api/items/${encodeURIComponent(undoState.item.id)}/${path}`,
-                { method: "POST", body: JSON.stringify({}) },
+                {
+                  method: "POST",
+                  body: JSON.stringify({ version: currentItem.version }),
+                },
               );
               await refresh();
             }
@@ -874,7 +950,13 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                 ? `${error.message} · refreshing`
                 : "The change could not be saved.",
           });
-          void refresh();
+          void refresh().catch(() => {
+            baseDispatch({
+              type: "toast",
+              message:
+                "The change could not be saved, and the workspace could not refresh. Reconnect and try again.",
+            });
+          });
         });
     },
     [
@@ -888,6 +970,13 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
     ],
   );
   const syncNow = useCallback(() => {
+    if (isOffline()) {
+      baseDispatch({
+        type: "toast",
+        message: "Offline · reconnect before syncing",
+      });
+      return;
+    }
     if (!demoMode) {
       baseDispatch({ type: "syncing", value: true });
       void apiRequest("/api/integrations/canvas/sync", {
@@ -933,11 +1022,33 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
       views: state.views,
       integrations: state.integrations,
       dispatch,
+      refresh,
       syncNow,
     }),
-    [dispatch, state, syncNow],
+    [dispatch, refresh, state, syncNow],
   );
   if (!state.ready) {
+    if (state.bootError) {
+      return (
+        <main className="auth-page">
+          <section
+            aria-labelledby="workspace-load-error-title"
+            aria-live="assertive"
+            role="alert"
+          >
+            <span className="auth-mark">
+              <BrandMark size={24} />
+            </span>
+            <h1 id="workspace-load-error-title">Workspace couldn’t open</h1>
+            <p>{state.bootError}</p>
+            <button type="button" onClick={() => void loadWorkspace()}>
+              Try again
+            </button>
+            <small>Nothing was changed while Organato was reconnecting.</small>
+          </section>
+        </main>
+      );
+    }
     return <div className="auth-loading" aria-label="Loading workspace" />;
   }
   return (

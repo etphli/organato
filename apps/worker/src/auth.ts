@@ -1,13 +1,17 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { Hono } from "hono";
-import { deleteCookie } from "hono/cookie";
 import type { Context } from "hono";
 import type { Env, Variables } from "./types";
 import {
   createSession,
+  clearSessionCookies,
   decryptSecret,
   encryptSecret,
   randomToken,
+  rateLimit,
+  recordSecurityEvent,
+  requestMatchesOrigin,
+  requireSession,
   sha256,
 } from "./security";
 
@@ -25,6 +29,15 @@ function allowList(env: Env): Set<string> {
 
 function isSafeReturnTo(value: string): boolean {
   return value.startsWith("/") && !value.startsWith("//");
+}
+
+function isJsonRequest(request: Request) {
+  return (
+    request.headers
+      .get("Content-Type")
+      ?.toLowerCase()
+      .startsWith("application/json") ?? false
+  );
 }
 
 type AuthContext = Context<{ Bindings: Env; Variables: Variables }>;
@@ -80,6 +93,8 @@ async function completeGoogleSignIn(
   const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    redirect: "error",
+    signal: AbortSignal.timeout(15_000),
     body: new URLSearchParams({
       code,
       client_id: context.env.GOOGLE_CLIENT_ID,
@@ -106,22 +121,33 @@ async function completeGoogleSignIn(
     throw new GoogleSignInError("Google sign-in could not be verified.", 401);
   }
   const payload = verified.payload;
+  const issuedAt = payload.iat;
+  const nowSeconds = Math.floor(Date.now() / 1_000);
   const email =
     typeof payload.email === "string" ? payload.email.toLowerCase() : "";
+  const existing = email
+    ? await context.env.DB.prepare(
+        "SELECT google_subject, enabled FROM allowed_identity WHERE email_normalized = ?",
+      )
+        .bind(email)
+        .first<{ google_subject: string | null; enabled: number }>()
+    : null;
   if (
     !email ||
+    typeof payload.sub !== "string" ||
+    !payload.sub ||
     payload.email_verified !== true ||
     payload.nonce !== nonce ||
-    !allowList(context.env).has(email)
+    typeof issuedAt !== "number" ||
+    issuedAt > nowSeconds + 60 ||
+    nowSeconds - issuedAt > 15 * 60 ||
+    (typeof payload.azp === "string" &&
+      payload.azp !== context.env.GOOGLE_CLIENT_ID) ||
+    (!allowList(context.env).has(email) && !existing?.enabled)
   ) {
     throw new GoogleSignInError("Google sign-in was not accepted.", 403);
   }
   const subject = payload.sub;
-  const existing = await context.env.DB.prepare(
-    "SELECT google_subject, enabled FROM allowed_identity WHERE email_normalized = ?",
-  )
-    .bind(email)
-    .first<{ google_subject: string | null; enabled: number }>();
   if (
     existing &&
     (!existing.enabled ||
@@ -152,12 +178,44 @@ async function completeGoogleSignIn(
     email,
     context.req.header("User-Agent") ?? "",
   );
+  await recordSecurityEvent(
+    context.env.DB,
+    "sign_in_succeeded",
+    email,
+    "Google identity verified and a new session was created.",
+  );
   return { csrfToken, returnTo: transaction.return_to };
 }
 
 export const authRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 authRoutes.post("/google/start", async (context) => {
+  if (!isJsonRequest(context.req.raw)) {
+    return context.json(
+      { error: "Expected an application/json request." },
+      415,
+    );
+  }
+  if (!requestMatchesOrigin(context.req.raw, context.env.APP_ORIGIN)) {
+    return context.json({ error: "Request origin was rejected." }, 403);
+  }
+  const clientAddress =
+    context.req.header("CF-Connecting-IP") ??
+    context.req.header("X-Forwarded-For")?.split(",")[0]?.trim() ??
+    "unknown";
+  if (
+    !(await rateLimit(
+      context,
+      `auth-start:${await sha256(clientAddress)}`,
+      10,
+      60,
+    ))
+  ) {
+    return context.json(
+      { error: "Too many sign-in attempts. Try again later." },
+      429,
+    );
+  }
   const body = await context.req
     .json<{ returnTo?: string }>()
     .catch((): { returnTo?: string } => ({}));
@@ -219,6 +277,12 @@ authRoutes.get("/google/callback", async (context) => {
     );
   } catch (error) {
     if (error instanceof GoogleSignInError) {
+      await recordSecurityEvent(
+        context.env.DB,
+        "sign_in_failed",
+        null,
+        error.message,
+      );
       return context.text(error.message, error.status);
     }
     throw error;
@@ -226,6 +290,12 @@ authRoutes.get("/google/callback", async (context) => {
 });
 
 authRoutes.post("/google/exchange", async (context) => {
+  if (!isJsonRequest(context.req.raw)) {
+    return context.json(
+      { error: "Expected an application/json request." },
+      415,
+    );
+  }
   const body = await context.req
     .json<{ code?: string; state?: string }>()
     .catch((): { code?: string; state?: string } => ({}));
@@ -243,13 +313,39 @@ authRoutes.post("/google/exchange", async (context) => {
     });
   } catch (error) {
     if (error instanceof GoogleSignInError) {
+      await recordSecurityEvent(
+        context.env.DB,
+        "sign_in_failed",
+        null,
+        error.message,
+      );
       return context.json({ error: error.message }, error.status);
     }
     throw error;
   }
 });
 
-authRoutes.post("/logout", async (context) => {
-  deleteCookie(context, "organato_session", { path: "/" });
+authRoutes.post("/logout", requireSession(), async (context) => {
+  if (!isJsonRequest(context.req.raw)) {
+    return context.json(
+      { error: "Expected an application/json request." },
+      415,
+    );
+  }
+  const user = context.get("user");
+  if (user.sessionIdHash !== "demo") {
+    await context.env.DB.prepare(
+      "UPDATE session SET revoked_at = ? WHERE id_hash = ? AND revoked_at IS NULL",
+    )
+      .bind(new Date().toISOString(), user.sessionIdHash)
+      .run();
+    await recordSecurityEvent(
+      context.env.DB,
+      "session_revoked",
+      user.email,
+      "Current session signed out.",
+    );
+  }
+  clearSessionCookies(context);
   return context.json({ ok: true });
 });

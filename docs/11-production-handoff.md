@@ -21,7 +21,8 @@ same-origin `/api/*` rewrite terminates at the Cloudflare Worker.
 - Created and pushed the private GitHub repository.
 - Connected GitHub to Vercel for automatic deployments.
 - Deployed the production PWA to Vercel with demo mode disabled.
-- Created the Oceania D1 database and applied `0001_initial.sql`.
+- Created the Oceania D1 database and applied `0001_initial.sql` and
+  `0002_reminder_retry.sql`.
 - Registered the `etphli.workers.dev` account subdomain.
 - Deployed the Worker with D1, production origin, owner allow-list, and
   observability attached.
@@ -41,6 +42,14 @@ same-origin `/api/*` rewrite terminates at the Cloudflare Worker.
 - Verified authenticated session reads and authenticated item create, read, and
   archive requests against production, then removed the smoke-test item and
   revoked its temporary sessions.
+- Added owner-managed approved identities, cross-account session revocation,
+  recent-auth protection for sensitive actions, stable multi-tab CSRF tokens,
+  and a complete security-event trail.
+- Added full-workspace export and validated merge restore, searchable archive
+  recovery, permanent item/workspace deletion, and scheduled retention cleanup.
+- Hardened Canvas pagination/retries/redirects and missing-item handling; added
+  idempotent Google Calendar reconciliation and durable Gmail delivery retries
+  with a ten-message daily ceiling.
 
 No billing account or paid plan was enabled.
 
@@ -58,8 +67,9 @@ Google subject identifier before creating a session.
 After Google sign-in succeeds:
 
 1. Open Settings → Canvas / Reshet.
-2. Enter the school's exact HTTPS Canvas base URL and a personal access token.
-3. Confirm the detected identity and run the first Canvas sync.
+2. Enter a personal access token. Emanuel School is already pinned as the
+   installation.
+3. Confirm the detected identity; Organato then runs the first Canvas sync.
 4. Open Settings → Google, connect the dedicated Organato Calendar and Gmail
    sender, review the requested Calendar and Gmail-send scopes, then send a test
    message.
@@ -72,6 +82,8 @@ by this repository.
 
 - Local app: `pnpm dev:web`
 - Full gate: `pnpm check`
+- D1 migrations:
+  `pnpm dlx wrangler@4.114.0 d1 migrations apply organato-production --remote --config wrangler.jsonc`
 - Worker deploy: `pnpm dlx wrangler@4.114.0 deploy`
 - Vercel deploy: `pnpm dlx vercel@57.0.0 deploy --prod`
 - Hourly scheduler log: `~/.config/organato/hourly.log`

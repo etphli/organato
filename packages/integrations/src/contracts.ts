@@ -27,10 +27,13 @@ export interface CanvasSyncResult {
   courses: CanvasCourse[];
   assignments: CanvasAssignment[];
   partialFailures: Array<{ courseId: string; category: string }>;
+  successfulCourseIds: string[];
+  catalogueComplete: boolean;
+  skippedMalformedItems: number;
 }
 
 export interface CanvasProvider {
-  validateConnection(): Promise<CanvasIdentity>;
+  validateConnection(signal?: AbortSignal): Promise<CanvasIdentity>;
   fetchUpcomingAssignments(signal?: AbortSignal): Promise<CanvasSyncResult>;
 }
 
@@ -46,12 +49,12 @@ export interface CalendarEventProjection {
 
 export interface CalendarEventRecord {
   id: string;
-  etag: string;
+  etag?: string;
   status: "confirmed" | "cancelled";
-  updated: string;
-  summary: string;
-  description: string;
-  start: { date?: string; dateTime?: string };
+  updated?: string;
+  summary?: string;
+  description?: string;
+  start?: { date?: string; dateTime?: string };
   extendedProperties?: { private?: Record<string, string> };
 }
 

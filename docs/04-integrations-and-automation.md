@@ -16,21 +16,19 @@
 
 ### Setup
 
-The owner provides:
-
-- Exact HTTPS Canvas base URL, still to be supplied.
-- Personal Canvas API access token.
+The Emanuel School installation is pinned server-side to
+`https://emanuel.instructure.com`. The ordinary owner flow asks only for a
+personal Canvas API access token. A different installation is an advanced,
+operator-configured deployment concern rather than a normal setting.
 
 The setup flow:
 
-1. Normalize and validate the base URL.
-2. Reject plain HTTP.
-3. Call a harmless identity endpoint to validate the token.
-4. Show the detected Canvas user and installation hostname.
-5. Ask the owner to confirm.
-6. Encrypt the token server-side.
-7. Run an initial upcoming-assignment sync.
-8. Show the number of active courses and upcoming assignments found.
+1. Resolve and enforce the configured HTTPS installation origin.
+2. Call a harmless identity endpoint to validate the token.
+3. Show the detected Canvas user and `Emanuel School`.
+4. Encrypt the token server-side.
+5. Run an initial upcoming-assignment sync.
+6. Show the number of active courses and upcoming assignments found.
 
 The token must never appear again in full. Settings shows only token creation date if known, last validation time, and a Replace/Revoke control.
 

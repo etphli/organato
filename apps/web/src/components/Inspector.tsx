@@ -6,10 +6,13 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
-import { useState } from "react";
-import { visibleStatus } from "@organato/domain";
+import { useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { visibleStatus, type OrganatoItem } from "@organato/domain";
+import { localDateTimeToIso } from "../pages/calendar/model";
 import { useOrganato } from "../state/OrganatoProvider";
 import { SubjectDot } from "./SubjectDot";
+import { useDialogFocus } from "./useDialogFocus";
 
 const statusOptions = [
   "not_started",
@@ -18,21 +21,98 @@ const statusOptions = [
   "completed",
 ] as const;
 
+type DueInputValues = {
+  date: string;
+  time: string;
+};
+
+type DuePatch = Pick<
+  OrganatoItem,
+  "dueAt" | "dueDateLocal" | "dueHasExplicitTime"
+>;
+
+function partValue(parts: Intl.DateTimeFormatPart[], type: string): string {
+  return parts.find((part) => part.type === type)?.value ?? "";
+}
+
+export function dueInputValues(
+  item: Pick<OrganatoItem, "dueAt" | "dueDateLocal" | "dueHasExplicitTime">,
+  timezone: string,
+): DueInputValues {
+  if (item.dueDateLocal && !item.dueHasExplicitTime) {
+    return { date: item.dueDateLocal, time: "" };
+  }
+  if (!item.dueAt) {
+    return { date: item.dueDateLocal ?? "", time: "" };
+  }
+  const instant = new Date(item.dueAt);
+  if (Number.isNaN(instant.getTime())) return { date: "", time: "" };
+  const parts = new Intl.DateTimeFormat("en-CA-u-hc-h23", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant);
+  return {
+    date: `${partValue(parts, "year")}-${partValue(parts, "month")}-${partValue(parts, "day")}`,
+    time: `${partValue(parts, "hour")}:${partValue(parts, "minute")}`,
+  };
+}
+
+export function duePatchFromInputs(
+  date: string,
+  time: string,
+  timezone: string,
+): DuePatch {
+  if (!date) {
+    return {
+      dueAt: null,
+      dueDateLocal: null,
+      dueHasExplicitTime: false,
+    };
+  }
+  if (!time) {
+    return {
+      dueAt: null,
+      dueDateLocal: date,
+      dueHasExplicitTime: false,
+    };
+  }
+  return {
+    dueAt: localDateTimeToIso(date, time, timezone),
+    dueDateLocal: null,
+    dueHasExplicitTime: true,
+  };
+}
+
 export function Inspector() {
   const {
     selectedItem: item,
     subjects,
     subjectsById,
+    settings,
     dispatch,
   } = useOrganato();
+  const inspectorRef = useRef<HTMLElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const [addingLink, setAddingLink] = useState(false);
   const [linkLabel, setLinkLabel] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [linkType, setLinkType] = useState<
     "reference" | "brief" | "rubric" | "working_document" | "other"
   >("other");
+  useDialogFocus(
+    Boolean(item),
+    inspectorRef,
+    nameInputRef,
+    item?.id ?? "inspector-closed",
+  );
   if (!item) return null;
   const status = visibleStatus(item);
+  const dueInput = dueInputValues(item, settings.timezone);
   const sourceSubject = subjects.find(
     (subject) => subject.canvasCourseId === item.canvasCourseId,
   );
@@ -75,14 +155,19 @@ export function Inspector() {
       : [];
   return (
     <aside
+      ref={inspectorRef}
       className="inspector"
       key={item.id}
+      role="dialog"
+      aria-modal="true"
       aria-label={`Details for ${item.displayName}`}
+      tabIndex={-1}
     >
       <header>
         <div className="inspector-title">
           <SubjectDot subjectId={item.subjectId} />
           <input
+            ref={nameInputRef}
             defaultValue={item.displayName}
             onBlur={(event) => {
               const displayName = event.target.value.trim();
@@ -132,22 +217,42 @@ export function Inspector() {
           <div>
             <dt>Due</dt>
             <dd>
-              <input
-                type="datetime-local"
-                value={item.dueAt?.slice(0, 16) ?? ""}
-                onChange={(event) =>
-                  dispatch({
-                    type: "patchItem",
-                    id: item.id,
-                    patch: {
-                      dueAt: event.target.value
-                        ? new Date(event.target.value).toISOString()
-                        : null,
-                      dueHasExplicitTime: Boolean(event.target.value),
-                    },
-                  })
-                }
-              />
+              <span className="due-inputs">
+                <input
+                  aria-label="Due date"
+                  type="date"
+                  value={dueInput.date}
+                  onChange={(event) =>
+                    dispatch({
+                      type: "patchItem",
+                      id: item.id,
+                      patch: duePatchFromInputs(
+                        event.target.value,
+                        dueInput.time,
+                        settings.timezone,
+                      ),
+                    })
+                  }
+                />
+                <input
+                  aria-label="Due time (optional)"
+                  disabled={!dueInput.date}
+                  step={900}
+                  type="time"
+                  value={dueInput.time}
+                  onChange={(event) =>
+                    dispatch({
+                      type: "patchItem",
+                      id: item.id,
+                      patch: duePatchFromInputs(
+                        dueInput.date,
+                        event.target.value,
+                        settings.timezone,
+                      ),
+                    })
+                  }
+                />
+              </span>
               {item.sourceType === "canvas" &&
               item.overrides.some((entry) => entry.fieldName === "due") ? (
                 <button
@@ -170,6 +275,7 @@ export function Inspector() {
             <dt>Subject</dt>
             <dd>
               <select
+                aria-label="Subject"
                 value={item.subjectId ?? ""}
                 onChange={(event) =>
                   dispatch({
@@ -192,6 +298,7 @@ export function Inspector() {
             <dt>Priority</dt>
             <dd>
               <select
+                aria-label="Priority"
                 value={item.priority ?? ""}
                 onChange={(event) =>
                   dispatch({
@@ -217,6 +324,7 @@ export function Inspector() {
               <dt>Classification</dt>
               <dd>
                 <select
+                  aria-label="Classification"
                   value={item.classification}
                   onChange={(event) =>
                     dispatch({
@@ -240,6 +348,7 @@ export function Inspector() {
               <dt>Repeat</dt>
               <dd>
                 <select
+                  aria-label="Repeat"
                   value={item.recurrenceRule?.frequency ?? ""}
                   onChange={(event) => {
                     const frequency = event.target.value as NonNullable<
@@ -296,6 +405,7 @@ export function Inspector() {
         <section className="inspector-section">
           <h2>Notes</h2>
           <textarea
+            aria-label="Notes"
             defaultValue={item.notesMarkdown}
             onBlur={(event) => {
               if (event.target.value !== item.notesMarkdown) {
@@ -471,12 +581,13 @@ export function Inspector() {
           ))}
         </section>
       </div>
-      <button
+      <Link
         className="archive-button"
-        onClick={() => dispatch({ type: "archive", id: item.id })}
+        to="/settings/data"
+        onClick={() => dispatch({ type: "select", id: null })}
       >
-        <Archive size={15} /> Archive
-      </button>
+        <Archive size={15} /> Manage archive in Settings
+      </Link>
     </aside>
   );
 }

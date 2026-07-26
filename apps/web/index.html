@@ -10,10 +10,45 @@
     />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="mask-icon" href="/icons/icon-monochrome.svg" color="#0b0b0c" />
+    <link rel="stylesheet" href="/boot.css" />
     <title>Organato</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot-shell" role="status" aria-label="Opening Organato">
+        <aside class="boot-rail" aria-hidden="true">
+          <span class="boot-mark"><i></i></span>
+          <span class="boot-nav boot-nav-active"></span>
+          <span class="boot-nav"></span>
+          <span class="boot-nav"></span>
+          <span class="boot-nav"></span>
+          <span class="boot-nav"></span>
+        </aside>
+        <main class="boot-main" aria-hidden="true">
+          <div class="boot-heading">
+            <span></span>
+            <i></i>
+          </div>
+          <div class="boot-rule"></div>
+          <div class="boot-row">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div class="boot-row">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div class="boot-row">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        </main>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

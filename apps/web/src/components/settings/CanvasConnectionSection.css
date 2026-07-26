@@ -1,0 +1,421 @@
+.canvas-connection {
+  color: var(--text);
+  max-width: 760px;
+}
+
+.canvas-connection__header {
+  margin-bottom: 24px;
+}
+
+.canvas-connection__header h2 {
+  font-size: 1.35rem;
+  font-weight: 590;
+  letter-spacing: -0.025em;
+  margin: 0;
+}
+
+.canvas-connection__header p {
+  color: var(--secondary);
+  font-size: 0.78rem;
+  margin: 5px 0 0;
+}
+
+.canvas-connection__school {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 13px;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  min-height: 68px;
+}
+
+.canvas-connection__school-mark {
+  align-items: center;
+  background: var(--text);
+  border-radius: 50%;
+  color: var(--bg);
+  display: inline-flex;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.canvas-connection__school strong,
+.canvas-connection__school small {
+  display: block;
+}
+
+.canvas-connection__school strong {
+  font-size: 0.78rem;
+  font-weight: 560;
+}
+
+.canvas-connection__school small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: 4px;
+}
+
+.canvas-connection__state {
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.canvas-connection__state--healthy {
+  color: var(--success);
+}
+
+.canvas-connection__state--partial,
+.canvas-connection__state--delayed,
+.canvas-connection__state--action_needed {
+  color: #d6ac74;
+}
+
+.canvas-connection__credential {
+  border-bottom: 1px solid var(--border);
+  padding: 24px 0 25px;
+}
+
+.canvas-connection__credential > label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 540;
+  margin-bottom: 8px;
+}
+
+.canvas-connection__token-field {
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  display: flex;
+  min-height: 44px;
+  padding: 0 12px;
+  transition:
+    border-color var(--motion),
+    box-shadow var(--motion);
+}
+
+.canvas-connection__token-field:focus-within {
+  border-color: color-mix(in srgb, var(--focus) 70%, var(--border-strong));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 12%, transparent);
+}
+
+.canvas-connection__token-field > svg {
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.canvas-connection__token-field input {
+  background: transparent;
+  border: 0;
+  flex: 1;
+  min-width: 0;
+  outline: none;
+  padding: 0 12px;
+}
+
+.canvas-connection__token-field button {
+  color: var(--secondary);
+  display: inline-flex;
+  padding: 5px;
+}
+
+.canvas-connection__credential > a {
+  align-items: center;
+  color: var(--focus);
+  display: inline-flex;
+  font-size: 0.75rem;
+  gap: 4px;
+  margin-top: 10px;
+  text-decoration: none;
+}
+
+.canvas-connection__credential > p {
+  color: var(--secondary);
+  font-size: 0.75rem;
+  margin: 11px 0 0;
+}
+
+.canvas-connection__form-actions,
+.canvas-connection__actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.canvas-connection__primary,
+.canvas-connection__secondary {
+  align-items: center;
+  border-radius: 6px;
+  display: inline-flex;
+  font-size: 0.75rem;
+  font-weight: 560;
+  gap: 7px;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 15px;
+}
+
+.canvas-connection__primary {
+  background: #755bd2;
+  color: #fff;
+}
+
+.canvas-connection__primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.canvas-connection__primary--quiet,
+.canvas-connection__secondary {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  box-shadow: none;
+  color: var(--text);
+}
+
+.canvas-connection__message {
+  border-bottom: 1px solid var(--border);
+  color: var(--secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  margin: 0;
+  padding: 12px 0;
+}
+
+.canvas-connection__message--error {
+  color: var(--danger);
+}
+
+.canvas-connection__summary {
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  padding: 23px 0;
+}
+
+.canvas-connection__summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.canvas-connection__summary small,
+.canvas-connection__activity small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.canvas-connection__summary strong {
+  font-size: 0.79rem;
+  font-weight: 550;
+}
+
+.canvas-connection__actions {
+  border-bottom: 1px solid var(--border);
+  margin: 0;
+  padding: 18px 0;
+}
+
+.canvas-connection__menu {
+  position: relative;
+}
+
+.canvas-connection__menu summary {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--secondary);
+  cursor: pointer;
+  display: inline-flex;
+  height: 36px;
+  justify-content: center;
+  list-style: none;
+  width: 36px;
+}
+
+.canvas-connection__menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.canvas-connection__menu > div {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  display: grid;
+  min-width: 150px;
+  padding: 5px;
+  position: absolute;
+  top: 41px;
+  z-index: 5;
+}
+
+.canvas-connection__menu button {
+  border-radius: 4px;
+  color: var(--secondary);
+  font-size: 0.75rem;
+  min-height: 32px;
+  padding: 0 9px;
+  text-align: left;
+}
+
+.canvas-connection__menu button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.canvas-connection__menu .canvas-connection__danger {
+  color: var(--danger);
+}
+
+.canvas-connection__different-school {
+  border-bottom: 1px solid var(--border);
+}
+
+.canvas-connection__different-school summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  font-size: 0.75rem;
+  font-weight: 540;
+  justify-content: space-between;
+  list-style: none;
+  min-height: 58px;
+}
+
+.canvas-connection__different-school summary::-webkit-details-marker {
+  display: none;
+}
+
+.canvas-connection__different-school[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.canvas-connection__different-school p {
+  color: var(--secondary);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  margin: -5px 0 18px;
+  max-width: 600px;
+}
+
+.canvas-connection__next,
+.canvas-connection__activity {
+  border-bottom: 1px solid var(--border);
+  padding: 24px 0;
+}
+
+.canvas-connection__next h3,
+.canvas-connection__activity h3 {
+  font-size: 0.75rem;
+  font-weight: 550;
+  margin: 0 0 15px;
+}
+
+.canvas-connection__next ol {
+  color: var(--secondary);
+  display: grid;
+  font-size: 0.75rem;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.canvas-connection__next li {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+}
+
+.canvas-connection__next li span {
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--secondary);
+  display: inline-flex;
+  font-size: 0.75rem;
+  height: 20px;
+  justify-content: center;
+  width: 20px;
+}
+
+.canvas-connection__activity {
+  border-bottom: 0;
+}
+
+.canvas-connection__activity p {
+  align-items: center;
+  color: var(--secondary);
+  display: flex;
+  font-size: 0.75rem;
+  gap: 9px;
+  margin: 0;
+}
+
+.canvas-connection__activity small {
+  display: block;
+  margin: 8px 0 0 25px;
+}
+
+.canvas-connection--loading {
+  display: grid;
+  gap: 12px;
+}
+
+.canvas-connection--loading span {
+  animation: canvas-loading 1.4s ease-in-out infinite alternate;
+  background: var(--surface-hover);
+  border-radius: 5px;
+  height: 44px;
+}
+
+.canvas-connection--loading span:first-child {
+  height: 26px;
+  width: 34%;
+}
+
+.canvas-connection--loading span:last-child {
+  width: 52%;
+}
+
+.canvas-connection .is-spinning {
+  animation: canvas-spin 0.8s linear infinite;
+  display: inline-flex;
+}
+
+@keyframes canvas-loading {
+  to {
+    opacity: 0.45;
+  }
+}
+
+@keyframes canvas-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 680px) {
+  .canvas-connection__school {
+    grid-template-columns: 36px minmax(0, 1fr);
+    padding: 9px 0;
+  }
+
+  .canvas-connection__state {
+    grid-column: 2;
+    margin-top: -8px;
+  }
+
+  .canvas-connection__summary {
+    gap: 18px;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .canvas-connection__summary > div:first-child {
+    grid-column: 1 / -1;
+  }
+}

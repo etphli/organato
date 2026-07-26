@@ -2,36 +2,78 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="How the private Organato school command centre handles owner data."
+    />
+    <link rel="stylesheet" href="/privacy.css" />
     <title>Organato privacy</title>
   </head>
-  <body
-    style="
-      max-width: 720px;
-      margin: 48px auto;
-      padding: 0 20px;
-      font: 16px/1.6 system-ui;
-      color: #202024;
-    "
-  >
-    <h1>Organato privacy</h1>
-    <p>
-      Organato is a private personal application. It reads upcoming Canvas
-      assignments, manages events only in a dedicated app-created Google
-      Calendar, and uses Gmail send permission only to deliver the owner’s
-      reminder digest.
-    </p>
-    <p>
-      Private data is stored in the owner’s configured Cloudflare D1 database.
-      Provider credentials are encrypted server-side. Organato does not sell
-      data, use advertising, run third-party analytics, or use private content
-      for AI training.
-    </p>
-    <p>
-      The owner can export, archive, restore, or permanently delete data from
-      Settings. Google access can be revoked from the Google Account permissions
-      page; Canvas access can be revoked by deleting the personal token in
-      Canvas.
-    </p>
+  <body>
+    <main>
+      <a class="brand" href="/" aria-label="Return to Organato">
+        <img src="/icons/icon.svg" alt="" width="28" height="28" />
+        <span>Organato</span>
+      </a>
+      <p class="eyebrow">Privacy statement</p>
+      <h1>Your school data stays yours.</h1>
+      <p class="lede">
+        Organato is a private, single-owner school command centre. It has no
+        advertising, third-party analytics, data resale, or AI training on your
+        content.
+      </p>
+
+      <section>
+        <h2>What Organato accesses</h2>
+        <p>
+          Organato reads upcoming assignment data from the owner’s configured
+          Canvas installation. It manages events only inside a dedicated
+          app-created Google Calendar and uses Gmail send permission only to
+          deliver reminders to recipients chosen by the owner.
+        </p>
+      </section>
+
+      <section>
+        <h2>Storage and protection</h2>
+        <p>
+          Private data is stored in the owner’s Cloudflare D1 database. Provider
+          credentials are encrypted server-side and are never returned to the
+          browser. Organato requests only the narrow Google permissions needed
+          for its Calendar and email features.
+        </p>
+      </section>
+
+      <section>
+        <h2>Your controls</h2>
+        <p>
+          The owner can export a secret-free backup, archive and restore
+          records, revoke active sessions, disconnect integrations, or
+          permanently delete Organato data from Settings. Deleting Organato data
+          does not delete the original records held by Canvas or Google.
+        </p>
+        <p>
+          Google access can also be revoked from
+          <a href="https://myaccount.google.com/permissions"
+            >Google Account permissions</a
+          >. Canvas access can be revoked by deleting the personal access token
+          in Canvas.
+        </p>
+      </section>
+
+      <section>
+        <h2>Questions or deletion help</h2>
+        <p>
+          For privacy questions, deployment support, or help deleting data,
+          contact the project owner through the
+          <a href="https://github.com/etphli/organato/issues"
+            >Organato support tracker</a
+          >. Do not include school records, access tokens, or other secrets in a
+          support request.
+        </p>
+      </section>
+
+      <footer>Last updated 26 July 2026</footer>
+    </main>
   </body>
 </html>
