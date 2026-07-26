@@ -8,7 +8,7 @@ import {
   Settings,
 } from "lucide-react";
 import type { IntegrationHealth } from "@organato/domain";
-import { NavLink } from "react-router-dom";
+import { NavLink, type NavLinkRenderProps } from "react-router-dom";
 import { useOrganato } from "../state/OrganatoProvider";
 import { useAuthOwner } from "./AuthGate";
 import { BrandMark } from "./BrandMark";
@@ -83,7 +83,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               key={to}
               to={to}
               end={to === "/"}
-              className={({ isActive }) =>
+              className={({ isActive }: NavLinkRenderProps) =>
                 `nav-item${isActive ? " active" : ""}`
               }
             >
@@ -118,7 +118,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             key={to}
             to={to}
             end={to === "/"}
-            className={({ isActive }) => (isActive ? "active" : "")}
+            className={({ isActive }: NavLinkRenderProps) =>
+              isActive ? "active" : ""
+            }
           >
             <Icon size={21} strokeWidth={1.7} aria-hidden="true" />
             <span>{label}</span>
