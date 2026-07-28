@@ -93,7 +93,7 @@ async function completeGoogleSignIn(
   const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(15_000),
     body: new URLSearchParams({
       code,
