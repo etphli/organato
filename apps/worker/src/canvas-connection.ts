@@ -111,6 +111,18 @@ export function safeCanvasConnectionError(error: unknown): string {
     if (error.code === "invalid_response") {
       return "Reshet returned an unexpected response. Nothing was stored.";
     }
+    if (error.code === "rate_limited") {
+      return "Reshet asked Organato to slow down. Wait a minute, then try again.";
+    }
+    if (error.code === "response_too_large") {
+      return "Reshet returned more data than Organato could safely validate. Nothing was stored.";
+    }
+    if (error.code === "pagination_limit") {
+      return "Reshet returned an incomplete course list. Nothing was stored; try again shortly.";
+    }
+    if (error.code === "request_failed" && error.status) {
+      return `Reshet rejected the validation request (HTTP ${error.status}). Nothing was stored.`;
+    }
   }
   if (
     error instanceof Error &&
@@ -119,4 +131,17 @@ export function safeCanvasConnectionError(error: unknown): string {
     return "The Reshet installation is not configured for this deployment.";
   }
   return "Organato could not reach Reshet. Nothing was stored; try again shortly.";
+}
+
+export function canvasConnectionErrorCategory(error: unknown): string {
+  if (error instanceof CanvasConnectionError) {
+    return error.status ? `${error.code}_${error.status}` : error.code;
+  }
+  if (
+    error instanceof Error &&
+    error.message === "canvas_installation_not_configured"
+  ) {
+    return "installation_not_configured";
+  }
+  return "unexpected_failure";
 }

@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { OrganatoItem } from "@organato/domain";
 import {
   CanvasConnectionError,
   CanvasRestProvider,
+  GoogleCalendarRestProvider,
   nextLink,
   projectCalendarEvent,
   validateBaseUrl,
@@ -54,6 +55,30 @@ function item(overrides: Partial<OrganatoItem> = {}): OrganatoItem {
 }
 
 describe("Canvas network boundaries", () => {
+  it("passes a plain URL string to the runtime fetch implementation", async () => {
+    const fetcher = vi.fn(async function (
+      this: unknown,
+      input: RequestInfo | URL,
+    ) {
+      expect(this).toBe(globalThis);
+      expect(typeof input).toBe("string");
+      return new Response(JSON.stringify({ id: 1, name: "Ethan Likht" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const provider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "private-token",
+      fetcher,
+    );
+
+    await expect(provider.validateConnection()).resolves.toMatchObject({
+      id: "1",
+      name: "Ethan Likht",
+    });
+  });
+
   it("requires HTTPS", () => {
     expect(() => validateBaseUrl("http://canvas.example.edu")).toThrow(/HTTPS/);
   });
@@ -131,6 +156,26 @@ describe("Canvas network boundaries", () => {
 });
 
 describe("Google Calendar projections", () => {
+  it("uses the redirect mode supported by Cloudflare Workers", async () => {
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.redirect).toBe("manual");
+        return new Response(JSON.stringify({ id: "organato-calendar" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    ) as unknown as typeof fetch;
+    const provider = new GoogleCalendarRestProvider(
+      { accessToken: async () => "access-token" },
+      fetcher,
+    );
+
+    await expect(provider.ensureOrganatoCalendar()).resolves.toBe(
+      "organato-calendar",
+    );
+  });
+
   it("projects a date-only deadline as an exclusive all-day range", () => {
     const projection = projectCalendarEvent(
       item(),

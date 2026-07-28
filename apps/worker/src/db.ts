@@ -52,6 +52,7 @@ const defaultSettings: WorkspaceSettings = {
   alwaysShowIconText: false,
   screenReaderAnnouncements: true,
   dragCalendarReschedule: true,
+  onboardingCompleted: false,
 };
 
 function boolean(value: unknown): boolean {

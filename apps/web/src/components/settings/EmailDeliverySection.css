@@ -1,0 +1,137 @@
+.email-delivery {
+  display: grid;
+  gap: 20px;
+}
+
+.email-delivery__loading {
+  background: var(--surface-hover);
+  border-radius: 5px;
+  display: block;
+  height: 84px;
+  width: 100%;
+}
+
+.email-delivery__identity {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.email-delivery__identity > span:last-child {
+  display: grid;
+  gap: 3px;
+}
+
+.email-delivery__identity strong {
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 560;
+}
+
+.email-delivery__identity small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.email-delivery__connected {
+  align-items: center;
+  background: color-mix(in srgb, var(--success) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success) 32%, transparent);
+  border-radius: 50%;
+  color: var(--success);
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.email-delivery__field {
+  display: grid;
+  gap: 8px;
+  max-width: 520px;
+}
+
+.email-delivery__field > span {
+  color: var(--secondary);
+  font-size: 0.8rem;
+  font-weight: 520;
+}
+
+.email-delivery__field input {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  height: 42px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.email-delivery__field small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.email-delivery__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.email-delivery__primary,
+.email-delivery__secondary {
+  align-items: center;
+  border-radius: var(--radius-control);
+  display: inline-flex;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 13px;
+}
+
+.email-delivery__primary {
+  background: var(--focus-soft);
+  border: 1px solid color-mix(in srgb, var(--focus) 58%, transparent);
+  color: color-mix(in srgb, var(--focus) 72%, white);
+}
+
+.email-delivery__secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--secondary);
+}
+
+.email-delivery__message {
+  align-items: center;
+  display: flex;
+  font-size: 0.8rem;
+  gap: 8px;
+  margin: 0;
+}
+
+.email-delivery__message--error {
+  color: var(--danger);
+}
+
+.email-delivery__message--success {
+  color: var(--success);
+}
+
+.email-delivery--settings {
+  border-top: 1px solid var(--border);
+  margin-top: 18px;
+  padding-top: 20px;
+}
+
+@media (max-width: 640px) {
+  .email-delivery__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .email-delivery__actions button {
+    justify-content: center;
+    width: 100%;
+  }
+}

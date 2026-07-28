@@ -291,6 +291,7 @@ const settingsSchema = z
     alwaysShowIconText: z.boolean().default(false),
     screenReaderAnnouncements: z.boolean().default(true),
     dragCalendarReschedule: z.boolean().default(true),
+    onboardingCompleted: z.boolean().default(false),
   })
   .strict();
 

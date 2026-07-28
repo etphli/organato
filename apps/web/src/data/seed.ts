@@ -332,6 +332,7 @@ export const seedSettings: WorkspaceSettings = {
   alwaysShowIconText: false,
   screenReaderAnnouncements: true,
   dragCalendarReschedule: true,
+  onboardingCompleted: false,
 };
 
 export const seedViews: SavedView[] = [

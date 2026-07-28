@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   Navigate,
   Route,
@@ -12,6 +12,7 @@ import { Inspector } from "./components/Inspector";
 import { NetworkStatus } from "./components/NetworkStatus";
 import { PwaUpdateNotice } from "./components/PwaUpdateNotice";
 import { SearchOverlay } from "./components/SearchOverlay";
+import { SetupWizard } from "./components/setup/SetupWizard";
 import { Toast } from "./components/Toast";
 import { useOrganato } from "./state/OrganatoProvider";
 
@@ -69,9 +70,17 @@ function PageFallback() {
 }
 
 export function App() {
-  const { dispatch, settings } = useOrganato();
+  const { dispatch, ready, settings } = useOrganato();
   const navigate = useNavigate();
   const sequence = useRef("");
+  const [setupDismissed, setSetupDismissed] = useState(
+    () => sessionStorage.getItem("organato_setup_dismissed") === "true",
+  );
+  const showSetup =
+    import.meta.env.VITE_DEMO_MODE !== "true" &&
+    ready &&
+    !settings.onboardingCompleted &&
+    !setupDismissed;
 
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme;
@@ -144,24 +153,33 @@ export function App() {
       <NetworkStatus />
       <PwaUpdateNotice />
       <AppShell>
-        <Suspense fallback={<PageFallback />}>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route
-              path="/assignments"
-              element={<WorkPage page="assignments" />}
-            />
-            <Route
-              path="/checkpoints"
-              element={<WorkPage page="checkpoints" />}
-            />
-            <Route path="/calendar" element={<CalendarPage />} />
-            <Route path="/todo" element={<TodoPage />} />
-            <Route path="/settings/*" element={<SettingsPage />} />
-            <Route path="/items/:id" element={<ItemDeepLink />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
+        {showSetup ? (
+          <SetupWizard
+            onDismiss={() => {
+              sessionStorage.setItem("organato_setup_dismissed", "true");
+              setSetupDismissed(true);
+            }}
+          />
+        ) : (
+          <Suspense fallback={<PageFallback />}>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route
+                path="/assignments"
+                element={<WorkPage page="assignments" />}
+              />
+              <Route
+                path="/checkpoints"
+                element={<WorkPage page="checkpoints" />}
+              />
+              <Route path="/calendar" element={<CalendarPage />} />
+              <Route path="/todo" element={<TodoPage />} />
+              <Route path="/settings/*" element={<SettingsPage />} />
+              <Route path="/items/:id" element={<ItemDeepLink />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        )}
       </AppShell>
       <Inspector />
       <CommandPalette />

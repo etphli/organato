@@ -16,7 +16,10 @@ import {
 } from "@organato/integrations";
 import { parseCanvasConnectionMetadata } from "./canvas-connection";
 import { getItem, getSettings, listItems, listSubjects, patchItem } from "./db";
-import { loadGoogleConnection } from "./google-connection";
+import {
+  GoogleConnectionError,
+  loadGoogleConnection,
+} from "./google-connection";
 import { decryptSecret, sha256 } from "./security";
 import type { Env } from "./types";
 
@@ -1153,7 +1156,12 @@ async function sendDigestForItems(
 
 export async function sendTestEmail(env: Env): Promise<{ messageId: string }> {
   const connection = await loadGoogleConnection(env);
-  if (!connection) throw new Error("Google is not connected.");
+  if (!connection) {
+    throw new GoogleConnectionError(
+      "not_connected",
+      "Google is not connected.",
+    );
+  }
   const recipients = connection.metadata.recipients?.length
     ? connection.metadata.recipients
     : [connection.metadata.email];

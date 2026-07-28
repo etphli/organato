@@ -15,6 +15,11 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import {
+  IntegrationRequestError,
+  integrationRequest,
+  reauthenticate,
+} from "../../lib/integrationApi";
 import "./CanvasConnectionSection.css";
 
 type RequestJson = (path: string, init?: RequestInit) => Promise<unknown>;
@@ -66,26 +71,6 @@ function demoConnectedStatus(): CanvasConnectionStatus {
   };
 }
 
-async function defaultRequest(path: string, init: RequestInit = {}) {
-  const headers = new Headers(init.headers);
-  if (init.method && !["GET", "HEAD"].includes(init.method)) {
-    headers.set("X-CSRF-Token", sessionStorage.getItem("organato_csrf") ?? "");
-  }
-  if (init.body) headers.set("Content-Type", "application/json");
-  const response = await fetch(path, {
-    ...init,
-    headers,
-    credentials: "same-origin",
-  });
-  const result = (await response.json().catch(() => ({}))) as {
-    error?: string;
-  };
-  if (!response.ok) {
-    throw new Error(result.error ?? "Reshet could not be updated.");
-  }
-  return result;
-}
-
 function formatTime(value: string | null): string {
   if (!value) return "Not yet";
   return new Intl.DateTimeFormat("en-AU", {
@@ -110,7 +95,7 @@ export function CanvasConnectionSection({
   onWorkspaceRefresh,
 }: CanvasConnectionSectionProps) {
   const demoMode = !request && import.meta.env.VITE_DEMO_MODE === "true";
-  const requestJson = request ?? defaultRequest;
+  const requestJson = request ?? integrationRequest;
   const [status, setStatus] = useState<CanvasConnectionStatus | null>(
     initialStatus ?? (demoMode ? demoDisconnectedStatus : null),
   );
@@ -121,6 +106,7 @@ export function CanvasConnectionSection({
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [needsReauthentication, setNeedsReauthentication] = useState(false);
   const [activityMessage, setActivityMessage] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -174,6 +160,10 @@ export function CanvasConnectionSection({
       setShowToken(false);
       setReplacing(false);
     } catch (connectError) {
+      setNeedsReauthentication(
+        connectError instanceof IntegrationRequestError &&
+          connectError.code === "reauthentication_required",
+      );
       setError(
         connectError instanceof Error
           ? connectError.message
@@ -386,6 +376,15 @@ export function CanvasConnectionSection({
         <p className="canvas-connection__message canvas-connection__message--error">
           {error}
         </p>
+      ) : null}
+      {needsReauthentication ? (
+        <button
+          type="button"
+          className="canvas-connection__secondary"
+          onClick={() => void reauthenticate()}
+        >
+          Confirm Google sign-in
+        </button>
       ) : null}
 
       {connected && status.connection ? (

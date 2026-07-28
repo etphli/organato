@@ -50,6 +50,14 @@ same-origin `/api/*` rewrite terminates at the Cloudflare Worker.
 - Hardened Canvas pagination/retries/redirects and missing-item handling; added
   idempotent Google Calendar reconciliation and durable Gmail delivery retries
   with a ten-message daily ceiling.
+- Added an automatic first-run setup walkthrough that verifies Reshet, connects
+  Calendar and Gmail, lets the owner choose a separate approved reminder
+  address, and requires a successful test message before completion.
+- Fixed Google token and API redirect handling for the Cloudflare runtime, and
+  added sanitized Reshet connection diagnostics without storing failed tokens.
+- Rebound the Canvas adapter's runtime `fetch` call to Cloudflare's global
+  context, fixing the production-only illegal-invocation failure that prevented
+  Reshet validation before any request reached Canvas.
 
 No billing account or paid plan was enabled.
 
@@ -64,16 +72,19 @@ Google subject identifier before creating a session.
 
 ### 2. Activate provider connections inside Organato
 
-After Google sign-in succeeds:
+After Google sign-in succeeds, Organato opens the guided setup automatically:
 
-1. Open Settings → Canvas / Reshet.
-2. Enter a personal access token. Emanuel School is already pinned as the
-   installation.
-3. Confirm the detected identity; Organato then runs the first Canvas sync.
-4. Open Settings → Google, connect the dedicated Organato Calendar and Gmail
-   sender, review the requested Calendar and Gmail-send scopes, then send a test
-   message.
-5. Review the imported items before enabling normal daily use.
+1. Create a personal access token in Reshet and paste it into the walkthrough.
+   Emanuel School is pinned as the installation. Organato validates the token,
+   stores it encrypted, and runs the first import.
+2. Connect a personal Google account for the private Organato Calendar and
+   Gmail sending. Review the requested Calendar and Gmail-send scopes.
+3. Choose any approved owner address as the reminder recipient. This can be the
+   school address even when school policy blocks that address from Google
+   sign-in.
+4. Send a real test message. The walkthrough completes only after Gmail accepts
+   it.
+5. Review the imported items on Home before enabling normal daily use.
 
 Canvas tokens are created by the signed-in Canvas user and cannot be generated
 by this repository.

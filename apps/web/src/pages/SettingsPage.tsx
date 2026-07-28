@@ -20,10 +20,15 @@ import { PageHeader } from "../components/PageHeader";
 import { SubjectDot } from "../components/SubjectDot";
 import { AccountAccessSection } from "../components/settings/AccountAccessSection";
 import { CanvasConnectionSection } from "../components/settings/CanvasConnectionSection";
+import { EmailDeliverySection } from "../components/settings/EmailDeliverySection";
 import {
   SettingsNavigation,
   settingsCategories,
 } from "../components/settings/SettingsNavigation";
+import {
+  beginGoogleConnection,
+  IntegrationRequestError,
+} from "../lib/integrationApi";
 import { useOrganato } from "../state/OrganatoProvider";
 
 const genericOptions: Record<string, Array<[string, string]>> = {
@@ -324,6 +329,7 @@ export default function SettingsPage() {
     null,
   );
   const [connectionBusy, setConnectionBusy] = useState<string | null>(null);
+  const [connectionNeedsReauth, setConnectionNeedsReauth] = useState(false);
   const [addingSubject, setAddingSubject] = useState(false);
   const [newSubjectName, setNewSubjectName] = useState("");
   const [newSubjectColour, setNewSubjectColour] = useState("#a78bfa");
@@ -966,7 +972,14 @@ export default function SettingsPage() {
           ) : null}
           {active === "email" ? (
             <>
-              <IntegrationCard provider="gmail" />
+              <div className="settings-block">
+                <h3>Email delivery</h3>
+                <p>
+                  Send through your connected personal Gmail account to any
+                  approved owner address.
+                </p>
+                <EmailDeliverySection onWorkspaceRefresh={refresh} />
+              </div>
               <div className="settings-block">
                 <h3>Schedule</h3>
                 <label className="setting-row">
@@ -1619,17 +1632,16 @@ export default function SettingsPage() {
     } as const;
     const connectGoogle = async () => {
       setConnectionBusy(provider);
+      setConnectionNeedsReauth(false);
       try {
-        const result = await protectedPost("/api/integrations/google/start");
-        if ("authorizationUrl" in result && result.authorizationUrl) {
-          window.location.assign(result.authorizationUrl);
-          return;
-        }
-        dispatch({
-          type: "toast",
-          message: "Google connection flow is ready in production",
-        });
+        await beginGoogleConnection();
       } catch (error) {
+        if (
+          error instanceof IntegrationRequestError &&
+          error.code === "reauthentication_required"
+        ) {
+          setConnectionNeedsReauth(true);
+        }
         dispatch({
           type: "toast",
           message:
@@ -1735,6 +1747,14 @@ export default function SettingsPage() {
           >
             {connected ? "Reconnect" : "Connect"}
           </button>
+          {connectionNeedsReauth ? (
+            <button
+              disabled={Boolean(connectionBusy)}
+              onClick={() => void reauthenticate()}
+            >
+              Confirm Google sign-in
+            </button>
+          ) : null}
           <button
             disabled={connectionBusy === provider || !connected}
             onClick={() => void runAction()}

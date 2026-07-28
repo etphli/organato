@@ -1,4 +1,4 @@
-const cacheName = "organato-shell-v4";
+const cacheName = "organato-shell-v5";
 const shell = [
   "/",
   "/boot.css",
