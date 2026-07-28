@@ -1,6 +1,8 @@
 import { GoogleCalendarRestProvider } from "@organato/integrations";
+import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { z } from "zod";
 import {
   decryptSecret,
   encryptSecret,
@@ -10,6 +12,10 @@ import {
   sha256,
 } from "./security";
 import { runCalendarReconciliation } from "./sync";
+import {
+  getGoogleDeliverySettings,
+  updateGoogleRecipients,
+} from "./google-connection";
 import type { Env, Variables } from "./types";
 
 const googleJwks = createRemoteJWKSet(
@@ -54,6 +60,121 @@ export const googleIntegrationRoutes = new Hono<{
   Bindings: Env;
   Variables: Variables;
 }>();
+
+const recipientSchema = z
+  .object({
+    recipients: z
+      .array(
+        z
+          .string()
+          .trim()
+          .email()
+          .max(254)
+          .transform((email) => email.toLowerCase()),
+      )
+      .min(1)
+      .max(5),
+  })
+  .strict();
+
+const integrationCallbackSchema = z
+  .object({
+    code: z.string().min(1).max(4_096),
+    state: z.string().min(16).max(512),
+  })
+  .strict();
+
+googleIntegrationRoutes.get("/settings", async (context) =>
+  context.json(await getGoogleDeliverySettings(context.env)),
+);
+
+googleIntegrationRoutes.post(
+  "/exchange",
+  zValidator("json", integrationCallbackSchema),
+  async (context) => {
+    const callback = new URL(
+      "/api/integrations/google/callback",
+      context.env.APP_ORIGIN,
+    );
+    const input = context.req.valid("json");
+    callback.searchParams.set("code", input.code);
+    callback.searchParams.set("state", input.state);
+    try {
+      const response = await googleIntegrationCallback(
+        new Request(callback.toString()),
+        context.env,
+        context.executionCtx,
+      );
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("Location");
+        const returnTo = location
+          ? `${new URL(location).pathname}${new URL(location).search}`
+          : "/settings/calendar?connected=1";
+        return context.json({ connected: true, returnTo });
+      }
+      return context.json(
+        {
+          error:
+            (await response.text()) ||
+            "Google connection could not be completed.",
+        },
+        response.status === 403 ? 403 : 400,
+      );
+    } catch {
+      return context.json(
+        {
+          error:
+            "Google connection could not finish safely. Start the connection again.",
+        },
+        502,
+      );
+    }
+  },
+);
+
+googleIntegrationRoutes.put(
+  "/recipients",
+  requireRecentSession(),
+  zValidator("json", recipientSchema),
+  async (context) => {
+    const recipients = [...new Set(context.req.valid("json").recipients)];
+    const configured = new Set(
+      context.env.ALLOWED_GOOGLE_EMAILS.split(",")
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    const identities = await context.env.DB.prepare(
+      `SELECT email_normalized FROM allowed_identity
+       WHERE enabled = 1 AND is_owner = 1`,
+    ).all<{ email_normalized: string }>();
+    for (const identity of identities.results) {
+      configured.add(identity.email_normalized.toLowerCase());
+    }
+    if (!recipients.every((recipient) => configured.has(recipient))) {
+      return context.json(
+        {
+          error: "Reminder email must be one of the approved owner addresses.",
+        },
+        400,
+      );
+    }
+    try {
+      const settings = await updateGoogleRecipients(context.env, recipients);
+      await recordSecurityEvent(
+        context.env.DB,
+        "email_recipients_changed",
+        context.get("user").email,
+        `Reminder delivery now has ${recipients.length} approved recipient${recipients.length === 1 ? "" : "s"}.`,
+      );
+      return context.json(settings);
+    } catch {
+      return context.json(
+        { error: "Connect Calendar and Gmail before choosing recipients." },
+        409,
+      );
+    }
+  },
+);
 
 googleIntegrationRoutes.post(
   "/start",
@@ -217,7 +338,7 @@ export async function googleIntegrationCallback(
   const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(15_000),
     body: new URLSearchParams({
       code,
@@ -297,13 +418,19 @@ export async function googleIntegrationCallback(
     `SELECT metadata_json FROM integration_connection WHERE provider = 'google'`,
   ).first<{ metadata_json: string }>();
   let previousCalendarId: string | undefined;
+  let previousRecipients: string[] = [];
   try {
     const metadata = JSON.parse(previous?.metadata_json ?? "{}") as {
       calendarId?: string;
+      recipients?: string[];
     };
     previousCalendarId = metadata.calendarId;
+    previousRecipients = Array.isArray(metadata.recipients)
+      ? metadata.recipients
+      : [];
   } catch {
     previousCalendarId = undefined;
+    previousRecipients = [];
   }
   const calendarId = await calendar.ensureOrganatoCalendar(previousCalendarId);
   const encrypted = await encryptSecret(
@@ -335,7 +462,11 @@ export async function googleIntegrationCallback(
       encrypted,
       now,
       now,
-      JSON.stringify({ email, calendarId, recipients: [email] }),
+      JSON.stringify({
+        email,
+        calendarId,
+        recipients: previousRecipients.length ? previousRecipients : [email],
+      }),
       now,
     )
     .run();

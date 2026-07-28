@@ -25,6 +25,7 @@ import {
   updateSettings,
 } from "./db";
 import {
+  canvasConnectionErrorCategory,
   canvasConnectSchema,
   configuredCanvasInstallation,
   createCanvasConnectionMetadata,
@@ -193,6 +194,7 @@ const workspaceSettingsPatchSchema = z
     alwaysShowIconText: z.boolean(),
     screenReaderAnnouncements: z.boolean(),
     dragCalendarReschedule: z.boolean(),
+    onboardingCompleted: z.boolean(),
   })
   .partial()
   .strict();
@@ -1144,6 +1146,30 @@ apiRoutes.get("/integrations/canvas/status", async (context) => {
   }
 });
 
+apiRoutes.get("/integrations/canvas/reachability", async (context) => {
+  const allowed = await rateLimit(
+    context,
+    `canvas-reachability:${context.get("user").email}`,
+    5,
+  );
+  if (!allowed) return context.json({ error: "Try again later." }, 429);
+  try {
+    const installation = configuredCanvasInstallation(context.env);
+    const provider = new CanvasRestProvider(
+      installation.baseUrl.origin,
+      "organato-reachability-check",
+    );
+    await provider.validateConnection(AbortSignal.timeout(10_000));
+    return context.json({ reachable: true, result: "unexpected_acceptance" });
+  } catch (error) {
+    const category = canvasConnectionErrorCategory(error);
+    return context.json({
+      reachable: category === "token_rejected",
+      result: category,
+    });
+  }
+});
+
 apiRoutes.post(
   "/integrations/canvas/connect",
   requireRecentSession(),
@@ -1152,7 +1178,7 @@ apiRoutes.post(
     const allowed = await rateLimit(
       context,
       `canvas-connect:${context.get("user").email}`,
-      5,
+      10,
     );
     if (!allowed) return context.json({ error: "Try again later." }, 429);
     const input = context.req.valid("json");
@@ -1170,6 +1196,12 @@ apiRoutes.post(
     try {
       identity = await provider.validateConnection(AbortSignal.timeout(15_000));
     } catch (error) {
+      await recordSecurityEvent(
+        context.env.DB,
+        "canvas_connect_failed",
+        context.get("user").email,
+        `Reshet token validation stopped safely (${canvasConnectionErrorCategory(error)}).`,
+      );
       return context.json({ error: safeCanvasConnectionError(error) }, 400);
     }
     const now = new Date().toISOString();

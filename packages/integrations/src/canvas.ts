@@ -47,6 +47,7 @@ export class CanvasConnectionError extends Error {
   constructor(
     readonly code: CanvasConnectionErrorCode,
     message: string,
+    readonly status?: number,
   ) {
     super(message);
     this.name = "CanvasConnectionError";
@@ -138,7 +139,7 @@ export class CanvasRestProvider implements CanvasProvider {
     for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
       let response: Response;
       try {
-        response = await this.fetcher(url, {
+        response = await this.fetcher.call(globalThis, url.toString(), {
           headers: {
             Authorization: `Bearer ${this.token}`,
             Accept: "application/json",
@@ -189,6 +190,7 @@ export class CanvasRestProvider implements CanvasProvider {
         throw new CanvasConnectionError(
           "request_failed",
           `Canvas request failed (${response.status}).`,
+          response.status,
         );
       }
       const contentLength = Number(response.headers.get("Content-Length") ?? 0);

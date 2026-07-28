@@ -95,7 +95,7 @@ flowchart LR
 The deployment, database, generated secrets, owner allow-list, Google OAuth client, Calendar API, and Gmail API are configured. Emanuel School's Reshet installation is pinned server-side. Sign in with either permitted Google identity, then enter only a personal Canvas access token through Organato's protected Settings flow. Provider credentials never belong in Git.
 
 For local development, run `pnpm install`, then `pnpm dev:web`. The release gate
-currently runs 61 domain, integration, component, authentication, and Worker
+currently runs 67 domain, integration, component, authentication, and Worker
 tests in addition to formatting, linting, type-checking, production builds,
 licence checks, and secret scanning. See the
 [production handoff](docs/11-production-handoff.md) for the exact remaining

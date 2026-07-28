@@ -1,3 +1,4 @@
+import { GoogleApiError } from "@organato/integrations";
 import { Hono } from "hono";
 import { apiRoutes } from "./api";
 import { authRoutes } from "./auth";
@@ -5,7 +6,13 @@ import {
   googleIntegrationCallback,
   googleIntegrationRoutes,
 } from "./google-auth";
-import { rateLimit, requireSession, securityHeaders } from "./security";
+import { GoogleConnectionError } from "./google-connection";
+import {
+  rateLimit,
+  recordSecurityEvent,
+  requireSession,
+  securityHeaders,
+} from "./security";
 import {
   runCalendarReconciliation,
   runCanvasSync,
@@ -147,14 +154,56 @@ app.post("/api/integrations/google/test-email", async (context) => {
   }
   try {
     const sent = await sendTestEmail(context.env);
+    const now = new Date().toISOString();
+    await context.env.DB.prepare(
+      `UPDATE integration_connection
+       SET status = 'healthy', last_success_at = ?, last_attempt_at = ?,
+           last_error_category = NULL, reconnect_needed = 0, updated_at = ?
+       WHERE provider = 'google'`,
+    )
+      .bind(now, now, now)
+      .run();
+    await recordSecurityEvent(
+      context.env.DB,
+      "test_email_sent",
+      user.email,
+      "A private Organato test email was accepted by Gmail.",
+    );
     return context.json({ ok: true, messageId: sent.messageId });
-  } catch {
+  } catch (error) {
+    const notConnected =
+      error instanceof GoogleConnectionError && error.code === "not_connected";
+    const authorizationFailure =
+      (error instanceof GoogleConnectionError &&
+        error.code === "authorization_failed") ||
+      (error instanceof GoogleApiError &&
+        (error.status === 401 || error.status === 403));
+    const now = new Date().toISOString();
+    await context.env.DB.prepare(
+      `UPDATE integration_connection
+       SET status = ?, last_attempt_at = ?, last_error_category = ?,
+           reconnect_needed = ?, updated_at = ?
+       WHERE provider = 'google'`,
+    )
+      .bind(
+        authorizationFailure ? "action_needed" : "delayed",
+        now,
+        authorizationFailure
+          ? "google_authorization_failed"
+          : "gmail_temporarily_unavailable",
+        authorizationFailure ? 1 : 0,
+        now,
+      )
+      .run();
     return context.json(
       {
-        error:
-          "The test email could not be sent. Existing reminder settings are unchanged; reconnect Google and retry.",
+        error: notConnected
+          ? "Connect Calendar and Gmail before sending a test email."
+          : authorizationFailure
+            ? "Google needs to be reconnected before email can be sent."
+            : "Gmail could not accept the test message. Your recipient setting is saved; try again shortly.",
       },
-      502,
+      notConnected ? 409 : 502,
     );
   }
 });

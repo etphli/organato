@@ -182,6 +182,7 @@ export interface WorkspaceSettings {
   alwaysShowIconText: boolean;
   screenReaderAnnouncements: boolean;
   dragCalendarReschedule: boolean;
+  onboardingCompleted: boolean;
 }
 
 export interface IntegrationHealth {

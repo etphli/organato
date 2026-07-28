@@ -82,7 +82,7 @@ async function googleJson<T>(
           ...(init.headers ?? {}),
         },
         signal: init.signal ?? AbortSignal.timeout(15_000),
-        redirect: "error",
+        redirect: "manual",
       });
     } catch (error) {
       if (attempt < attempts - 1) {
