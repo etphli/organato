@@ -37,6 +37,7 @@ import {
   clearSessionCookies,
   encryptSecret,
   getOrCreateCsrfToken,
+  hasRecentAuthentication,
   rateLimit,
   recordSecurityEvent,
   requireRecentSession,
@@ -397,6 +398,7 @@ apiRoutes.get("/session", async (context) => {
     authenticated: true,
     owner: { email: user.email, displayName: user.displayName },
     csrfToken,
+    recentAuthentication: hasRecentAuthentication(user.authenticatedAt),
     workspace: { id: "workspace", name: "Organato" },
   });
 });

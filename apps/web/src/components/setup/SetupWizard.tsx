@@ -21,6 +21,7 @@ import {
   IntegrationRequestError,
   integrationRequest,
   reauthenticate,
+  type SessionSecurityState,
 } from "../../lib/integrationApi";
 import { useOrganato } from "../../state/OrganatoProvider";
 import { EmailDeliverySection } from "../settings/EmailDeliverySection";
@@ -56,6 +57,9 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
   const [needsReauthentication, setNeedsReauthentication] = useState(false);
   const [canvasMessage, setCanvasMessage] = useState<string | null>(null);
   const [emailReady, setEmailReady] = useState(false);
+  const [recentAuthentication, setRecentAuthentication] = useState<
+    boolean | null
+  >(null);
 
   useEffect(() => {
     let active = true;
@@ -66,11 +70,16 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
       integrationRequest<GoogleDeliverySettings>(
         "/api/integrations/google/settings",
       ),
+      integrationRequest<SessionSecurityState>("/api/session"),
     ])
-      .then(([canvasStatus, googleStatus]) => {
+      .then(([canvasStatus, googleStatus, sessionStatus]) => {
         if (!active) return;
         setCanvas(canvasStatus);
         setGoogle(googleStatus);
+        setRecentAuthentication(sessionStatus.recentAuthentication);
+        setNeedsReauthentication(
+          !canvasStatus.connection && !sessionStatus.recentAuthentication,
+        );
         setStep(!canvasStatus.connection ? 1 : !googleStatus.connected ? 2 : 3);
       })
       .catch((loadError) => {
@@ -104,6 +113,11 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
       requestError instanceof IntegrationRequestError &&
       requestError.code === "reauthentication_required";
     setNeedsReauthentication(reauthenticationRequired);
+    if (reauthenticationRequired) {
+      setRecentAuthentication(false);
+      setToken("");
+      setShowToken(false);
+    }
     setError(
       requestError instanceof Error
         ? requestError.message
@@ -112,6 +126,11 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
   };
 
   const connectCanvas = async () => {
+    if (!recentAuthentication) {
+      setNeedsReauthentication(true);
+      setError("Confirm your Google sign-in before entering a Reshet token.");
+      return;
+    }
     const trimmed = token.trim();
     if (trimmed.length < 10) return;
     setBusy("canvas");
@@ -180,8 +199,10 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
   const confirmAgain = async () => {
     setBusy("reauthenticate");
     setError(null);
+    setToken("");
+    setShowToken(false);
     try {
-      await reauthenticate();
+      await reauthenticate("/");
     } catch (requestError) {
       handleError(requestError);
       setBusy(null);
@@ -281,6 +302,23 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                       </small>
                     </span>
                   </div>
+                ) : !recentAuthentication ? (
+                  <button
+                    className="setup-google-account"
+                    disabled={busy === "reauthenticate"}
+                    onClick={() => void confirmAgain()}
+                    type="button"
+                  >
+                    <ShieldCheck size={18} />
+                    <span>
+                      <strong>Confirm your Google sign-in</strong>
+                      <small>
+                        Required once before Organato can securely save a Reshet
+                        credential.
+                      </small>
+                    </span>
+                    <ChevronRight size={16} />
+                  </button>
                 ) : (
                   <>
                     <div className="setup-token">
@@ -290,7 +328,9 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                       <span className="setup-token__input">
                         <LockKeyhole size={16} aria-hidden="true" />
                         <input
-                          autoComplete="new-password"
+                          autoComplete="off"
+                          data-1p-ignore="true"
+                          data-lpignore="true"
                           id="setup-canvas-token"
                           placeholder="Paste your Canvas token"
                           spellCheck={false}
@@ -351,7 +391,7 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                     >
                       Continue
                     </button>
-                  ) : (
+                  ) : recentAuthentication ? (
                     <button
                       className="setup-step__primary"
                       disabled={busy === "canvas" || token.trim().length < 10}
@@ -361,16 +401,6 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                       {busy === "canvas"
                         ? "Verifying and importing…"
                         : "Connect and import"}
-                    </button>
-                  )}
-                  {needsReauthentication ? (
-                    <button
-                      className="setup-step__secondary"
-                      disabled={Boolean(busy)}
-                      onClick={() => void confirmAgain()}
-                      type="button"
-                    >
-                      Confirm Google sign-in
                     </button>
                   ) : null}
                 </div>

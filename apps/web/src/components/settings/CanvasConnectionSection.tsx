@@ -13,12 +13,14 @@ import {
   LockKeyhole,
   MoreHorizontal,
   RefreshCw,
+  ShieldCheck,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   IntegrationRequestError,
   integrationRequest,
   reauthenticate,
+  type SessionSecurityState,
 } from "../../lib/integrationApi";
 import "./CanvasConnectionSection.css";
 
@@ -102,11 +104,13 @@ export function CanvasConnectionSection({
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
   const [replacing, setReplacing] = useState(false);
-  const [busy, setBusy] = useState<"connect" | "sync" | "disconnect" | null>(
-    null,
-  );
+  const [busy, setBusy] = useState<
+    "connect" | "sync" | "disconnect" | "reauthenticate" | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
-  const [needsReauthentication, setNeedsReauthentication] = useState(false);
+  const [recentAuthentication, setRecentAuthentication] = useState<
+    boolean | null
+  >(demoMode ? true : null);
   const [activityMessage, setActivityMessage] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -117,16 +121,25 @@ export function CanvasConnectionSection({
     setStatus(next);
   }, [demoMode, requestJson]);
 
+  const loadSessionSecurity = useCallback(async () => {
+    if (demoMode) return;
+    const session = (await requestJson("/api/session")) as SessionSecurityState;
+    setRecentAuthentication(session.recentAuthentication);
+  }, [demoMode, requestJson]);
+
   useEffect(() => {
-    if (initialStatus || demoMode) return;
-    void loadStatus().catch((loadError) => {
+    if (demoMode) return;
+    void Promise.all([
+      initialStatus ? Promise.resolve() : loadStatus(),
+      loadSessionSecurity(),
+    ]).catch((loadError) => {
       setError(
         loadError instanceof Error
           ? loadError.message
           : "Reshet status could not be loaded.",
       );
     });
-  }, [demoMode, initialStatus, loadStatus]);
+  }, [demoMode, initialStatus, loadSessionSecurity, loadStatus]);
 
   const refreshAfterMutation = async () => {
     await loadStatus();
@@ -134,6 +147,10 @@ export function CanvasConnectionSection({
   };
 
   const connect = async () => {
+    if (!recentAuthentication) {
+      setError("Confirm your Google sign-in before entering a Reshet token.");
+      return;
+    }
     const trimmedToken = token.trim();
     if (trimmedToken.length < 10) return;
     setBusy("connect");
@@ -160,16 +177,37 @@ export function CanvasConnectionSection({
       setShowToken(false);
       setReplacing(false);
     } catch (connectError) {
-      setNeedsReauthentication(
+      const reauthenticationRequired =
         connectError instanceof IntegrationRequestError &&
-          connectError.code === "reauthentication_required",
-      );
+        connectError.code === "reauthentication_required";
+      if (reauthenticationRequired) {
+        setRecentAuthentication(false);
+        setToken("");
+        setShowToken(false);
+      }
       setError(
         connectError instanceof Error
           ? connectError.message
           : "Reshet could not be connected.",
       );
     } finally {
+      setBusy(null);
+    }
+  };
+
+  const confirmAgain = async () => {
+    setBusy("reauthenticate");
+    setError(null);
+    setToken("");
+    setShowToken(false);
+    try {
+      await reauthenticate("/settings/canvas");
+    } catch (reauthenticationError) {
+      setError(
+        reauthenticationError instanceof Error
+          ? reauthenticationError.message
+          : "Google sign-in could not be opened.",
+      );
       setBusy(null);
     }
   };
@@ -265,7 +303,7 @@ export function CanvasConnectionSection({
     );
   }
 
-  if (!status) {
+  if (!status || recentAuthentication === null) {
     return (
       <section
         className="canvas-connection canvas-connection--loading"
@@ -310,7 +348,7 @@ export function CanvasConnectionSection({
         </span>
       </div>
 
-      {showCredentialForm ? (
+      {showCredentialForm && recentAuthentication ? (
         <div className="canvas-connection__credential">
           <label htmlFor="canvas-personal-token">Personal access token</label>
           <div className="canvas-connection__token-field">
@@ -318,7 +356,9 @@ export function CanvasConnectionSection({
             <input
               id="canvas-personal-token"
               type={showToken ? "text" : "password"}
-              autoComplete="new-password"
+              autoComplete="off"
+              data-1p-ignore="true"
+              data-lpignore="true"
               spellCheck={false}
               value={token}
               onChange={(event) => setToken(event.target.value)}
@@ -372,21 +412,32 @@ export function CanvasConnectionSection({
         </div>
       ) : null}
 
+      {showCredentialForm && !recentAuthentication ? (
+        <div className="canvas-connection__reauthentication">
+          <ShieldCheck size={18} aria-hidden="true" />
+          <span>
+            <strong>Confirm your Google sign-in first</strong>
+            <small>
+              Organato asks once before securely saving or replacing a Reshet
+              credential.
+            </small>
+          </span>
+          <button
+            type="button"
+            className="canvas-connection__primary"
+            disabled={busy === "reauthenticate"}
+            onClick={() => void confirmAgain()}
+          >
+            {busy === "reauthenticate" ? "Opening Google…" : "Confirm sign-in"}
+          </button>
+        </div>
+      ) : null}
+
       {error ? (
         <p className="canvas-connection__message canvas-connection__message--error">
           {error}
         </p>
       ) : null}
-      {needsReauthentication ? (
-        <button
-          type="button"
-          className="canvas-connection__secondary"
-          onClick={() => void reauthenticate()}
-        >
-          Confirm Google sign-in
-        </button>
-      ) : null}
-
       {connected && status.connection ? (
         <>
           <div className="canvas-connection__summary">

@@ -9,6 +9,10 @@ export interface GoogleDeliverySettings {
   lastErrorCategory: string | null;
 }
 
+export interface SessionSecurityState {
+  recentAuthentication: boolean;
+}
+
 export class IntegrationRequestError extends Error {
   constructor(
     message: string,
@@ -57,10 +61,19 @@ export async function beginGoogleConnection(): Promise<void> {
   window.location.assign(result.authorizationUrl);
 }
 
-export async function reauthenticate(): Promise<void> {
+export async function reauthenticate(
+  returnTo = window.location.pathname,
+): Promise<void> {
+  const result = await integrationRequest<{ authorizationUrl: string }>(
+    "/api/auth/google/start",
+    {
+      method: "POST",
+      body: JSON.stringify({ returnTo }),
+    },
+  );
   await integrationRequest("/api/auth/logout", {
     method: "POST",
     body: JSON.stringify({}),
   });
-  window.location.assign("/");
+  window.location.assign(result.authorizationUrl);
 }
