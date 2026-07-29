@@ -57,6 +57,9 @@ describe("Canvas connection settings", () => {
     };
     const request = vi.fn(
       async (path: string, init?: RequestInit): Promise<unknown> => {
+        if (path === "/api/session") {
+          return { recentAuthentication: true };
+        }
         if (path.endsWith("/status")) {
           return isConnected ? connected : disconnected;
         }
@@ -107,5 +110,27 @@ describe("Canvas connection settings", () => {
       }),
     );
     expect(connectCall?.[1]?.body).not.toContain("baseUrl");
+  });
+
+  it("asks for recent Google confirmation before accepting a token", async () => {
+    const request = vi.fn(async (path: string): Promise<unknown> => {
+      if (path === "/api/session") {
+        return { recentAuthentication: false };
+      }
+      if (path.endsWith("/status")) return disconnected;
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(<CanvasConnectionSection request={request} />);
+
+    expect(
+      await screen.findByRole("button", { name: "Confirm sign-in" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Personal access token"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Connect Reshet" }),
+    ).not.toBeInTheDocument();
   });
 });

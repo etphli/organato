@@ -77,6 +77,35 @@
   padding: 24px 0 25px;
 }
 
+.canvas-connection__reauthentication {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 13px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 22px 0;
+}
+
+.canvas-connection__reauthentication > svg {
+  color: var(--focus);
+}
+
+.canvas-connection__reauthentication > span {
+  display: grid;
+  gap: 4px;
+}
+
+.canvas-connection__reauthentication strong {
+  font-size: 0.78rem;
+  font-weight: 560;
+}
+
+.canvas-connection__reauthentication small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
 .canvas-connection__credential > label {
   display: block;
   font-size: 0.75rem;
@@ -400,6 +429,14 @@
 }
 
 @media (max-width: 680px) {
+  .canvas-connection__reauthentication {
+    grid-template-columns: auto 1fr;
+  }
+
+  .canvas-connection__reauthentication > button {
+    grid-column: 1 / -1;
+  }
+
   .canvas-connection__school {
     grid-template-columns: 36px minmax(0, 1fr);
     padding: 9px 0;
