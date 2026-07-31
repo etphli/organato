@@ -1,0 +1,191 @@
+openapi: 3.1.0
+info:
+  title: Ato App Integration API
+  version: 1.0.0
+  description: >-
+    Server-to-server contract exposed by each Ato app. Paths are relative to the
+    app's configured base URL. Cursor pull is authoritative; webhooks are only nudges.
+servers:
+  - url: https://app.example.invalid/ato/v1
+security:
+  - atoHmac: []
+paths:
+  /manifest:
+    get:
+      operationId: getManifest
+      responses:
+        "200":
+          description: Supported contract and capabilities.
+          content:
+            application/json:
+              schema:
+                $ref: "../contracts/v1/service-manifest.schema.json"
+  /health:
+    get:
+      operationId: getIntegrationHealth
+      responses:
+        "200":
+          description: Private operational health without record content.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, app, contractVersion, currentSequence, time]
+                properties:
+                  ok: { type: boolean }
+                  app: { type: string }
+                  contractVersion: { const: "1.0" }
+                  currentSequence: { type: integer, minimum: 0 }
+                  oldestSequence: { type: integer, minimum: 0 }
+                  time: { type: string, format: date-time }
+  /events:
+    get:
+      operationId: pullEvents
+      parameters:
+        - name: cursor
+          in: query
+          description: Last fully committed sequence, or omit for the first page.
+          schema: { type: integer, minimum: 0 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        "200":
+          description: Events strictly after cursor, ordered by sequence ascending.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [events, nextCursor, hasMore]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: "../contracts/v1/event-envelope.schema.json"
+                  nextCursor:
+                    type: integer
+                    minimum: 0
+                  hasMore: { type: boolean }
+        "410":
+          description: Cursor has expired; consumer must rebuild from snapshot.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+  /snapshot:
+    get:
+      operationId: getProjectionSnapshot
+      parameters:
+        - name: cursor
+          in: query
+          description: Opaque page cursor. Omit for the first page.
+          schema: { type: string, maxLength: 512 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        "200":
+          description: Stable projection page and event watermark.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [resources, watermark, hasMore]
+                properties:
+                  resources:
+                    type: array
+                    items:
+                      $ref: "../contracts/v1/projection.schema.json"
+                  nextCursor: { type: [string, "null"] }
+                  watermark:
+                    type: integer
+                    minimum: 0
+                  hasMore: { type: boolean }
+  /commands:
+    post:
+      operationId: executeCommand
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 16
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Command"
+      responses:
+        "200":
+          description: Completed now or replay of a previous successful response.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CommandResult" }
+        "202":
+          description: Accepted for asynchronous execution.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CommandResult" }
+        "409":
+          description: Resource version conflict or idempotency-key payload mismatch.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422":
+          description: Known command but invalid for the target's current state.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+components:
+  securitySchemes:
+    atoHmac:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: >-
+        Authorization: Ato-HMAC keyId="...",signature="..." together with
+        X-Ato-Timestamp, X-Ato-Nonce, and X-Ato-Content-SHA256. See the framework document.
+  schemas:
+    Command:
+      type: object
+      additionalProperties: false
+      required: [id, type, subject, expectedVersion, traceId, requestedAt, data]
+      properties:
+        id: { type: string, format: uuid }
+        type:
+          type: string
+          pattern: "^[a-z][a-z0-9-]{1,31}\\.[a-z][a-z0-9-]{1,47}\\.[a-z][a-z0-9-]{1,47}$"
+        subject:
+          type: string
+          pattern: "^ato:[a-z][a-z0-9-]{1,31}:[a-z][a-z0-9-]{1,47}:[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$"
+        expectedVersion: { type: integer, minimum: 1 }
+        traceId: { type: string, minLength: 8, maxLength: 128 }
+        requestedAt: { type: string, format: date-time }
+        data: { type: object }
+    CommandResult:
+      type: object
+      additionalProperties: false
+      required: [commandId, status, traceId]
+      properties:
+        commandId: { type: string, format: uuid }
+        status: { enum: [accepted, succeeded] }
+        traceId: { type: string }
+        resource:
+          $ref: "../contracts/v1/projection.schema.json"
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, code, traceId]
+      properties:
+        type: { type: string, format: uri-reference }
+        title: { type: string, maxLength: 200 }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        code: { type: string, pattern: "^[a-z][a-z0-9_]{1,63}$" }
+        detail: { type: string, maxLength: 1000 }
+        traceId: { type: string }
+        retryAfterSeconds: { type: integer, minimum: 0 }
+        currentVersion: { type: integer, minimum: 1 }

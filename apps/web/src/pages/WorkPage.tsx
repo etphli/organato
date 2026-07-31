@@ -11,6 +11,8 @@ import {
 import {
   Columns3,
   Combine,
+  Eye,
+  EyeOff,
   ExternalLink,
   Filter,
   GitCompareArrows,
@@ -33,6 +35,23 @@ import { useOrganato } from "../state/OrganatoProvider";
 
 const now = new Date();
 const columnHelper = createColumnHelper<OrganatoItem>();
+const assignmentsShowCompletedKey = "organato-assignments-show-completed-v1";
+
+function loadShowCompletedPreference(): boolean {
+  try {
+    return localStorage.getItem(assignmentsShowCompletedKey) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveShowCompletedPreference(value: boolean): void {
+  try {
+    localStorage.setItem(assignmentsShowCompletedKey, String(value));
+  } catch {
+    // The table still works when browser storage is unavailable.
+  }
+}
 
 export default function WorkPage({
   page,
@@ -48,6 +67,9 @@ export default function WorkPage({
   const [query, setQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [showColumns, setShowColumns] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(
+    loadShowCompletedPreference,
+  );
   const [priorityFilter, setPriorityFilter] = useState("");
   const [viewName, setViewName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -73,6 +95,9 @@ export default function WorkPage({
           isInView(item.classification, page) &&
           (settings.showSubmittedActive ||
             item.workingStatus !== "submitted") &&
+          (page !== "assignments" ||
+            showCompleted ||
+            item.workingStatus !== "completed") &&
           (!priorityFilter || item.priority === priorityFilter) &&
           (activeView !== "overdue" ||
             visibleStatus(item, now) === "overdue") &&
@@ -80,7 +105,14 @@ export default function WorkPage({
             !item.dueAt ||
             new Date(item.dueAt).getTime() <= now.getTime() + 7 * 86_400_000),
       ),
-    [activeView, items, page, priorityFilter, settings.showSubmittedActive],
+    [
+      activeView,
+      items,
+      page,
+      priorityFilter,
+      settings.showSubmittedActive,
+      showCompleted,
+    ],
   );
   const columns = useMemo(
     () => [
@@ -315,11 +347,26 @@ export default function WorkPage({
       });
     }
   };
+  const toggleCompleted = () => {
+    const next = !showCompleted;
+    setShowCompleted(next);
+    setRowSelection({});
+    saveShowCompletedPreference(next);
+  };
+  const completedVisibleCount =
+    page === "assignments"
+      ? data.filter((item) => item.workingStatus === "completed").length
+      : 0;
+  const activeVisibleCount = data.length - completedVisibleCount;
   return (
     <div className="page work-page">
       <PageHeader
         title={page === "assignments" ? "Assignments" : "Checkpoints"}
-        meta={`${data.length} active`}
+        meta={
+          completedVisibleCount
+            ? `${activeVisibleCount} active · ${completedVisibleCount} completed`
+            : `${activeVisibleCount} active`
+        }
         actions={
           <>
             <select
@@ -353,6 +400,16 @@ export default function WorkPage({
             >
               <Columns3 size={16} /> Columns
             </button>
+            {page === "assignments" ? (
+              <button
+                aria-pressed={showCompleted}
+                className="text-button icon-labelled work-secondary-action"
+                onClick={toggleCompleted}
+              >
+                {showCompleted ? <EyeOff size={16} /> : <Eye size={16} />}
+                {showCompleted ? "Hide completed" : "Show completed"}
+              </button>
+            ) : null}
             <button
               className="new-button"
               onClick={() => setCreating((value) => !value)}
@@ -397,6 +454,16 @@ export default function WorkPage({
                 >
                   <Columns3 size={16} /> Columns
                 </button>
+                {page === "assignments" ? (
+                  <button
+                    aria-pressed={showCompleted}
+                    onClick={toggleCompleted}
+                    role="menuitem"
+                  >
+                    {showCompleted ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showCompleted ? "Hide completed" : "Show completed"}
+                  </button>
+                ) : null}
               </div>
             </details>
           </>
