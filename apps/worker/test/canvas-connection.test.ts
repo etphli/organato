@@ -7,6 +7,7 @@ import {
   nextHourlySyncAt,
   parseCanvasConnectionMetadata,
   safeCanvasConnectionError,
+  canvasConnectionErrorCode,
 } from "../src/canvas-connection";
 
 describe("Canvas connection boundary", () => {
@@ -62,7 +63,20 @@ describe("Canvas connection boundary", () => {
       safeCanvasConnectionError(
         new CanvasConnectionError("token_rejected", "raw provider error"),
       ),
-    ).toMatch(/token was not accepted/i);
+    ).toMatch(/invalid or expired/i);
+  });
+
+  it("does not tell a user to regenerate a token when Canvas denied API access", () => {
+    const error = new CanvasConnectionError(
+      "api_access_denied",
+      "raw provider error",
+      403,
+    );
+
+    expect(safeCanvasConnectionError(error)).toMatch(
+      /creating another token will not fix this/i,
+    );
+    expect(canvasConnectionErrorCode(error)).toBe("api_access_denied");
   });
 
   it("calculates the next top-of-hour check", () => {

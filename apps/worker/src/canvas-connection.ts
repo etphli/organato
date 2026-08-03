@@ -100,7 +100,10 @@ export function nextHourlySyncAt(now = new Date()): string {
 export function safeCanvasConnectionError(error: unknown): string {
   if (error instanceof CanvasConnectionError) {
     if (error.code === "token_rejected") {
-      return "That token was not accepted. Create a new token in Reshet and try again.";
+      return "Reshet says this token is invalid or expired. Copy the full token value shown when it is created (not the token ID), then try once.";
+    }
+    if (error.code === "api_access_denied") {
+      return "Emanuel Canvas received the request but denied API access. Creating another token will not fix this; ask the school's Canvas administrator to allow personal API access for your account.";
     }
     if (
       error.code === "unexpected_origin" ||
@@ -137,6 +140,17 @@ export function canvasConnectionErrorCategory(error: unknown): string {
   if (error instanceof CanvasConnectionError) {
     return error.status ? `${error.code}_${error.status}` : error.code;
   }
+  if (
+    error instanceof Error &&
+    error.message === "canvas_installation_not_configured"
+  ) {
+    return "installation_not_configured";
+  }
+  return "unexpected_failure";
+}
+
+export function canvasConnectionErrorCode(error: unknown): string {
+  if (error instanceof CanvasConnectionError) return error.code;
   if (
     error instanceof Error &&
     error.message === "canvas_installation_not_configured"

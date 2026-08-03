@@ -37,6 +37,7 @@ export type CanvasConnectionErrorCode =
   | "unexpected_origin"
   | "unexpected_redirect"
   | "token_rejected"
+  | "api_access_denied"
   | "rate_limited"
   | "request_failed"
   | "invalid_response"
@@ -164,10 +165,23 @@ export class CanvasRestProvider implements CanvasProvider {
           "Canvas refused an unexpected redirect.",
         );
       }
-      if (response.status === 401 || response.status === 403) {
+      if (response.status === 401) {
+        const code = response.headers.has("WWW-Authenticate")
+          ? "token_rejected"
+          : "api_access_denied";
         throw new CanvasConnectionError(
-          "token_rejected",
-          "Canvas rejected the token.",
+          code,
+          code === "token_rejected"
+            ? "Canvas rejected the token."
+            : "Canvas denied API access.",
+          response.status,
+        );
+      }
+      if (response.status === 403) {
+        throw new CanvasConnectionError(
+          "api_access_denied",
+          "Canvas denied API access.",
+          response.status,
         );
       }
       const retryable =
@@ -271,7 +285,7 @@ export class CanvasRestProvider implements CanvasProvider {
   }
 
   async validateConnection(signal?: AbortSignal): Promise<CanvasIdentity> {
-    const response = await this.request("/api/v1/users/self/profile", signal);
+    const response = await this.request("/api/v1/users/self", signal);
     let user: z.infer<typeof userSchema>;
     try {
       user = userSchema.parse(await this.responseJson(response));

@@ -26,6 +26,7 @@ import {
 } from "./db";
 import {
   canvasConnectionErrorCategory,
+  canvasConnectionErrorCode,
   canvasConnectSchema,
   configuredCanvasInstallation,
   createCanvasConnectionMetadata,
@@ -1166,7 +1167,9 @@ apiRoutes.get("/integrations/canvas/reachability", async (context) => {
   } catch (error) {
     const category = canvasConnectionErrorCategory(error);
     return context.json({
-      reachable: category === "token_rejected",
+      reachable:
+        category.startsWith("token_rejected_") ||
+        category.startsWith("api_access_denied_"),
       result: category,
     });
   }
@@ -1215,7 +1218,10 @@ apiRoutes.post(
         `Reshet token validation stopped safely (${category}).`,
       );
       return context.json(
-        { error: safeCanvasConnectionError(error), code: category },
+        {
+          error: safeCanvasConnectionError(error),
+          code: canvasConnectionErrorCode(error),
+        },
         400,
       );
     }
