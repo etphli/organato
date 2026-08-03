@@ -62,6 +62,7 @@ describe("Canvas network boundaries", () => {
     ) {
       expect(this).toBe(globalThis);
       expect(typeof input).toBe("string");
+      expect(input).toBe("https://emanuel.instructure.com/api/v1/users/self");
       return new Response(JSON.stringify({ id: 1, name: "Ethan Likht" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -76,6 +77,31 @@ describe("Canvas network boundaries", () => {
     await expect(provider.validateConnection()).resolves.toMatchObject({
       id: "1",
       name: "Ethan Likht",
+    });
+  });
+
+  it("distinguishes an invalid token from denied API access", async () => {
+    const invalidTokenProvider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "invalid-token",
+      (async () =>
+        new Response(null, {
+          status: 401,
+          headers: { "WWW-Authenticate": "Bearer" },
+        })) as typeof fetch,
+    );
+    const deniedProvider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "restricted-token",
+      (async () => new Response(null, { status: 403 })) as typeof fetch,
+    );
+
+    await expect(
+      invalidTokenProvider.validateConnection(),
+    ).rejects.toMatchObject({ code: "token_rejected", status: 401 });
+    await expect(deniedProvider.validateConnection()).rejects.toMatchObject({
+      code: "api_access_denied",
+      status: 403,
     });
   });
 
