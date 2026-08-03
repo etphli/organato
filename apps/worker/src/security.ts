@@ -330,7 +330,13 @@ export function requireSession(): MiddlewareHandler<{
       if (!requestMatchesOrigin(context.req.raw, context.env.APP_ORIGIN)) {
         return context.json({ error: "Request origin was rejected." }, 403);
       }
-      if (!csrfToken || !safeEqual(await sha256(csrfToken), row.csrf_hash)) {
+      const csrfCookieToken = getCookie(context, csrfCookie) ?? "";
+      const headerMatches =
+        csrfToken && safeEqual(await sha256(csrfToken), row.csrf_hash);
+      const cookieMatches =
+        csrfCookieToken &&
+        safeEqual(await sha256(csrfCookieToken), row.csrf_hash);
+      if (!headerMatches && !cookieMatches) {
         return context.json({ error: "CSRF validation failed." }, 403);
       }
     }

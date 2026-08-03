@@ -46,6 +46,8 @@ class GoogleSignInError extends Error {
   constructor(
     message: string,
     readonly status: 400 | 401 | 403,
+    readonly reason = "unknown",
+    readonly actorEmail: string | null = null,
   ) {
     super(message);
   }
@@ -58,7 +60,11 @@ async function completeGoogleSignIn(
   redirectUri: string,
 ): Promise<{ csrfToken: string; returnTo: string }> {
   if (!code || !state) {
-    throw new GoogleSignInError("Google sign-in was incomplete.", 400);
+    throw new GoogleSignInError(
+      "Google sign-in was incomplete.",
+      400,
+      "missing_callback_parameters",
+    );
   }
   const stateHash = await sha256(state);
   const transaction = await context.env.DB.prepare(
@@ -73,7 +79,11 @@ async function completeGoogleSignIn(
       expires_at: string;
     }>();
   if (!transaction || new Date(transaction.expires_at) < new Date()) {
-    throw new GoogleSignInError("Google sign-in expired. Start again.", 400);
+    throw new GoogleSignInError(
+      "Google sign-in expired. Start again.",
+      400,
+      "expired_transaction",
+    );
   }
   await context.env.DB.prepare(
     "DELETE FROM oauth_transaction WHERE state_hash = ?",
@@ -105,11 +115,19 @@ async function completeGoogleSignIn(
     }),
   });
   if (!tokenResponse.ok) {
-    throw new GoogleSignInError("Google sign-in could not be verified.", 401);
+    throw new GoogleSignInError(
+      "Google sign-in could not be verified.",
+      401,
+      "token_exchange_failed",
+    );
   }
   const tokenBody = (await tokenResponse.json()) as { id_token?: string };
   if (!tokenBody.id_token) {
-    throw new GoogleSignInError("Google did not return an identity.", 401);
+    throw new GoogleSignInError(
+      "Google did not return an identity.",
+      401,
+      "missing_id_token",
+    );
   }
   let verified;
   try {
@@ -118,7 +136,11 @@ async function completeGoogleSignIn(
       audience: context.env.GOOGLE_CLIENT_ID,
     });
   } catch {
-    throw new GoogleSignInError("Google sign-in could not be verified.", 401);
+    throw new GoogleSignInError(
+      "Google sign-in could not be verified.",
+      401,
+      "id_token_verification_failed",
+    );
   }
   const payload = verified.payload;
   const issuedAt = payload.iat;
@@ -132,20 +154,60 @@ async function completeGoogleSignIn(
         .bind(email)
         .first<{ google_subject: string | null; enabled: number }>()
     : null;
+  if (!email || typeof payload.sub !== "string" || !payload.sub) {
+    throw new GoogleSignInError(
+      "Google sign-in was not accepted.",
+      403,
+      "missing_identity_claims",
+      email || null,
+    );
+  }
+  if (payload.email_verified !== true) {
+    throw new GoogleSignInError(
+      "Google sign-in was not accepted.",
+      403,
+      "email_not_verified",
+      email,
+    );
+  }
+  if (payload.nonce !== nonce) {
+    throw new GoogleSignInError(
+      "Google sign-in was not accepted.",
+      403,
+      "nonce_mismatch",
+      email,
+    );
+  }
   if (
-    !email ||
-    typeof payload.sub !== "string" ||
-    !payload.sub ||
-    payload.email_verified !== true ||
-    payload.nonce !== nonce ||
     typeof issuedAt !== "number" ||
     issuedAt > nowSeconds + 60 ||
-    nowSeconds - issuedAt > 15 * 60 ||
-    (typeof payload.azp === "string" &&
-      payload.azp !== context.env.GOOGLE_CLIENT_ID) ||
-    (!allowList(context.env).has(email) && !existing?.enabled)
+    nowSeconds - issuedAt > 15 * 60
   ) {
-    throw new GoogleSignInError("Google sign-in was not accepted.", 403);
+    throw new GoogleSignInError(
+      "Google sign-in was not accepted.",
+      403,
+      "invalid_issued_at",
+      email,
+    );
+  }
+  if (
+    typeof payload.azp === "string" &&
+    payload.azp !== context.env.GOOGLE_CLIENT_ID
+  ) {
+    throw new GoogleSignInError(
+      "Google sign-in was not accepted.",
+      403,
+      "authorized_party_mismatch",
+      email,
+    );
+  }
+  if (!allowList(context.env).has(email) && !existing?.enabled) {
+    throw new GoogleSignInError(
+      "Google sign-in was not accepted.",
+      403,
+      "email_not_allowed",
+      email,
+    );
   }
   const subject = payload.sub;
   if (
@@ -153,7 +215,12 @@ async function completeGoogleSignIn(
     (!existing.enabled ||
       (existing.google_subject && existing.google_subject !== subject))
   ) {
-    throw new GoogleSignInError("Google sign-in was not accepted.", 403);
+    throw new GoogleSignInError(
+      "Google sign-in was not accepted.",
+      403,
+      existing.enabled ? "google_subject_mismatch" : "identity_disabled",
+      email,
+    );
   }
   const now = new Date().toISOString();
   await context.env.DB.prepare(
@@ -280,8 +347,8 @@ authRoutes.get("/google/callback", async (context) => {
       await recordSecurityEvent(
         context.env.DB,
         "sign_in_failed",
-        null,
-        error.message,
+        error.actorEmail,
+        `${error.message} (${error.reason})`,
       );
       return context.text(error.message, error.status);
     }
@@ -316,8 +383,8 @@ authRoutes.post("/google/exchange", async (context) => {
       await recordSecurityEvent(
         context.env.DB,
         "sign_in_failed",
-        null,
-        error.message,
+        error.actorEmail,
+        `${error.message} (${error.reason})`,
       );
       return context.json({ error: error.message }, error.status);
     }
