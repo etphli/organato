@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import {
   CalendarDays,
   CheckSquare2,
+  ChevronRight,
   ClipboardList,
   Flag,
   Home,
@@ -27,10 +28,21 @@ const mobileNavigation = [
 
 type ShellSyncTone = "neutral" | "healthy" | "busy" | "attention";
 
+const integrationSettingsPath: Record<IntegrationHealth["provider"], string> = {
+  canvas: "/settings/canvas",
+  google_calendar: "/settings/calendar",
+  gmail: "/settings/email",
+};
+
 export function getShellSyncStatus(
   integrations: IntegrationHealth[],
   syncing: boolean,
-): { label: string; tone: ShellSyncTone } {
+): {
+  label: string;
+  tone: ShellSyncTone;
+  to?: string;
+  targetLabel?: string;
+} {
   if (syncing) return { label: "Syncing…", tone: "busy" };
   if (
     !integrations.length ||
@@ -38,13 +50,27 @@ export function getShellSyncStatus(
   ) {
     return { label: "Not connected", tone: "neutral" };
   }
-  if (integrations.some(({ state }) => state === "action_needed")) {
-    return { label: "Action needed", tone: "attention" };
+  const actionable = integrations.find(
+    ({ state }) => state === "action_needed",
+  );
+  if (actionable) {
+    return {
+      label: "Action needed",
+      tone: "attention",
+      to: integrationSettingsPath[actionable.provider],
+      targetLabel: actionable.label,
+    };
   }
-  if (
-    integrations.some(({ state }) => ["delayed", "partial"].includes(state))
-  ) {
-    return { label: "Sync delayed", tone: "attention" };
+  const delayed = integrations.find(({ state }) =>
+    ["delayed", "partial"].includes(state),
+  );
+  if (delayed) {
+    return {
+      label: "Sync delayed",
+      tone: "attention",
+      to: integrationSettingsPath[delayed.provider],
+      targetLabel: delayed.label,
+    };
   }
   if (integrations.every(({ state }) => state === "healthy")) {
     return { label: "Up to date", tone: "healthy" };
@@ -93,13 +119,28 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
         <div className="sidebar-account">
-          <div
-            className={`sync-quiet sync-state sync-state--${syncStatus.tone}`}
-            role="status"
-          >
-            <span className="sync-state__indicator" aria-hidden="true" />
-            <span>{syncStatus.label}</span>
-          </div>
+          {syncStatus.to ? (
+            <NavLink
+              to={syncStatus.to}
+              className={`sync-quiet sync-state sync-state--${syncStatus.tone} sync-state--link`}
+              aria-label={`${syncStatus.label}: open ${syncStatus.targetLabel} settings`}
+              title={`Open ${syncStatus.targetLabel} settings`}
+            >
+              <span className="sync-state__indicator" aria-hidden="true" />
+              <span>{syncStatus.label}</span>
+              <span className="sync-state__arrow" aria-hidden="true">
+                <ChevronRight size={14} strokeWidth={1.8} />
+              </span>
+            </NavLink>
+          ) : (
+            <div
+              className={`sync-quiet sync-state sync-state--${syncStatus.tone}`}
+              role="status"
+            >
+              <span className="sync-state__indicator" aria-hidden="true" />
+              <span>{syncStatus.label}</span>
+            </div>
+          )}
           <NavLink to="/settings" className="account-link">
             <span className="avatar" aria-hidden="true">
               {initials}

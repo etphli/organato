@@ -54,6 +54,30 @@
   background: var(--danger);
 }
 
+.sync-state--link {
+  border-radius: 6px;
+  text-decoration: none;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.sync-state--link:hover {
+  background: var(--surface-active);
+  color: var(--text);
+}
+
+.sync-state--link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.sync-state__arrow {
+  align-items: center;
+  display: inline-flex;
+  margin-left: auto;
+}
+
 @media (max-width: 1100px) {
   .wordmark.brand-lockup {
     justify-content: center;
