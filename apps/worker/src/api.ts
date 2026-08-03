@@ -1182,7 +1182,16 @@ apiRoutes.post(
       `canvas-connect:${context.get("user").email}`,
       10,
     );
-    if (!allowed) return context.json({ error: "Try again later." }, 429);
+    if (!allowed) {
+      return context.json(
+        {
+          error:
+            "Too many connection attempts. Create a new Reshet token, then try again at the start of the next hour.",
+          code: "rate_limited",
+        },
+        429,
+      );
+    }
     const input = context.req.valid("json");
     let installation: ReturnType<typeof configuredCanvasInstallation>;
     try {
@@ -1198,13 +1207,17 @@ apiRoutes.post(
     try {
       identity = await provider.validateConnection(AbortSignal.timeout(15_000));
     } catch (error) {
+      const category = canvasConnectionErrorCategory(error);
       await recordSecurityEvent(
         context.env.DB,
         "canvas_connect_failed",
         context.get("user").email,
-        `Reshet token validation stopped safely (${canvasConnectionErrorCategory(error)}).`,
+        `Reshet token validation stopped safely (${category}).`,
       );
-      return context.json({ error: safeCanvasConnectionError(error) }, 400);
+      return context.json(
+        { error: safeCanvasConnectionError(error), code: category },
+        400,
+      );
     }
     const now = new Date().toISOString();
     const metadata = createCanvasConnectionMetadata({
