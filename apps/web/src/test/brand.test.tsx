@@ -4,10 +4,13 @@ import type { IntegrationHealth } from "@organato/domain";
 import { BrandMark } from "../components/BrandMark";
 import { getShellSyncStatus } from "../components/AppShell";
 
-const integration = (state: IntegrationHealth["state"]): IntegrationHealth => ({
-  provider: "canvas",
+const integration = (
+  state: IntegrationHealth["state"],
+  provider: IntegrationHealth["provider"] = "canvas",
+): IntegrationHealth => ({
+  provider,
   state,
-  label: "Canvas",
+  label: provider === "canvas" ? "Canvas / Reshet" : "Email reminders",
   lastAttemptAt: null,
   lastSuccessAt: null,
   lastError: null,
@@ -70,10 +73,16 @@ describe("shell synchronization status", () => {
     expect(getShellSyncStatus([integration("action_needed")], false)).toEqual({
       label: "Action needed",
       tone: "attention",
+      to: "/settings/canvas",
+      targetLabel: "Canvas / Reshet",
     });
-    expect(getShellSyncStatus([integration("delayed")], false)).toEqual({
+    expect(
+      getShellSyncStatus([integration("delayed", "gmail")], false),
+    ).toEqual({
       label: "Sync delayed",
       tone: "attention",
+      to: "/settings/email",
+      targetLabel: "Email reminders",
     });
   });
 });
