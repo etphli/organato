@@ -226,13 +226,8 @@ export async function createSession(
     path: "/",
     maxAge: 30 * 86_400,
   });
-  setCookie(context, csrfCookie, csrfToken, {
-    secure: new URL(context.env.APP_ORIGIN).protocol === "https:",
-    httpOnly: false,
-    sameSite: "Strict",
-    path: "/",
-    maxAge: 30 * 86_400,
-  });
+  // Keep the proxied sign-in response to one Set-Cookie header. The first
+  // authenticated /api/session request issues the browser-readable CSRF cookie.
   return { csrfToken };
 }
 
