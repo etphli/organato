@@ -108,6 +108,7 @@ export function CanvasConnectionSection({
     "connect" | "sync" | "disconnect" | "reauthenticate" | null
   >(null);
   const [error, setError] = useState<string | null>(null);
+  const [tokenRejected, setTokenRejected] = useState(false);
   const [recentAuthentication, setRecentAuthentication] = useState<
     boolean | null
   >(demoMode ? true : null);
@@ -155,6 +156,7 @@ export function CanvasConnectionSection({
     if (trimmedToken.length < 10) return;
     setBusy("connect");
     setError(null);
+    setTokenRejected(false);
     setActivityMessage(null);
     try {
       if (demoMode) {
@@ -180,6 +182,10 @@ export function CanvasConnectionSection({
       const reauthenticationRequired =
         connectError instanceof IntegrationRequestError &&
         connectError.code === "reauthentication_required";
+      const rejected =
+        connectError instanceof IntegrationRequestError &&
+        connectError.code === "token_rejected";
+      setTokenRejected(rejected);
       if (reauthenticationRequired) {
         setRecentAuthentication(false);
         setToken("");
@@ -361,7 +367,11 @@ export function CanvasConnectionSection({
               data-lpignore="true"
               spellCheck={false}
               value={token}
-              onChange={(event) => setToken(event.target.value)}
+              onChange={(event) => {
+                setToken(event.target.value);
+                setTokenRejected(false);
+                setError(null);
+              }}
               placeholder="Paste your Canvas token"
             />
             <button
@@ -384,7 +394,9 @@ export function CanvasConnectionSection({
             <button
               type="button"
               className="canvas-connection__primary"
-              disabled={busy === "connect" || token.trim().length < 10}
+              disabled={
+                busy === "connect" || tokenRejected || token.trim().length < 10
+              }
               onClick={() => void connect()}
             >
               {busy === "connect"
@@ -402,6 +414,7 @@ export function CanvasConnectionSection({
                 onClick={() => {
                   setReplacing(false);
                   setToken("");
+                  setTokenRejected(false);
                   setError(null);
                 }}
               >

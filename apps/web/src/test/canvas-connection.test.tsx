@@ -5,6 +5,7 @@ import type {
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CanvasConnectionSection } from "../components/settings/CanvasConnectionSection";
+import { IntegrationRequestError } from "../lib/integrationApi";
 
 const disconnected: CanvasConnectionStatus = {
   installation: {
@@ -131,6 +132,42 @@ describe("Canvas connection settings", () => {
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Connect Reshet" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("requires a different token after Canvas rejects the submitted token", async () => {
+    const request = vi.fn(
+      async (path: string, init?: RequestInit): Promise<unknown> => {
+        if (path === "/api/session") {
+          return { recentAuthentication: true };
+        }
+        if (path.endsWith("/status")) return disconnected;
+        if (path.endsWith("/connect") && init?.method === "POST") {
+          throw new IntegrationRequestError(
+            "That token was not accepted. Create a new token in Reshet and try again.",
+            "token_rejected",
+          );
+        }
+        throw new Error(`Unexpected request: ${path}`);
+      },
+    );
+
+    render(<CanvasConnectionSection request={request} />);
+    const input = await screen.findByLabelText("Personal access token");
+    const button = screen.getByRole("button", { name: "Connect Reshet" });
+
+    fireEvent.change(input, { target: { value: "rejected-canvas-token" } });
+    fireEvent.click(button);
+
+    expect(
+      await screen.findByText(/That token was not accepted/i),
+    ).toBeInTheDocument();
+    expect(button).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: "new-canvas-token" } });
+    expect(button).toBeEnabled();
+    expect(
+      screen.queryByText(/That token was not accepted/i),
     ).not.toBeInTheDocument();
   });
 });
