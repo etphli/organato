@@ -72,10 +72,18 @@ function parseJson<T>(value: unknown, fallback: T): T {
   }
 }
 
+function unscopedCanvasCourseId(row: Row): string | null {
+  const value = nullableString(row.canvas_course_id);
+  const workspaceId = nullableString(row.workspace_id);
+  if (!value || !workspaceId) return value;
+  const prefix = `${workspaceId}:`;
+  return value.startsWith(prefix) ? value.slice(prefix.length) : value;
+}
+
 function mapSubject(row: Row): Subject {
   return {
     id: String(row.id),
-    canvasCourseId: nullableString(row.canvas_course_id),
+    canvasCourseId: unscopedCanvasCourseId(row),
     sourceName: nullableString(row.source_name),
     displayName: String(row.display_name),
     shortName: nullableString(row.short_name),
@@ -97,7 +105,7 @@ function mapItem(
     classification: row.classification as OrganatoItem["classification"],
     sourceType: row.source_type as OrganatoItem["sourceType"],
     canvasAssignmentId: nullableString(row.canvas_assignment_id),
-    canvasCourseId: nullableString(row.canvas_course_id),
+    canvasCourseId: unscopedCanvasCourseId(row),
     canvasHtmlUrl: nullableString(row.canvas_html_url),
     sourceName: nullableString(row.source_name),
     sourceDueAt: nullableString(row.source_due_at),
@@ -134,15 +142,22 @@ function mapItem(
   };
 }
 
-export async function listSubjects(db: D1Database): Promise<Subject[]> {
+export async function listSubjects(
+  db: D1Database,
+  workspaceId: string,
+): Promise<Subject[]> {
   const result = await db
-    .prepare("SELECT * FROM subject ORDER BY display_name")
+    .prepare(
+      "SELECT * FROM subject WHERE workspace_id = ? ORDER BY display_name",
+    )
+    .bind(workspaceId)
     .all<Row>();
   return result.results.map(mapSubject);
 }
 
 export async function listItems(
   db: D1Database,
+  workspaceId: string,
   options: { archived?: boolean; limit?: number; all?: boolean } = {},
 ): Promise<OrganatoItem[]> {
   const archivedClause = options.archived
@@ -150,27 +165,36 @@ export async function listItems(
     : "archived_at IS NULL";
   const limit = Math.min(options.limit ?? 500, 2_000);
   const itemScope = options.all
-    ? `SELECT id FROM item WHERE ${archivedClause}`
-    : `SELECT id FROM item WHERE ${archivedClause}
+    ? `SELECT id FROM item WHERE workspace_id = ? AND ${archivedClause}`
+    : `SELECT id FROM item WHERE workspace_id = ? AND ${archivedClause}
        ORDER BY due_at IS NULL, due_at LIMIT ?`;
-  const prepareScoped = (sql: string) => {
+  const prepareScoped = (sql: string, workspaceBindings = 1) => {
     const statement = db.prepare(sql);
-    return options.all ? statement : statement.bind(limit);
+    const bindings = Array.from(
+      { length: workspaceBindings },
+      () => workspaceId,
+    );
+    return options.all
+      ? statement.bind(...bindings)
+      : statement.bind(...bindings, limit);
   };
   const results = await db.batch([
     prepareScoped(
-      `SELECT * FROM item WHERE ${archivedClause}
+      `SELECT * FROM item WHERE workspace_id = ? AND ${archivedClause}
        ORDER BY due_at IS NULL, due_at${options.all ? "" : " LIMIT ?"}`,
     ),
     prepareScoped(
-      `SELECT * FROM field_override WHERE item_id IN (${itemScope})`,
+      `SELECT * FROM field_override WHERE workspace_id = ? AND item_id IN (${itemScope})`,
+      2,
     ),
     prepareScoped(
-      `SELECT * FROM attachment_link WHERE item_id IN (${itemScope})`,
+      `SELECT * FROM attachment_link WHERE workspace_id = ? AND item_id IN (${itemScope})`,
+      2,
     ),
     prepareScoped(
-      `SELECT * FROM item_history WHERE item_id IN (${itemScope})
+      `SELECT * FROM item_history WHERE workspace_id = ? AND item_id IN (${itemScope})
        ORDER BY created_at DESC`,
+      2,
     ),
   ]);
   const itemResult = results[0]!;
@@ -233,27 +257,32 @@ export async function listItems(
 
 export async function getItem(
   db: D1Database,
+  workspaceId: string,
   id: string,
 ): Promise<OrganatoItem | null> {
   const row = await db
-    .prepare("SELECT * FROM item WHERE id = ?")
-    .bind(id)
+    .prepare("SELECT * FROM item WHERE id = ? AND workspace_id = ?")
+    .bind(id, workspaceId)
     .first<Row>();
   if (!row) return null;
   const [overrides, attachments, history] = await Promise.all([
     db
-      .prepare("SELECT * FROM field_override WHERE item_id = ?")
-      .bind(id)
-      .all<Row>(),
-    db
-      .prepare("SELECT * FROM attachment_link WHERE item_id = ?")
-      .bind(id)
+      .prepare(
+        "SELECT * FROM field_override WHERE workspace_id = ? AND item_id = ?",
+      )
+      .bind(workspaceId, id)
       .all<Row>(),
     db
       .prepare(
-        "SELECT * FROM item_history WHERE item_id = ? ORDER BY created_at DESC LIMIT 50",
+        "SELECT * FROM attachment_link WHERE workspace_id = ? AND item_id = ?",
       )
-      .bind(id)
+      .bind(workspaceId, id)
+      .all<Row>(),
+    db
+      .prepare(
+        "SELECT * FROM item_history WHERE workspace_id = ? AND item_id = ? ORDER BY created_at DESC LIMIT 50",
+      )
+      .bind(workspaceId, id)
       .all<Row>(),
   ]);
   return mapItem(
@@ -306,13 +335,14 @@ const patchColumns = new Map<string, string>([
 
 export async function patchItem(
   db: D1Database,
+  workspaceId: string,
   id: string,
   version: number,
   patch: Record<string, unknown>,
   actorEmail: string,
   origin: "organato" | "google" = "organato",
 ): Promise<OrganatoItem> {
-  const before = await getItem(db, id);
+  const before = await getItem(db, workspaceId, id);
   if (!before) throw new Error("not_found");
   if (before.version !== version) throw new Error("version_conflict");
   const entries = Object.entries(patch).filter(([field]) =>
@@ -361,17 +391,18 @@ export async function patchItem(
       .prepare(
         `UPDATE item SET ${assignments.join(", ")}, version = version + 1,
          updated_at = ?
-         WHERE id = ? AND version = ?`,
+         WHERE id = ? AND workspace_id = ? AND version = ?`,
       )
-      .bind(...values, now, id, version),
+      .bind(...values, now, id, workspaceId, version),
     db
       .prepare(
         `INSERT INTO item_history
-          (id, item_id, actor_type, actor_identity, action, summary, before_json, after_json, undo_until, created_at)
-         VALUES (?, ?, ?, ?, 'edited', 'Item edited', ?, ?, ?, ?)`,
+          (id, workspace_id, item_id, actor_type, actor_identity, action, summary, before_json, after_json, undo_until, created_at)
+         VALUES (?, ?, ?, ?, ?, 'edited', 'Item edited', ?, ?, ?, ?)`,
       )
       .bind(
         historyId,
+        workspaceId,
         id,
         origin === "google" ? "google" : "user",
         actorEmail,
@@ -413,14 +444,15 @@ export async function patchItem(
         db
           .prepare(
             `INSERT INTO field_override
-              (item_id, field_name, override_value_json, source_value_at_override_json, origin, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+              (workspace_id, item_id, field_name, override_value_json, source_value_at_override_json, origin, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(item_id, field_name) DO UPDATE SET
                override_value_json = excluded.override_value_json,
                origin = excluded.origin,
                updated_at = excluded.updated_at`,
           )
           .bind(
+            workspaceId,
             id,
             overrideField,
             JSON.stringify(value),
@@ -434,26 +466,31 @@ export async function patchItem(
   }
   const results = await db.batch(batch);
   if (!results[0]?.meta.changes) throw new Error("version_conflict");
-  return (await getItem(db, id))!;
+  return (await getItem(db, workspaceId, id))!;
 }
 
-export async function getSettings(db: D1Database): Promise<WorkspaceSettings> {
+export async function getSettings(
+  db: D1Database,
+  workspaceId: string,
+): Promise<WorkspaceSettings> {
   const row = await db
-    .prepare("SELECT settings_json FROM workspace WHERE id = 'workspace'")
+    .prepare("SELECT settings_json FROM workspace WHERE id = ?")
+    .bind(workspaceId)
     .first<{ settings_json: string }>();
   return { ...defaultSettings, ...parseJson(row?.settings_json, {}) };
 }
 
 export async function updateSettings(
   db: D1Database,
+  workspaceId: string,
   patch: Partial<WorkspaceSettings>,
 ): Promise<WorkspaceSettings> {
-  const settings = { ...(await getSettings(db)), ...patch };
+  const settings = { ...(await getSettings(db, workspaceId)), ...patch };
   await db
     .prepare(
-      "UPDATE workspace SET settings_json = ?, updated_at = ? WHERE id = 'workspace'",
+      "UPDATE workspace SET settings_json = ?, updated_at = ? WHERE id = ?",
     )
-    .bind(JSON.stringify(settings), new Date().toISOString())
+    .bind(JSON.stringify(settings), new Date().toISOString(), workspaceId)
     .run();
   return settings;
 }

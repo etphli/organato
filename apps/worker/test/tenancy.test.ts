@@ -1,0 +1,294 @@
+import { readFileSync } from "node:fs";
+import {
+  DatabaseSync,
+  type SQLInputValue,
+  type StatementSync,
+} from "node:sqlite";
+import { Hono } from "hono";
+import { afterEach, describe, expect, it } from "vitest";
+import { apiRoutes } from "../src/api";
+import { provisionPersonalWorkspace } from "../src/auth";
+import { getItem, getSettings, listItems, listSubjects } from "../src/db";
+import type { Env, Variables } from "../src/types";
+
+class SqlitePreparedStatement {
+  constructor(
+    private readonly database: DatabaseSync,
+    private readonly sql: string,
+    private readonly values: unknown[] = [],
+  ) {}
+
+  bind(...values: unknown[]) {
+    return new SqlitePreparedStatement(this.database, this.sql, values);
+  }
+
+  private statement(): StatementSync {
+    return this.database.prepare(this.sql);
+  }
+
+  async first<T>(): Promise<T | null> {
+    return (
+      (this.statement().get(...(this.values as SQLInputValue[])) as
+        T | undefined) ?? null
+    );
+  }
+
+  async all<T>() {
+    return {
+      results: this.statement().all(...(this.values as SQLInputValue[])) as T[],
+      success: true,
+      meta: { changes: 0 },
+    };
+  }
+
+  async run() {
+    const result = this.statement().run(...(this.values as SQLInputValue[]));
+    return {
+      results: [],
+      success: true,
+      meta: { changes: Number(result.changes) },
+    };
+  }
+
+  async execute() {
+    return /^\s*(SELECT|WITH|PRAGMA)/i.test(this.sql) ? this.all() : this.run();
+  }
+}
+
+class SqliteD1 {
+  constructor(private readonly database: DatabaseSync) {}
+
+  prepare(sql: string) {
+    return new SqlitePreparedStatement(this.database, sql);
+  }
+
+  async batch(statements: SqlitePreparedStatement[]) {
+    const results = [];
+    for (const statement of statements) results.push(await statement.execute());
+    return results;
+  }
+}
+
+const databases: DatabaseSync[] = [];
+
+function tenantDatabase() {
+  const sqlite = new DatabaseSync(":memory:");
+  databases.push(sqlite);
+  for (const migration of [
+    "0001_initial.sql",
+    "0002_reminder_retry.sql",
+    "0003_account_workspace_isolation.sql",
+  ]) {
+    sqlite.exec(
+      readFileSync(
+        new URL(`../../../migrations/${migration}`, import.meta.url),
+        {
+          encoding: "utf8",
+        },
+      ),
+    );
+  }
+  expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  sqlite.exec(`
+    INSERT INTO workspace (id, name, timezone, settings_json, created_at, updated_at)
+    VALUES ('friend@example.com', 'Organato', 'Australia/Sydney', '{"theme":"light"}', datetime('now'), datetime('now'));
+
+    INSERT INTO subject
+      (id, workspace_id, display_name, colour, active, created_at, updated_at)
+    VALUES
+      ('owner-subject', 'ethan.likht@gmail.com', 'Owner subject', '#a78bfa', 1, datetime('now'), datetime('now')),
+      ('friend-subject', 'friend@example.com', 'Friend subject', '#3b9df8', 1, datetime('now'), datetime('now'));
+
+    INSERT INTO item
+      (id, workspace_id, kind, classification, source_type, display_name,
+       subject_id, working_status, calendar_sync_state, created_at, updated_at)
+    VALUES
+      ('owner-item', 'ethan.likht@gmail.com', 'work', 'assignment', 'manual',
+       'Private owner assignment', 'owner-subject', 'not_started', 'synced', datetime('now'), datetime('now')),
+      ('friend-item', 'friend@example.com', 'work', 'assignment', 'manual',
+       'Private friend assignment', 'friend-subject', 'not_started', 'synced', datetime('now'), datetime('now'));
+
+    INSERT INTO integration_connection
+      (workspace_id, provider, account_label, status, updated_at)
+    VALUES
+      ('ethan.likht@gmail.com', 'canvas', 'Owner Canvas', 'healthy', datetime('now')),
+      ('friend@example.com', 'canvas', 'Friend Canvas', 'healthy', datetime('now'));
+  `);
+  return new SqliteD1(sqlite) as unknown as D1Database;
+}
+
+function tenantApi(db: D1Database, email: string) {
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (context, next) => {
+    context.set("user", {
+      email,
+      workspaceId: email,
+      displayName: email,
+      csrfToken: "test-csrf",
+      sessionIdHash: `session:${email}`,
+      authenticatedAt: new Date().toISOString(),
+    });
+    await next();
+  });
+  app.route("/api", apiRoutes);
+  const env = {
+    DB: db,
+    APP_ORIGIN: "https://organato.example",
+    ALLOWED_GOOGLE_EMAILS: "*",
+    CANVAS_BASE_URL: "https://canvas.example",
+    DEMO_MODE: "true",
+  } as Env;
+  return { app, env };
+}
+
+afterEach(() => {
+  for (const database of databases.splice(0)) database.close();
+});
+
+describe("per-account workspace isolation", () => {
+  it("provisions a new verified account with an empty personal workspace", async () => {
+    const db = tenantDatabase();
+    await provisionPersonalWorkspace(db, {
+      email: "new-person@example.com",
+      displayName: "New Person",
+      googleSubject: "google-new-person",
+    });
+
+    expect(await listItems(db, "new-person@example.com")).toEqual([]);
+    expect(await listSubjects(db, "new-person@example.com")).toEqual([]);
+    expect((await getSettings(db, "new-person@example.com")).theme).toBe(
+      "obsidian",
+    );
+    const identity = await db
+      .prepare(
+        `SELECT workspace_id FROM allowed_identity
+         WHERE email_normalized = ?`,
+      )
+      .bind("new-person@example.com")
+      .first<{ workspace_id: string }>();
+    expect(identity?.workspace_id).toBe("new-person@example.com");
+  });
+
+  it("isolates item, subject, and settings reads in the data layer", async () => {
+    const db = tenantDatabase();
+
+    const ownerItems = await listItems(db, "ethan.likht@gmail.com");
+    const friendItems = await listItems(db, "friend@example.com");
+    expect(ownerItems.map((item) => item.displayName)).toEqual([
+      "Private owner assignment",
+    ]);
+    expect(friendItems.map((item) => item.displayName)).toEqual([
+      "Private friend assignment",
+    ]);
+    expect(await getItem(db, "friend@example.com", "owner-item")).toBeNull();
+    expect(
+      (await listSubjects(db, "friend@example.com")).map(
+        (subject) => subject.displayName,
+      ),
+    ).toEqual(["Friend subject"]);
+    expect((await getSettings(db, "friend@example.com")).theme).toBe("light");
+    expect((await getSettings(db, "ethan.likht@gmail.com")).theme).not.toBe(
+      "light",
+    );
+  });
+
+  it("prevents cross-account reads and mutations through API routes", async () => {
+    const db = tenantDatabase();
+    const { app, env } = tenantApi(db, "friend@example.com");
+
+    const itemsResponse = await app.request("/api/items", {}, env);
+    expect(itemsResponse.status).toBe(200);
+    const items = (await itemsResponse.json()) as {
+      items: Array<{ id: string; displayName: string }>;
+    };
+    expect(items.items.map((item) => item.id)).toEqual(["friend-item"]);
+
+    const privateRead = await app.request("/api/items/owner-item", {}, env);
+    expect(privateRead.status).toBe(404);
+
+    const privateMutation = await app.request(
+      "/api/items/owner-item/classify",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, classification: "checkpoint" }),
+      },
+      env,
+    );
+    expect(privateMutation.status).toBe(409);
+    expect(
+      (await getItem(db, "ethan.likht@gmail.com", "owner-item"))
+        ?.classification,
+    ).toBe("assignment");
+
+    const integrations = await app.request("/api/integrations", {}, env);
+    const integrationBody = (await integrations.json()) as {
+      integrations: Array<{ account_label: string }>;
+    };
+    expect(
+      integrationBody.integrations.map((row) => row.account_label),
+    ).toEqual(["Friend Canvas"]);
+
+    const canvasStatus = await app.request(
+      "/api/integrations/canvas/status",
+      {},
+      env,
+    );
+    expect(canvasStatus.status).toBe(200);
+  });
+
+  it("tags new records and settings with the authenticated workspace", async () => {
+    const db = tenantDatabase();
+    const { app, env } = tenantApi(db, "friend@example.com");
+
+    const created = await app.request(
+      "/api/items",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "todo",
+          displayName: "Friend-only todo",
+        }),
+      },
+      env,
+    );
+    expect(created.status).toBe(201);
+    expect(
+      (await listItems(db, "friend@example.com")).map(
+        (item) => item.displayName,
+      ),
+    ).toContain("Friend-only todo");
+    expect(
+      (await listItems(db, "ethan.likht@gmail.com")).map(
+        (item) => item.displayName,
+      ),
+    ).not.toContain("Friend-only todo");
+
+    const history = await db
+      .prepare(
+        `SELECT workspace_id FROM item_history
+         WHERE actor_identity = ? AND action = 'created'`,
+      )
+      .bind("friend@example.com")
+      .first<{ workspace_id: string }>();
+    expect(history?.workspace_id).toBe("friend@example.com");
+
+    const settings = await app.request(
+      "/api/settings",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ theme: "pure_black" }),
+      },
+      env,
+    );
+    expect(settings.status).toBe(200);
+    expect((await getSettings(db, "friend@example.com")).theme).toBe(
+      "pure_black",
+    );
+    expect((await getSettings(db, "ethan.likht@gmail.com")).theme).not.toBe(
+      "pure_black",
+    );
+  });
+});

@@ -74,4 +74,27 @@ describe("Google authentication callback", () => {
     expect(window.location.pathname).toBe("/settings/calendar");
     expect(window.location.search).toBe("?connected=1");
   });
+
+  it("preserves the server's safe explanation when an account is not approved", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/api/auth/google/callback?code=google-code&state=oauth-state",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "This Google account has not been approved for Organato.",
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    await expect(exchangeGoogleCallbackIfPresent()).rejects.toThrow(
+      "This Google account has not been approved for Organato.",
+    );
+  });
 });

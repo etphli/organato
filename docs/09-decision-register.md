@@ -89,7 +89,9 @@ Priority itself is a defined enum, so dragging is used to reorder rows or worklo
 
 ### Multiple Google identities
 
-All allow-listed accounts enter one workspace. One account is separately designated the integration owner for Calendar/Gmail automation.
+Each verified Google identity receives a separate private workspace and owns
+its own Canvas, Calendar, and Gmail connections. No cross-account workspace
+membership or collaborative editing is supported.
 
 ## 3. Recommended defaults
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { authRoutes } from "../src/auth";
+import { authRoutes, isConfiguredGoogleEmailAllowed } from "../src/auth";
 import { encryptSecret, sha256 } from "../src/security";
 import type { Env } from "../src/types";
 
@@ -14,6 +14,25 @@ function base64Url(bytes: Uint8Array): string {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("Google sign-in access policy", () => {
+  it("accepts every verified email when the allow-list contains a wildcard", () => {
+    expect(
+      isConfiguredGoogleEmailAllowed(
+        { ALLOWED_GOOGLE_EMAILS: "*" },
+        "friend@example.com",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps exact-address allow-lists available for private deployments", () => {
+    const env = { ALLOWED_GOOGLE_EMAILS: "owner@example.com" };
+    expect(isConfiguredGoogleEmailAllowed(env, "OWNER@example.com")).toBe(true);
+    expect(isConfiguredGoogleEmailAllowed(env, "friend@example.com")).toBe(
+      false,
+    );
+  });
 });
 
 describe("Google sign-in exchange", () => {

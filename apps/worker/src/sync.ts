@@ -80,6 +80,7 @@ export interface CanvasSyncOutcome {
 
 async function acquireCanvasRun(
   env: Env,
+  workspaceId: string,
   trigger: "scheduled" | "manual",
   now: Date,
 ): Promise<{
@@ -90,8 +91,9 @@ async function acquireCanvasRun(
   const runId = crypto.randomUUID();
   const finalKey =
     trigger === "scheduled"
-      ? `canvas:${now.toISOString().slice(0, 13)}`
-      : `manual:${runId}`;
+      ? `${workspaceId}:canvas:${now.toISOString().slice(0, 13)}`
+      : `${workspaceId}:manual:${runId}`;
+  const activeKey = `${workspaceId}:canvas:active`;
   if (trigger === "scheduled") {
     const existing = await env.DB.prepare(
       "SELECT id FROM sync_run WHERE scheduled_key = ?",
@@ -107,23 +109,25 @@ async function acquireCanvasRun(
     `UPDATE sync_run
      SET scheduled_key = 'abandoned:' || id, finished_at = ?,
          result = 'failed', error_category = 'stale_sync_lock'
-     WHERE provider = 'canvas' AND scheduled_key = 'canvas:active'
+     WHERE workspace_id = ? AND provider = 'canvas' AND scheduled_key = ?
        AND started_at < ?`,
   )
-    .bind(now.toISOString(), staleBefore)
+    .bind(now.toISOString(), workspaceId, activeKey, staleBefore)
     .run();
   const lock = await env.DB.prepare(
     `INSERT OR IGNORE INTO sync_run
-      (id, provider, trigger_type, scheduled_key, started_at, result)
-     VALUES (?, 'canvas', ?, 'canvas:active', ?, 'running')`,
+      (id, workspace_id, provider, trigger_type, scheduled_key, started_at, result)
+     VALUES (?, ?, 'canvas', ?, ?, ?, 'running')`,
   )
-    .bind(runId, trigger, now.toISOString())
+    .bind(runId, workspaceId, trigger, activeKey, now.toISOString())
     .run();
   if (lock.meta.changes) return { acquired: true, runId, finalKey };
   const active = await env.DB.prepare(
     `SELECT id FROM sync_run
-     WHERE provider = 'canvas' AND scheduled_key = 'canvas:active'`,
-  ).first<{ id: string }>();
+     WHERE workspace_id = ? AND provider = 'canvas' AND scheduled_key = ?`,
+  )
+    .bind(workspaceId, activeKey)
+    .first<{ id: string }>();
   return {
     acquired: false,
     runId: active?.id ?? runId,
@@ -133,17 +137,20 @@ async function acquireCanvasRun(
 
 export async function runCanvasSync(
   env: Env,
+  workspaceId: string,
   trigger: "scheduled" | "manual",
 ): Promise<CanvasSyncOutcome> {
   const connection = await env.DB.prepare(
     `SELECT encrypted_credential, metadata_json, account_label
      FROM integration_connection
-     WHERE provider = 'canvas' AND status <> 'disconnected'`,
-  ).first<{
-    encrypted_credential: string;
-    metadata_json: string;
-    account_label: string;
-  }>();
+     WHERE workspace_id = ? AND provider = 'canvas' AND status <> 'disconnected'`,
+  )
+    .bind(workspaceId)
+    .first<{
+      encrypted_credential: string;
+      metadata_json: string;
+      account_label: string;
+    }>();
   if (!connection) throw new Error("Canvas is not connected.");
   const metadata = parseCanvasConnectionMetadata(
     connection.metadata_json,
@@ -156,7 +163,7 @@ export async function runCanvasSync(
     metadata.credentialAad,
   );
   const started = new Date();
-  const lock = await acquireCanvasRun(env, trigger, started);
+  const lock = await acquireCanvasRun(env, workspaceId, trigger, started);
   const { runId, finalKey } = lock;
   if (!lock.acquired) {
     return {
@@ -186,13 +193,15 @@ export async function runCanvasSync(
         .filter((assignment) => assignment.published)
         .map((assignment) => assignment.id),
     );
-    const baseHash = await sha256(provider.baseUrl.origin);
+    const baseHash = `${workspaceId}:${await sha256(provider.baseUrl.origin)}`;
 
+    const subjectIds = new Map<string, string>();
     for (const [index, course] of result.courses.entries()) {
+      const scopedCourseId = `${workspaceId}:${course.id}`;
       await env.DB.prepare(
         `INSERT INTO subject
-        (id, canvas_course_id, source_name, display_name, colour, active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+        (id, workspace_id, canvas_course_id, source_name, display_name, colour, active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
        ON CONFLICT(canvas_course_id) DO UPDATE SET
          display_name = CASE
            WHEN subject.display_name = subject.source_name
@@ -203,8 +212,9 @@ export async function runCanvasSync(
          updated_at = excluded.updated_at`,
       )
         .bind(
-          `canvas-course-${course.id}`,
-          course.id,
+          `${workspaceId}:canvas-course-${course.id}`,
+          workspaceId,
+          scopedCourseId,
           course.name,
           course.name,
           subjectColour(index),
@@ -212,6 +222,13 @@ export async function runCanvasSync(
           now,
         )
         .run();
+      const stored = await env.DB.prepare(
+        `SELECT id FROM subject
+         WHERE workspace_id = ? AND canvas_course_id = ?`,
+      )
+        .bind(workspaceId, scopedCourseId)
+        .first<{ id: string }>();
+      if (stored) subjectIds.set(course.id, stored.id);
     }
 
     for (const assignment of result.assignments) {
@@ -220,9 +237,9 @@ export async function runCanvasSync(
                 archive_reason, manual_archive, missing_sync_count,
                 source_name, source_due_at, source_updated_at
          FROM item
-         WHERE canvas_base_url_hash = ? AND canvas_assignment_id = ?`,
+         WHERE workspace_id = ? AND canvas_base_url_hash = ? AND canvas_assignment_id = ?`,
       )
-        .bind(baseHash, assignment.id)
+        .bind(workspaceId, baseHash, assignment.id)
         .first<{
           id: string;
           working_status: string;
@@ -245,19 +262,20 @@ export async function runCanvasSync(
         await env.DB.batch([
           env.DB.prepare(
             `INSERT INTO item
-              (id, kind, classification, source_type, canvas_base_url_hash,
+              (id, workspace_id, kind, classification, source_type, canvas_base_url_hash,
                canvas_assignment_id, canvas_course_id, canvas_html_url,
                source_name, source_due_at, source_updated_at, source_payload_hash,
                display_name, due_at, due_has_explicit_time, subject_id,
                working_status, submitted_at, calendar_enabled, reminders_enabled,
                calendar_sync_state, created_at, updated_at)
-             VALUES (?, 'work', 'unclassified', 'canvas', ?, ?, ?, ?, ?, ?, ?, ?,
+             VALUES (?, ?, 'work', 'unclassified', 'canvas', ?, ?, ?, ?, ?, ?, ?, ?,
                      ?, ?, ?, ?, 'not_started', NULL, 1, 1, 'pending', ?, ?)`,
           ).bind(
             id,
+            workspaceId,
             baseHash,
             assignment.id,
-            assignment.courseId,
+            `${workspaceId}:${assignment.courseId}`,
             assignment.htmlUrl,
             assignment.name,
             assignment.dueAt,
@@ -266,7 +284,7 @@ export async function runCanvasSync(
             assignment.name,
             assignment.dueAt,
             assignment.dueAt ? 1 : 0,
-            `canvas-course-${assignment.courseId}`,
+            subjectIds.get(assignment.courseId) ?? null,
             now,
             now,
           ),
@@ -302,9 +320,9 @@ export async function runCanvasSync(
               `UPDATE item
                SET missing_sync_count = 0, source_missing_since = NULL,
                    updated_at = ?
-               WHERE id = ?`,
+               WHERE id = ? AND workspace_id = ?`,
             )
-              .bind(now, existing.id)
+              .bind(now, existing.id, workspaceId)
               .run();
           }
           continue;
@@ -346,7 +364,7 @@ export async function runCanvasSync(
                  WHEN calendar_enabled = 1 THEN 'pending'
                  ELSE calendar_sync_state END,
                version = version + 1, updated_at = ?
-             WHERE id = ?`,
+             WHERE id = ? AND workspace_id = ?`,
           ).bind(
             assignment.name,
             assignment.dueAt,
@@ -364,6 +382,7 @@ export async function runCanvasSync(
             shouldRestore ? 1 : 0,
             now,
             existing.id,
+            workspaceId,
           ),
           env.DB.prepare(
             `INSERT INTO item_history
@@ -398,10 +417,10 @@ export async function runCanvasSync(
       `SELECT id, canvas_assignment_id, canvas_course_id, source_due_at,
               missing_sync_count
        FROM item
-       WHERE source_type = 'canvas' AND canvas_base_url_hash = ?
+       WHERE workspace_id = ? AND source_type = 'canvas' AND canvas_base_url_hash = ?
          AND archived_at IS NULL`,
     )
-      .bind(baseHash)
+      .bind(workspaceId, baseHash)
       .all<{
         id: string;
         canvas_assignment_id: string;
@@ -415,7 +434,9 @@ export async function runCanvasSync(
       if (
         !shouldAdvanceCanvasMissing(
           {
-            canvasCourseId: item.canvas_course_id,
+            canvasCourseId: item.canvas_course_id?.startsWith(`${workspaceId}:`)
+              ? item.canvas_course_id.slice(workspaceId.length + 1)
+              : item.canvas_course_id,
             sourceDueAt: item.source_due_at,
           },
           successfulCourseIds,
@@ -439,7 +460,7 @@ export async function runCanvasSync(
              calendar_sync_state = CASE WHEN ? = 1
                THEN 'pending' ELSE calendar_sync_state END,
              version = version + 1, updated_at = ?
-           WHERE id = ?`,
+           WHERE id = ? AND workspace_id = ?`,
         ).bind(
           count,
           now,
@@ -450,6 +471,7 @@ export async function runCanvasSync(
           confirmed ? 1 : 0,
           now,
           item.id,
+          workspaceId,
         ),
       ];
       if (confirmed) {
@@ -469,7 +491,7 @@ export async function runCanvasSync(
     await env.DB.prepare(
       `UPDATE sync_run SET finished_at = ?, fetched_count = ?, created_count = ?,
          updated_count = ?, archived_count = ?, skipped_count = ?, result = ?,
-         scheduled_key = ? WHERE id = ?`,
+         scheduled_key = ? WHERE id = ? AND workspace_id = ?`,
     )
       .bind(
         new Date().toISOString(),
@@ -481,18 +503,20 @@ export async function runCanvasSync(
         result.partialFailures.length ? "partial" : "success",
         finalKey,
         runId,
+        workspaceId,
       )
       .run();
     await env.DB.prepare(
       `UPDATE integration_connection SET status = ?, last_success_at = ?, last_attempt_at = ?,
          last_error_category = NULL, reconnect_needed = 0, updated_at = ?
-       WHERE provider = 'canvas'`,
+       WHERE workspace_id = ? AND provider = 'canvas'`,
     )
       .bind(
         result.partialFailures.length ? "partial" : "healthy",
         now,
         now,
         now,
+        workspaceId,
       )
       .run();
     return {
@@ -516,7 +540,7 @@ export async function runCanvasSync(
     await Promise.all([
       env.DB.prepare(
         `UPDATE sync_run SET finished_at = ?, result = 'failed',
-         error_category = ?, scheduled_key = ? WHERE id = ?`,
+         error_category = ?, scheduled_key = ? WHERE id = ? AND workspace_id = ?`,
       )
         .bind(
           failedAt,
@@ -527,12 +551,13 @@ export async function runCanvasSync(
               : "canvas_sync_failed",
           finalKey,
           runId,
+          workspaceId,
         )
         .run(),
       env.DB.prepare(
         `UPDATE integration_connection SET status = ?,
          last_attempt_at = ?, last_error_category = ?, reconnect_needed = ?,
-         updated_at = ? WHERE provider = 'canvas'`,
+         updated_at = ? WHERE workspace_id = ? AND provider = 'canvas'`,
       )
         .bind(
           authenticationFailure
@@ -548,6 +573,7 @@ export async function runCanvasSync(
               : "canvas_sync_failed",
           authenticationFailure ? 1 : 0,
           failedAt,
+          workspaceId,
         )
         .run(),
     ]).catch(() => undefined);
@@ -613,6 +639,7 @@ export function calendarPatchFromEvent(
 
 async function updateGoogleHealth(
   env: Env,
+  workspaceId: string,
   input: {
     status: "healthy" | "partial" | "delayed" | "action_needed";
     errorCategory: string | null;
@@ -631,7 +658,7 @@ async function updateGoogleHealth(
          THEN json_set(metadata_json, '$.syncToken', ?)
          ELSE metadata_json END,
        updated_at = ?
-     WHERE provider = 'google'`,
+     WHERE workspace_id = ? AND provider = 'google'`,
   )
     .bind(
       input.status,
@@ -643,15 +670,19 @@ async function updateGoogleHealth(
       input.syncToken ?? null,
       input.syncToken ?? null,
       now,
+      workspaceId,
     )
     .run();
 }
 
-export async function runCalendarReconciliation(env: Env): Promise<void> {
-  const connection = await loadGoogleConnection(env);
+export async function runCalendarReconciliation(
+  env: Env,
+  workspaceId: string,
+): Promise<void> {
+  const connection = await loadGoogleConnection(env, workspaceId);
   if (!connection?.metadata.calendarId) return;
   const calendarId = connection.metadata.calendarId;
-  const subjects = await listSubjects(env.DB);
+  const subjects = await listSubjects(env.DB, workspaceId);
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
   let nextSyncToken: string | undefined;
   let pullFailures = 0;
@@ -676,9 +707,9 @@ export async function runCalendarReconciliation(env: Env): Promise<void> {
             try {
               const link = await env.DB.prepare(
                 `SELECT item_id, google_etag, sync_state
-                 FROM calendar_link WHERE google_event_id = ?`,
+                 FROM calendar_link WHERE workspace_id = ? AND google_event_id = ?`,
               )
-                .bind(event.id)
+                .bind(workspaceId, event.id)
                 .first<{
                   item_id: string;
                   google_etag: string | null;
@@ -688,7 +719,7 @@ export async function runCalendarReconciliation(env: Env): Promise<void> {
                 link?.item_id ??
                 event.extendedProperties?.private?.organatoItemId;
               if (!itemId) continue;
-              const item = await getItem(env.DB, itemId);
+              const item = await getItem(env.DB, workspaceId, itemId);
               if (!item) continue;
               if (event.status === "cancelled") {
                 if (!link || item.archivedAt) continue;
@@ -698,14 +729,14 @@ export async function runCalendarReconciliation(env: Env): Promise<void> {
                     `UPDATE item SET calendar_enabled = 0,
                        calendar_sync_state = 'suppressed',
                        version = version + 1, updated_at = ?
-                     WHERE id = ?`,
-                  ).bind(now, item.id),
+                     WHERE id = ? AND workspace_id = ?`,
+                  ).bind(now, item.id, workspaceId),
                   env.DB.prepare(
                     `UPDATE calendar_link SET google_event_id = NULL,
                        google_etag = NULL, sync_state = 'suppressed',
                        suppressed_at = ?, last_synced_at = ?
-                     WHERE item_id = ?`,
-                  ).bind(now, now, item.id),
+                     WHERE item_id = ? AND workspace_id = ?`,
+                  ).bind(now, now, item.id, workspaceId),
                   env.DB.prepare(
                     `INSERT INTO item_history
                       (id, item_id, actor_type, actor_identity, action,
@@ -728,6 +759,7 @@ export async function runCalendarReconciliation(env: Env): Promise<void> {
               const updatedItem = Object.keys(patch).length
                 ? await patchItem(
                     env.DB,
+                    workspaceId,
                     item.id,
                     item.version,
                     patch,
@@ -761,8 +793,8 @@ export async function runCalendarReconciliation(env: Env): Promise<void> {
                 ),
                 env.DB.prepare(
                   `UPDATE item SET calendar_sync_state = 'synced'
-                   WHERE id = ?`,
-                ).bind(item.id),
+                   WHERE id = ? AND workspace_id = ?`,
+                ).bind(item.id, workspaceId),
               ]);
             } catch {
               pullFailures += 1;
@@ -785,9 +817,9 @@ export async function runCalendarReconciliation(env: Env): Promise<void> {
           await env.DB.prepare(
             `UPDATE integration_connection
              SET metadata_json = json_remove(metadata_json, '$.syncToken'),
-                 updated_at = ? WHERE provider = 'google'`,
+                 updated_at = ? WHERE workspace_id = ? AND provider = 'google'`,
           )
-            .bind(new Date().toISOString())
+            .bind(new Date().toISOString(), workspaceId)
             .run();
           continue;
         }
@@ -797,17 +829,20 @@ export async function runCalendarReconciliation(env: Env): Promise<void> {
 
     const pendingRows = await env.DB.prepare(
       `SELECT id FROM item
-       WHERE calendar_sync_state IN ('pending', 'error', 'conflict')
+       WHERE workspace_id = ?
+         AND calendar_sync_state IN ('pending', 'error', 'conflict')
        ORDER BY updated_at LIMIT 1000`,
-    ).all<{ id: string }>();
+    )
+      .bind(workspaceId)
+      .all<{ id: string }>();
     for (const row of pendingRows.results) {
-      const item = await getItem(env.DB, row.id);
+      const item = await getItem(env.DB, workspaceId, row.id);
       if (!item) continue;
       const link = await env.DB.prepare(
         `SELECT google_event_id, google_etag, sync_state, last_synced_at
-         FROM calendar_link WHERE item_id = ?`,
+         FROM calendar_link WHERE workspace_id = ? AND item_id = ?`,
       )
-        .bind(item.id)
+        .bind(workspaceId, item.id)
         .first<{
           google_event_id: string | null;
           google_etag: string | null;
@@ -829,12 +864,12 @@ export async function runCalendarReconciliation(env: Env): Promise<void> {
           }
           const state = item.calendarEnabled ? "synced" : "suppressed";
           await env.DB.batch([
-            env.DB.prepare("DELETE FROM calendar_link WHERE item_id = ?").bind(
-              item.id,
-            ),
             env.DB.prepare(
-              "UPDATE item SET calendar_sync_state = ? WHERE id = ?",
-            ).bind(state, item.id),
+              "DELETE FROM calendar_link WHERE workspace_id = ? AND item_id = ?",
+            ).bind(workspaceId, item.id),
+            env.DB.prepare(
+              "UPDATE item SET calendar_sync_state = ? WHERE id = ? AND workspace_id = ?",
+            ).bind(state, item.id, workspaceId),
           ]);
           continue;
         }
@@ -885,8 +920,8 @@ export async function runCalendarReconciliation(env: Env): Promise<void> {
             now,
           ),
           env.DB.prepare(
-            "UPDATE item SET calendar_sync_state = 'synced' WHERE id = ?",
-          ).bind(item.id),
+            "UPDATE item SET calendar_sync_state = 'synced' WHERE id = ? AND workspace_id = ?",
+          ).bind(item.id, workspaceId),
         ]);
       } catch (error) {
         if (
@@ -901,21 +936,26 @@ export async function runCalendarReconciliation(env: Env): Promise<void> {
         const now = new Date().toISOString();
         await env.DB.batch([
           env.DB.prepare(
-            `UPDATE item SET calendar_sync_state = ? WHERE id = ?`,
-          ).bind(conflict ? "conflict" : "error", item.id),
+            `UPDATE item SET calendar_sync_state = ? WHERE id = ? AND workspace_id = ?`,
+          ).bind(conflict ? "conflict" : "error", item.id, workspaceId),
           ...(link
             ? [
                 env.DB.prepare(
                   `UPDATE calendar_link SET sync_state = ?,
-                     last_synced_at = ? WHERE item_id = ?`,
-                ).bind(conflict ? "conflict" : "error", now, item.id),
+                     last_synced_at = ? WHERE item_id = ? AND workspace_id = ?`,
+                ).bind(
+                  conflict ? "conflict" : "error",
+                  now,
+                  item.id,
+                  workspaceId,
+                ),
               ]
             : []),
         ]);
       }
     }
 
-    await updateGoogleHealth(env, {
+    await updateGoogleHealth(env, workspaceId, {
       status: pullFailures || pushFailures ? "partial" : "healthy",
       errorCategory:
         pullFailures || pushFailures ? "calendar_partial_failure" : null,
@@ -928,7 +968,7 @@ export async function runCalendarReconciliation(env: Env): Promise<void> {
     const authorizationFailure =
       error instanceof GoogleApiError &&
       (error.status === 401 || error.status === 403);
-    await updateGoogleHealth(env, {
+    await updateGoogleHealth(env, workspaceId, {
       status: authorizationFailure ? "action_needed" : "delayed",
       errorCategory: authorizationFailure
         ? "google_authorization_failed"
@@ -958,6 +998,7 @@ function syncHealthLabel(value: string | null | undefined, timezone: string) {
 
 async function sendDigestForItems(
   env: Env,
+  workspaceId: string,
   items: OrganatoItem[],
   deliveryKey: string,
   deliveryType: "daily_digest" | "urgent_import",
@@ -967,14 +1008,16 @@ async function sendDigestForItems(
     forceRetry?: boolean;
   },
 ): Promise<void> {
-  const connection = await loadGoogleConnection(env);
+  const connection = await loadGoogleConnection(env, workspaceId);
   if (!connection) return;
   const [subjects, healthRows] = await Promise.all([
-    listSubjects(env.DB),
+    listSubjects(env.DB, workspaceId),
     env.DB.prepare(
       `SELECT provider, last_success_at FROM integration_connection
-       WHERE provider IN ('canvas', 'google')`,
-    ).all<{ provider: string; last_success_at: string | null }>(),
+       WHERE workspace_id = ? AND provider IN ('canvas', 'google')`,
+    )
+      .bind(workspaceId)
+      .all<{ provider: string; last_success_at: string | null }>(),
   ]);
   const health = new Map(
     healthRows.results.map((row) => [row.provider, row.last_success_at]),
@@ -990,29 +1033,37 @@ async function sendDigestForItems(
   });
   const nowIso = options.now.toISOString();
   const localDate = localDateKey(options.now, options.timezone);
+  const scopedDeliveryKey = `${workspaceId}:${deliveryKey}`;
   if (!rendered) {
     await env.DB.prepare(
       `INSERT OR IGNORE INTO reminder_delivery
-       (delivery_key, delivery_type, local_date, item_snapshot_json, status,
+       (delivery_key, workspace_id, delivery_type, local_date, item_snapshot_json, status,
         attempt_count, created_at, last_attempt_at)
-       VALUES (?, ?, ?, '[]', 'skipped_no_items', 0, ?, ?)`,
+       VALUES (?, ?, ?, ?, '[]', 'skipped_no_items', 0, ?, ?)`,
     )
-      .bind(deliveryKey, deliveryType, localDate, nowIso, nowIso)
+      .bind(
+        scopedDeliveryKey,
+        workspaceId,
+        deliveryType,
+        localDate,
+        nowIso,
+        nowIso,
+      )
       .run();
     return;
   }
   const dailyCount = await env.DB.prepare(
     `SELECT COUNT(*) AS count FROM reminder_delivery
-     WHERE local_date = ? AND status = 'sent'`,
+     WHERE workspace_id = ? AND local_date = ? AND status = 'sent'`,
   )
-    .bind(localDate)
+    .bind(workspaceId, localDate)
     .first<{ count: number }>();
   if (Number(dailyCount?.count ?? 0) >= 10) {
     await env.DB.prepare(
       `INSERT INTO reminder_delivery
-        (delivery_key, delivery_type, local_date, item_snapshot_json, status,
+        (delivery_key, workspace_id, delivery_type, local_date, item_snapshot_json, status,
          attempt_count, created_at, last_attempt_at, last_error_category)
-       VALUES (?, ?, ?, ?, 'skipped_daily_limit', 0, ?, ?,
+       VALUES (?, ?, ?, ?, ?, 'skipped_daily_limit', 0, ?, ?,
                'daily_delivery_limit')
        ON CONFLICT(delivery_key) DO UPDATE SET
          status = 'skipped_daily_limit',
@@ -1020,7 +1071,8 @@ async function sendDigestForItems(
          last_error_category = excluded.last_error_category`,
     )
       .bind(
-        deliveryKey,
+        scopedDeliveryKey,
+        workspaceId,
         deliveryType,
         localDate,
         JSON.stringify(rendered.itemIds),
@@ -1032,12 +1084,13 @@ async function sendDigestForItems(
   }
   const inserted = await env.DB.prepare(
     `INSERT OR IGNORE INTO reminder_delivery
-      (delivery_key, delivery_type, local_date, item_snapshot_json, status,
+      (delivery_key, workspace_id, delivery_type, local_date, item_snapshot_json, status,
        attempt_count, created_at, last_attempt_at)
-     VALUES (?, ?, ?, ?, 'pending', 1, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, 'pending', 1, ?, ?)`,
   )
     .bind(
-      deliveryKey,
+      scopedDeliveryKey,
+      workspaceId,
       deliveryType,
       localDate,
       JSON.stringify(rendered.itemIds),
@@ -1054,7 +1107,7 @@ async function sendDigestForItems(
        SET status = 'pending', attempt_count = attempt_count + 1,
            last_attempt_at = ?, next_attempt_at = NULL,
            last_error_category = NULL
-       WHERE delivery_key = ? AND attempt_count < 3
+       WHERE workspace_id = ? AND delivery_key = ? AND attempt_count < 3
          AND (
            (status = 'failed_transient' AND
              (? = 1 OR next_attempt_at IS NULL OR next_attempt_at <= ?))
@@ -1064,7 +1117,8 @@ async function sendDigestForItems(
     )
       .bind(
         nowIso,
-        deliveryKey,
+        workspaceId,
+        scopedDeliveryKey,
         options.forceRetry ? 1 : 0,
         nowIso,
         staleBefore,
@@ -1088,24 +1142,24 @@ async function sendDigestForItems(
           : rendered.subject,
       html: rendered.html,
       text: rendered.text,
-      deliveryKey,
+      deliveryKey: scopedDeliveryKey,
     });
     await env.DB.prepare(
       `UPDATE reminder_delivery SET status = 'sent', gmail_message_id = ?,
          sent_at = ?, last_attempt_at = ?, next_attempt_at = NULL,
          last_error_category = NULL
-       WHERE delivery_key = ?`,
+       WHERE workspace_id = ? AND delivery_key = ?`,
     )
-      .bind(sent.messageId, nowIso, nowIso, deliveryKey)
+      .bind(sent.messageId, nowIso, nowIso, workspaceId, scopedDeliveryKey)
       .run();
   } catch (error) {
     const authorizationFailure =
       error instanceof GoogleApiError &&
       (error.status === 401 || error.status === 403);
     const delivery = await env.DB.prepare(
-      `SELECT attempt_count FROM reminder_delivery WHERE delivery_key = ?`,
+      `SELECT attempt_count FROM reminder_delivery WHERE workspace_id = ? AND delivery_key = ?`,
     )
-      .bind(deliveryKey)
+      .bind(workspaceId, scopedDeliveryKey)
       .first<{ attempt_count: number }>();
     const attempts = Number(delivery?.attempt_count ?? 1);
     const retryAt =
@@ -1117,7 +1171,7 @@ async function sendDigestForItems(
         `UPDATE reminder_delivery
          SET status = ?, last_attempt_at = ?, next_attempt_at = ?,
              last_error_category = ?
-         WHERE delivery_key = ?`,
+         WHERE workspace_id = ? AND delivery_key = ?`,
       )
         .bind(
           authorizationFailure || attempts >= 3
@@ -1130,14 +1184,15 @@ async function sendDigestForItems(
             : attempts >= 3
               ? "retry_limit_reached"
               : "gmail_temporarily_unavailable",
-          deliveryKey,
+          workspaceId,
+          scopedDeliveryKey,
         )
         .run(),
       env.DB.prepare(
         `UPDATE integration_connection
          SET status = ?, last_attempt_at = ?, last_error_category = ?,
              reconnect_needed = ?, updated_at = ?
-         WHERE provider = 'google'`,
+         WHERE workspace_id = ? AND provider = 'google'`,
       )
         .bind(
           authorizationFailure ? "action_needed" : "delayed",
@@ -1147,6 +1202,7 @@ async function sendDigestForItems(
             : "gmail_temporarily_unavailable",
           authorizationFailure ? 1 : 0,
           nowIso,
+          workspaceId,
         )
         .run(),
     ]);
@@ -1154,8 +1210,11 @@ async function sendDigestForItems(
   }
 }
 
-export async function sendTestEmail(env: Env): Promise<{ messageId: string }> {
-  const connection = await loadGoogleConnection(env);
+export async function sendTestEmail(
+  env: Env,
+  workspaceId: string,
+): Promise<{ messageId: string }> {
+  const connection = await loadGoogleConnection(env, workspaceId);
   if (!connection) {
     throw new GoogleConnectionError(
       "not_connected",
@@ -1187,17 +1246,18 @@ export async function sendTestEmail(env: Env): Promise<{ messageId: string }> {
 
 export async function runDailyDigest(
   env: Env,
+  workspaceId: string,
   now = new Date(),
 ): Promise<void> {
-  const settings = await getSettings(env.DB);
+  const settings = await getSettings(env.DB, workspaceId);
   if (
     !settings.dailyDigestEnabled ||
     !isDigestHour(now, settings.timezone, settings.digestHour)
   ) {
     return;
   }
-  await runCalendarReconciliation(env);
-  const connection = await loadGoogleConnection(env);
+  await runCalendarReconciliation(env, workspaceId);
+  const connection = await loadGoogleConnection(env, workspaceId);
   if (!connection) return;
   const recipients = connection.metadata.recipients?.length
     ? connection.metadata.recipients
@@ -1208,7 +1268,8 @@ export async function runDailyDigest(
   );
   await sendDigestForItems(
     env,
-    await listItems(env.DB, { limit: 1_000 }),
+    workspaceId,
+    await listItems(env.DB, workspaceId, { limit: 1_000 }),
     key,
     "daily_digest",
     { now, timezone: settings.timezone },
@@ -1217,17 +1278,19 @@ export async function runDailyDigest(
 
 export async function sendUrgentImport(
   env: Env,
+  workspaceId: string,
   runId: string,
   createdIds: string[],
 ): Promise<void> {
   if (!createdIds.length) return;
-  const settings = await getSettings(env.DB);
+  const settings = await getSettings(env.DB, workspaceId);
   if (!settings.immediateImportAlert) return;
   const items = (
-    await Promise.all(createdIds.map((id) => getItem(env.DB, id)))
+    await Promise.all(createdIds.map((id) => getItem(env.DB, workspaceId, id)))
   ).filter((item): item is OrganatoItem => item !== null);
   await sendDigestForItems(
     env,
+    workspaceId,
     items,
     `urgent-import:${runId}`,
     "urgent_import",
@@ -1235,17 +1298,22 @@ export async function sendUrgentImport(
   );
 }
 
-export async function retryLatestDelivery(env: Env): Promise<boolean> {
+export async function retryLatestDelivery(
+  env: Env,
+  workspaceId: string,
+): Promise<boolean> {
   const row = await env.DB.prepare(
     `SELECT delivery_key, delivery_type, item_snapshot_json
      FROM reminder_delivery
-     WHERE status = 'failed_transient'
+     WHERE workspace_id = ? AND status = 'failed_transient'
      ORDER BY created_at DESC LIMIT 1`,
-  ).first<{
-    delivery_key: string;
-    delivery_type: "daily_digest" | "urgent_import";
-    item_snapshot_json: string;
-  }>();
+  )
+    .bind(workspaceId)
+    .first<{
+      delivery_key: string;
+      delivery_type: "daily_digest" | "urgent_import";
+      item_snapshot_json: string;
+    }>();
   if (!row) return false;
   if (
     row.delivery_type !== "daily_digest" &&
@@ -1258,14 +1326,21 @@ export async function retryLatestDelivery(env: Env): Promise<boolean> {
     return false;
   }
   const items = (
-    await Promise.all(ids.map((id) => getItem(env.DB, id)))
+    await Promise.all(ids.map((id) => getItem(env.DB, workspaceId, id)))
   ).filter((item): item is OrganatoItem => item !== null);
-  const settings = await getSettings(env.DB);
-  await sendDigestForItems(env, items, row.delivery_key, row.delivery_type, {
-    now: new Date(),
-    timezone: settings.timezone,
-    forceRetry: true,
-  });
+  const settings = await getSettings(env.DB, workspaceId);
+  await sendDigestForItems(
+    env,
+    workspaceId,
+    items,
+    row.delivery_key.replace(`${workspaceId}:`, ""),
+    row.delivery_type,
+    {
+      now: new Date(),
+      timezone: settings.timezone,
+      forceRetry: true,
+    },
+  );
   return true;
 }
 

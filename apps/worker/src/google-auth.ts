@@ -85,7 +85,12 @@ const integrationCallbackSchema = z
   .strict();
 
 googleIntegrationRoutes.get("/settings", async (context) =>
-  context.json(await getGoogleDeliverySettings(context.env)),
+  context.json(
+    await getGoogleDeliverySettings(
+      context.env,
+      context.get("user").workspaceId,
+    ),
+  ),
 );
 
 googleIntegrationRoutes.post(
@@ -141,12 +146,14 @@ googleIntegrationRoutes.put(
     const configured = new Set(
       context.env.ALLOWED_GOOGLE_EMAILS.split(",")
         .map((email) => email.trim().toLowerCase())
-        .filter(Boolean),
+        .filter((email) => Boolean(email) && email !== "*"),
     );
     const identities = await context.env.DB.prepare(
       `SELECT email_normalized FROM allowed_identity
-       WHERE enabled = 1 AND is_owner = 1`,
-    ).all<{ email_normalized: string }>();
+       WHERE workspace_id = ? AND enabled = 1 AND is_owner = 1`,
+    )
+      .bind(context.get("user").workspaceId)
+      .all<{ email_normalized: string }>();
     for (const identity of identities.results) {
       configured.add(identity.email_normalized.toLowerCase());
     }
@@ -159,7 +166,11 @@ googleIntegrationRoutes.put(
       );
     }
     try {
-      const settings = await updateGoogleRecipients(context.env, recipients);
+      const settings = await updateGoogleRecipients(
+        context.env,
+        context.get("user").workspaceId,
+        recipients,
+      );
       await recordSecurityEvent(
         context.env.DB,
         "email_recipients_changed",
@@ -188,8 +199,9 @@ googleIntegrationRoutes.post(
     const now = new Date();
     await context.env.DB.prepare(
       `INSERT INTO oauth_transaction
-        (state_hash, nonce_hash, nonce_encrypted, code_verifier_encrypted, return_to, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (state_hash, nonce_hash, nonce_encrypted, code_verifier_encrypted,
+         return_to, created_at, expires_at, workspace_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         stateHash,
@@ -207,6 +219,7 @@ googleIntegrationRoutes.post(
         `integration:${user.email}`,
         now.toISOString(),
         new Date(now.getTime() + 10 * 60_000).toISOString(),
+        user.workspaceId,
       )
       .run();
     const params = new URLSearchParams({
@@ -235,11 +248,13 @@ googleIntegrationRoutes.post(
   async (context) => {
     const row = await context.env.DB.prepare(
       `SELECT encrypted_credential, metadata_json
-       FROM integration_connection WHERE provider = 'google'`,
-    ).first<{
-      encrypted_credential: string | null;
-      metadata_json: string;
-    }>();
+       FROM integration_connection WHERE workspace_id = ? AND provider = 'google'`,
+    )
+      .bind(context.get("user").workspaceId)
+      .first<{
+        encrypted_credential: string | null;
+        metadata_json: string;
+      }>();
     let providerRevoked = false;
     if (row?.encrypted_credential) {
       try {
@@ -269,16 +284,17 @@ googleIntegrationRoutes.post(
            SET status = 'disconnected', encrypted_credential = NULL,
                reconnect_needed = 0, last_attempt_at = ?,
                last_error_category = ?, updated_at = ?
-           WHERE provider = 'google'`,
+           WHERE workspace_id = ? AND provider = 'google'`,
       ).bind(
         now,
         providerRevoked ? null : "provider_revocation_unconfirmed",
         now,
+        context.get("user").workspaceId,
       ),
       context.env.DB.prepare(
         `UPDATE workspace SET integration_owner_email = NULL, updated_at = ?
-           WHERE id = 'workspace'`,
-      ).bind(now),
+           WHERE id = ?`,
+      ).bind(now, context.get("user").workspaceId),
     ]);
     await recordSecurityEvent(
       context.env.DB,
@@ -304,7 +320,8 @@ export async function googleIntegrationCallback(
     return new Response("Google connection was incomplete.", { status: 400 });
   const stateHash = await sha256(state);
   const transaction = await env.DB.prepare(
-    `SELECT nonce_encrypted, code_verifier_encrypted, return_to, expires_at
+    `SELECT nonce_encrypted, code_verifier_encrypted, return_to, expires_at,
+            workspace_id
      FROM oauth_transaction WHERE state_hash = ?`,
   )
     .bind(stateHash)
@@ -313,9 +330,11 @@ export async function googleIntegrationCallback(
       code_verifier_encrypted: string;
       return_to: string;
       expires_at: string;
+      workspace_id: string | null;
     }>();
   if (
     !transaction ||
+    !transaction.workspace_id ||
     !transaction.return_to.startsWith("integration:") ||
     new Date(transaction.expires_at) < new Date()
   ) {
@@ -325,6 +344,7 @@ export async function googleIntegrationCallback(
     .bind(stateHash)
     .run();
   const email = transaction.return_to.slice("integration:".length);
+  const workspaceId = transaction.workspace_id;
   const nonce = await decryptSecret(
     transaction.nonce_encrypted,
     env.DATA_ENCRYPTION_KEY,
@@ -366,9 +386,10 @@ export async function googleIntegrationCallback(
   }
   const ownerIdentity = await env.DB.prepare(
     `SELECT google_subject, enabled
-     FROM allowed_identity WHERE email_normalized = ? AND is_owner = 1`,
+     FROM allowed_identity
+     WHERE email_normalized = ? AND workspace_id = ? AND is_owner = 1`,
   )
-    .bind(email.toLowerCase())
+    .bind(email.toLowerCase(), workspaceId)
     .first<{ google_subject: string | null; enabled: number }>();
   if (!ownerIdentity?.enabled || !ownerIdentity.google_subject) {
     return new Response("The Organato owner identity is not eligible.", {
@@ -415,8 +436,11 @@ export async function googleIntegrationCallback(
   };
   const calendar = new GoogleCalendarRestProvider(tokenSource);
   const previous = await env.DB.prepare(
-    `SELECT metadata_json FROM integration_connection WHERE provider = 'google'`,
-  ).first<{ metadata_json: string }>();
+    `SELECT metadata_json FROM integration_connection
+     WHERE workspace_id = ? AND provider = 'google'`,
+  )
+    .bind(workspaceId)
+    .first<{ metadata_json: string }>();
   let previousCalendarId: string | undefined;
   let previousRecipients: string[] = [];
   try {
@@ -441,11 +465,11 @@ export async function googleIntegrationCallback(
   const now = new Date().toISOString();
   await env.DB.prepare(
     `INSERT INTO integration_connection
-      (provider, account_label, status, scopes_json, encrypted_credential,
+      (workspace_id, provider, account_label, status, scopes_json, encrypted_credential,
        credential_key_version, last_success_at, last_attempt_at, reconnect_needed,
        metadata_json, updated_at)
-     VALUES ('google', ?, 'healthy', ?, ?, 1, ?, ?, 0, ?, ?)
-     ON CONFLICT(provider) DO UPDATE SET
+     VALUES (?, 'google', ?, 'healthy', ?, ?, 1, ?, ?, 0, ?, ?)
+     ON CONFLICT(workspace_id, provider) DO UPDATE SET
        account_label = excluded.account_label,
        status = 'healthy',
        scopes_json = excluded.scopes_json,
@@ -457,6 +481,7 @@ export async function googleIntegrationCallback(
        updated_at = excluded.updated_at`,
   )
     .bind(
+      workspaceId,
       email,
       JSON.stringify(required),
       encrypted,
@@ -471,28 +496,31 @@ export async function googleIntegrationCallback(
     )
     .run();
   await env.DB.prepare(
-    "UPDATE workspace SET integration_owner_email = ?, updated_at = ? WHERE id = 'workspace'",
+    "UPDATE workspace SET integration_owner_email = ?, updated_at = ? WHERE id = ?",
   )
-    .bind(email, now)
+    .bind(email, now, workspaceId)
     .run();
   await env.DB.prepare(
     `UPDATE item SET calendar_sync_state = 'pending'
-     WHERE calendar_enabled = 1 AND archived_at IS NULL`,
-  ).run();
+     WHERE workspace_id = ? AND calendar_enabled = 1 AND archived_at IS NULL`,
+  )
+    .bind(workspaceId)
+    .run();
   await recordSecurityEvent(
     env.DB,
     "google_connected",
     email,
     "Verified Google Calendar and Gmail authorization was connected.",
   );
-  const reconciliation = runCalendarReconciliation(env).catch(async () =>
-    env.DB.prepare(
-      `UPDATE integration_connection
-         SET status = 'delayed', last_error_category = 'initial_reconcile_failed',
-             updated_at = ? WHERE provider = 'google'`,
-    )
-      .bind(new Date().toISOString())
-      .run(),
+  const reconciliation = runCalendarReconciliation(env, workspaceId).catch(
+    async () =>
+      env.DB.prepare(
+        `UPDATE integration_connection
+           SET status = 'delayed', last_error_category = 'initial_reconcile_failed',
+               updated_at = ? WHERE workspace_id = ? AND provider = 'google'`,
+      )
+        .bind(new Date().toISOString(), workspaceId)
+        .run(),
   );
   if (executionContext) executionContext.waitUntil(reconciliation);
   else await reconciliation;

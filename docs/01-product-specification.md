@@ -48,7 +48,7 @@ The initial product will not:
 - Modify Canvas assignments or courses.
 - Import announcements, discussions, standalone calendar events, past assignments, or unrelated quizzes.
 - Import unrelated Google Calendar events.
-- Support public registration, school-wide usage, classes of users, or collaboration.
+- Support collaboration or shared editing between accounts.
 - Work fully offline.
 - Provide native iOS, Android, or macOS applications.
 - Upload and host large files. Attachments are links in the first complete version.
@@ -57,17 +57,19 @@ The initial product will not:
 
 ## 5. User model
 
-Organato has one logical owner and one shared workspace.
+Each verified Google identity owns one private workspace. Account identity,
+workspace data, settings, sessions, integrations, sync jobs, reminders, and
+backups are isolated by that identity.
 
-The owner may allow-list multiple Google email addresses—for example, a personal Gmail address and a school-managed Google Workspace address. Those identities open the same workspace rather than creating separate accounts.
-
-One connected Google identity is designated the **integration owner**. Its authorization is used to:
+The workspace's connected Google identity is its **integration owner**. Its
+authorization is used to:
 
 - Create and maintain the dedicated Organato calendar.
 - Send the HTML digest.
 - Receive the digest by default.
 
-Signing in through another allow-listed account does not silently transfer integration ownership.
+Signing in through another Google account creates or opens that account's
+separate workspace and never transfers data or integration ownership.
 
 ## 6. Terminology
 
