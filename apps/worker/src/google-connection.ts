@@ -51,20 +51,23 @@ function parseMetadata(value: string): GoogleMetadata | null {
 
 export async function getGoogleDeliverySettings(
   env: Pick<Env, "DB">,
+  workspaceId: string,
 ): Promise<GoogleDeliverySettings> {
   const row = await env.DB.prepare(
     `SELECT encrypted_credential, metadata_json, status, reconnect_needed,
             last_success_at, last_attempt_at, last_error_category
-     FROM integration_connection WHERE provider = 'google'`,
-  ).first<{
-    encrypted_credential: string | null;
-    metadata_json: string;
-    status: string;
-    reconnect_needed: number;
-    last_success_at: string | null;
-    last_attempt_at: string | null;
-    last_error_category: string | null;
-  }>();
+     FROM integration_connection WHERE workspace_id = ? AND provider = 'google'`,
+  )
+    .bind(workspaceId)
+    .first<{
+      encrypted_credential: string | null;
+      metadata_json: string;
+      status: string;
+      reconnect_needed: number;
+      last_success_at: string | null;
+      last_attempt_at: string | null;
+      last_error_category: string | null;
+    }>();
   const metadata = row ? parseMetadata(row.metadata_json) : null;
   const connected = Boolean(
     row?.encrypted_credential &&
@@ -90,16 +93,19 @@ export async function getGoogleDeliverySettings(
 
 export async function updateGoogleRecipients(
   env: Pick<Env, "DB">,
+  workspaceId: string,
   recipients: string[],
 ): Promise<GoogleDeliverySettings> {
   const row = await env.DB.prepare(
     `SELECT metadata_json, encrypted_credential, status
-     FROM integration_connection WHERE provider = 'google'`,
-  ).first<{
-    metadata_json: string;
-    encrypted_credential: string | null;
-    status: string;
-  }>();
+     FROM integration_connection WHERE workspace_id = ? AND provider = 'google'`,
+  )
+    .bind(workspaceId)
+    .first<{
+      metadata_json: string;
+      encrypted_credential: string | null;
+      status: string;
+    }>();
   const metadata = row ? parseMetadata(row.metadata_json) : null;
   if (
     !row?.encrypted_credential ||
@@ -111,22 +117,28 @@ export async function updateGoogleRecipients(
   await env.DB.prepare(
     `UPDATE integration_connection
      SET metadata_json = ?, updated_at = ?
-     WHERE provider = 'google'`,
+     WHERE workspace_id = ? AND provider = 'google'`,
   )
-    .bind(JSON.stringify({ ...metadata, recipients }), new Date().toISOString())
+    .bind(
+      JSON.stringify({ ...metadata, recipients }),
+      new Date().toISOString(),
+      workspaceId,
+    )
     .run();
-  return getGoogleDeliverySettings(env);
+  return getGoogleDeliverySettings(env, workspaceId);
 }
 
-export async function loadGoogleConnection(env: Env) {
+export async function loadGoogleConnection(env: Env, workspaceId: string) {
   const row = await env.DB.prepare(
     `SELECT encrypted_credential, metadata_json, status
-     FROM integration_connection WHERE provider = 'google'`,
-  ).first<{
-    encrypted_credential: string;
-    metadata_json: string;
-    status: string;
-  }>();
+     FROM integration_connection WHERE workspace_id = ? AND provider = 'google'`,
+  )
+    .bind(workspaceId)
+    .first<{
+      encrypted_credential: string;
+      metadata_json: string;
+      status: string;
+    }>();
   if (!row?.encrypted_credential || row.status === "disconnected") return null;
   const metadata = parseMetadata(row.metadata_json);
   if (!metadata) return null;

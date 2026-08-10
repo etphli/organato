@@ -27,6 +27,52 @@ import type { Env, Variables } from "./types";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+async function runHourlyForAllWorkspaces(env: Env) {
+  const rows = await env.DB.prepare(
+    `SELECT workspace_id, provider FROM integration_connection
+     WHERE status <> 'disconnected' AND provider IN ('canvas', 'google')`,
+  ).all<{ workspace_id: string; provider: string }>();
+  const providers = new Map<string, Set<string>>();
+  for (const row of rows.results) {
+    const set = providers.get(row.workspace_id) ?? new Set<string>();
+    set.add(row.provider);
+    providers.set(row.workspace_id, set);
+  }
+  let canvasSynced = 0;
+  let canvasFailed = 0;
+  for (const [workspaceId, connected] of providers) {
+    if (connected.has("canvas")) {
+      try {
+        const result = await runCanvasSync(env, workspaceId, "scheduled");
+        await sendUrgentImport(
+          env,
+          workspaceId,
+          result.runId,
+          result.createdIds,
+        );
+        canvasSynced += 1;
+      } catch {
+        canvasFailed += 1;
+      }
+    }
+    if (connected.has("google")) {
+      await runCalendarReconciliation(env, workspaceId).catch(() => undefined);
+    }
+  }
+  return { canvasSynced, canvasFailed, workspaces: providers.size };
+}
+
+async function runDigestForAllWorkspaces(env: Env, now: Date) {
+  const rows = await env.DB.prepare("SELECT id FROM workspace").all<{
+    id: string;
+  }>();
+  for (const row of rows.results) {
+    await runDailyDigest(env, row.id, now).catch(() => undefined);
+  }
+  await runRetentionCleanup(env, now);
+  return { workspaces: rows.results.length };
+}
+
 app.use("*", securityHeaders());
 
 app.get("/health", (context) =>
@@ -58,28 +104,19 @@ app.post("/api/internal/schedule", async (context) => {
   }
   const job = context.req.query("job");
   if (job === "hourly") {
-    const canvasConnection = await context.env.DB.prepare(
-      `SELECT 1 AS connected FROM integration_connection
-       WHERE provider = 'canvas' AND status <> 'disconnected'`,
-    ).first<{ connected: number }>();
-    let canvasResult: "synced" | "failed" | "not_connected" = "not_connected";
-    if (canvasConnection) {
-      try {
-        const result = await runCanvasSync(context.env, "scheduled");
-        await sendUrgentImport(context.env, result.runId, result.createdIds);
-        canvasResult = "synced";
-      } catch {
-        canvasResult = "failed";
-      }
-    }
-    await runCalendarReconciliation(context.env);
-    return context.json({ ok: true, job, canvas: canvasResult });
+    return context.json({
+      ok: true,
+      job,
+      ...(await runHourlyForAllWorkspaces(context.env)),
+    });
   }
   if (job === "digest") {
     const now = new Date();
-    await runDailyDigest(context.env, now);
-    await runRetentionCleanup(context.env, now);
-    return context.json({ ok: true, job });
+    return context.json({
+      ok: true,
+      job,
+      ...(await runDigestForAllWorkspaces(context.env, now)),
+    });
   }
   return context.json({ error: "Unknown job." }, 400);
 });
@@ -105,11 +142,17 @@ app.route("/api/integrations/google", googleIntegrationRoutes);
 
 app.post("/api/integrations/canvas/sync", async (context) => {
   try {
-    const result = await runCanvasSync(context.env, "manual");
+    const workspaceId = context.get("user").workspaceId;
+    const result = await runCanvasSync(context.env, workspaceId, "manual");
     context.executionCtx.waitUntil(
       Promise.all([
-        runCalendarReconciliation(context.env),
-        sendUrgentImport(context.env, result.runId, result.createdIds),
+        runCalendarReconciliation(context.env, workspaceId),
+        sendUrgentImport(
+          context.env,
+          workspaceId,
+          result.runId,
+          result.createdIds,
+        ),
       ]).then(() => undefined),
     );
     return context.json({ ok: true, runId: result.runId });
@@ -126,7 +169,10 @@ app.post("/api/integrations/canvas/sync", async (context) => {
 
 app.post("/api/integrations/google/reconcile", async (context) => {
   try {
-    await runCalendarReconciliation(context.env);
+    await runCalendarReconciliation(
+      context.env,
+      context.get("user").workspaceId,
+    );
     return context.json({ ok: true });
   } catch {
     return context.json(
@@ -153,15 +199,15 @@ app.post("/api/integrations/google/test-email", async (context) => {
     return context.json({ ok: true, simulated: true });
   }
   try {
-    const sent = await sendTestEmail(context.env);
+    const sent = await sendTestEmail(context.env, user.workspaceId);
     const now = new Date().toISOString();
     await context.env.DB.prepare(
       `UPDATE integration_connection
        SET status = 'healthy', last_success_at = ?, last_attempt_at = ?,
            last_error_category = NULL, reconnect_needed = 0, updated_at = ?
-       WHERE provider = 'google'`,
+       WHERE workspace_id = ? AND provider = 'google'`,
     )
-      .bind(now, now, now)
+      .bind(now, now, now, user.workspaceId)
       .run();
     await recordSecurityEvent(
       context.env.DB,
@@ -183,7 +229,7 @@ app.post("/api/integrations/google/test-email", async (context) => {
       `UPDATE integration_connection
        SET status = ?, last_attempt_at = ?, last_error_category = ?,
            reconnect_needed = ?, updated_at = ?
-       WHERE provider = 'google'`,
+       WHERE workspace_id = ? AND provider = 'google'`,
     )
       .bind(
         authorizationFailure ? "action_needed" : "delayed",
@@ -193,6 +239,7 @@ app.post("/api/integrations/google/test-email", async (context) => {
           : "gmail_temporarily_unavailable",
         authorizationFailure ? 1 : 0,
         now,
+        user.workspaceId,
       )
       .run();
     return context.json(
@@ -223,7 +270,10 @@ app.post("/api/integrations/google/retry-latest", async (context) => {
     );
   }
   try {
-    const retried = await retryLatestDelivery(context.env);
+    const retried = await retryLatestDelivery(
+      context.env,
+      context.get("user").workspaceId,
+    );
     return retried
       ? context.json({ ok: true })
       : context.json({ error: "No retryable delivery was found." }, 404);
@@ -238,10 +288,15 @@ app.post("/api/integrations/google/retry-latest", async (context) => {
 app.post("/api/integrations/google/rebuild", async (context) => {
   await context.env.DB.prepare(
     `UPDATE item SET calendar_sync_state = 'pending'
-     WHERE calendar_enabled = 1 AND archived_at IS NULL`,
-  ).run();
+     WHERE workspace_id = ? AND calendar_enabled = 1 AND archived_at IS NULL`,
+  )
+    .bind(context.get("user").workspaceId)
+    .run();
   try {
-    await runCalendarReconciliation(context.env);
+    await runCalendarReconciliation(
+      context.env,
+      context.get("user").workspaceId,
+    );
     return context.json({ ok: true });
   } catch {
     return context.json(
@@ -259,9 +314,9 @@ app.post("/api/integrations/google/clear-sync-token", async (context) => {
     `UPDATE integration_connection
      SET metadata_json = json_remove(metadata_json, '$.syncToken'),
          updated_at = ?
-     WHERE provider = 'google'`,
+     WHERE workspace_id = ? AND provider = 'google'`,
   )
-    .bind(new Date().toISOString())
+    .bind(new Date().toISOString(), context.get("user").workspaceId)
     .run();
   return context.json({ ok: true });
 });
@@ -297,40 +352,9 @@ async function scheduled(
   if (env.SCHEDULER_MODE !== "cloudflare") return;
   const now = new Date(controller.scheduledTime);
   if (now.getUTCMinutes() === 0) {
-    executionContext.waitUntil(
-      (async () => {
-        const canvasConnection = await env.DB.prepare(
-          `SELECT 1 AS connected FROM integration_connection
-           WHERE provider = 'canvas' AND status <> 'disconnected'`,
-        ).first();
-        if (canvasConnection) {
-          try {
-            const result = await runCanvasSync(env, "scheduled");
-            await sendUrgentImport(env, result.runId, result.createdIds);
-          } catch {
-            await env.DB.prepare(
-              `UPDATE integration_connection SET status = 'action_needed',
-               last_attempt_at = ?, last_error_category = 'scheduled_sync_failed',
-               updated_at = ? WHERE provider = 'canvas'`,
-            )
-              .bind(new Date().toISOString(), new Date().toISOString())
-              .run();
-          }
-        }
-        await runCalendarReconciliation(env);
-      })().catch(async () => {
-        await env.DB.prepare(
-          `UPDATE integration_connection SET status = 'delayed',
-           last_attempt_at = ?, last_error_category = 'scheduled_calendar_failed',
-           updated_at = ? WHERE provider = 'google'`,
-        )
-          .bind(new Date().toISOString(), new Date().toISOString())
-          .run();
-      }),
-    );
+    executionContext.waitUntil(runHourlyForAllWorkspaces(env));
   }
-  executionContext.waitUntil(runDailyDigest(env, now));
-  executionContext.waitUntil(runRetentionCleanup(env, now));
+  executionContext.waitUntil(runDigestForAllWorkspaces(env, now));
 }
 
 export default {

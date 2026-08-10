@@ -36,15 +36,15 @@ same-origin `/api/*` rewrite terminates at the Cloudflare Worker.
 - Installed and loaded the hourly Canvas and 6:00 AM Sydney digest LaunchAgents.
   Their token is stored locally in `~/.config/organato/scheduler.env` with mode
   `0600`.
-- Configured these exact permitted Google identities:
-  `ethan.likht@gmail.com` and
-  `likht.ethan@emanuelschool.nsw.edu.au`.
+- Configured the Google sign-in allow-list wildcard so any verified Google
+  account can create a private personal workspace. Workspace records,
+  assignments, settings, sessions, integrations, sync jobs, reminders, backups,
+  and diagnostics are tenant-scoped by the verified account.
 - Verified authenticated session reads and authenticated item create, read, and
   archive requests against production, then removed the smoke-test item and
   revoked its temporary sessions.
-- Added owner-managed approved identities, cross-account session revocation,
-  recent-auth protection for sensitive actions, stable multi-tab CSRF tokens,
-  and a complete security-event trail.
+- Added account-scoped session revocation, recent-auth protection for sensitive
+  actions, stable multi-tab CSRF tokens, and tenant-scoped security events.
 - Added full-workspace export and validated merge restore, searchable archive
   recovery, permanent item/workspace deletion, and scheduled retention cleanup.
 - Hardened Canvas pagination/retries/redirects and missing-item handling; added
@@ -61,14 +61,16 @@ same-origin `/api/*` rewrite terminates at the Cloudflare Worker.
 
 No billing account or paid plan was enabled.
 
-## Owner-only activation
+## Personal workspace activation
 
 ### 1. Sign in
 
-Open `https://organato.vercel.app` and continue with either permitted Google
+Open `https://organato.vercel.app` and continue with any verified Google
 identity. The first consent screen asks only for name, profile picture, and
 email address. Organato validates the verified email and permanently binds its
-Google subject identifier before creating a session.
+Google subject identifier before creating a session. Each identity receives a
+separate workspace and cannot read or mutate another identity's data or
+integration credentials.
 
 ### 2. Activate provider connections inside Organato
 

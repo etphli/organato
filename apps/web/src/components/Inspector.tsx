@@ -11,6 +11,11 @@ import { Link } from "react-router-dom";
 import { visibleStatus, type OrganatoItem } from "@organato/domain";
 import { localDateTimeToIso } from "../pages/calendar/model";
 import { useOrganato } from "../state/OrganatoProvider";
+import {
+  OrganatoDatePicker,
+  OrganatoSelect,
+  quarterHourOptions,
+} from "./OrganatoControls";
 import { SubjectDot } from "./SubjectDot";
 import { useDialogFocus } from "./useDialogFocus";
 
@@ -191,62 +196,59 @@ export function Inspector() {
         </button>
       </header>
       <div className="inspector-scroll">
-        <select
+        <OrganatoSelect
           className={`plain-select status-${status}`}
+          ariaLabel="Status"
+          options={statusOptions
+            .filter((value) => item.kind !== "todo" || value !== "submitted")
+            .map((value) => ({
+              value,
+              label: value.replaceAll("_", " "),
+            }))}
           value={item.workingStatus}
-          onChange={(event) =>
+          onChange={(value) =>
             dispatch({
               type: "patchItem",
               id: item.id,
               patch: {
-                workingStatus: event.target.value as typeof item.workingStatus,
+                workingStatus: value as typeof item.workingStatus,
               },
             })
           }
-          aria-label="Status"
-        >
-          {statusOptions
-            .filter((value) => item.kind !== "todo" || value !== "submitted")
-            .map((value) => (
-              <option key={value} value={value}>
-                {value.replaceAll("_", " ")}
-              </option>
-            ))}
-        </select>
+        />
         <dl className="property-list">
           <div>
             <dt>Due</dt>
             <dd>
               <span className="due-inputs">
-                <input
-                  aria-label="Due date"
-                  type="date"
+                <OrganatoDatePicker
+                  ariaLabel="Due date"
                   value={dueInput.date}
-                  onChange={(event) =>
+                  onChange={(date) =>
                     dispatch({
                       type: "patchItem",
                       id: item.id,
                       patch: duePatchFromInputs(
-                        event.target.value,
+                        date,
                         dueInput.time,
                         settings.timezone,
                       ),
                     })
                   }
+                  placeholder="No due date"
                 />
-                <input
-                  aria-label="Due time (optional)"
+                <OrganatoSelect
+                  ariaLabel="Due time (optional)"
                   disabled={!dueInput.date}
-                  step={900}
-                  type="time"
+                  options={quarterHourOptions}
                   value={dueInput.time}
-                  onChange={(event) =>
+                  onChange={(time) =>
                     dispatch({
                       type: "patchItem",
                       id: item.id,
                       patch: duePatchFromInputs(
                         dueInput.date,
-                        event.target.value,
+                        time,
                         settings.timezone,
                       ),
                     })
@@ -274,72 +276,72 @@ export function Inspector() {
           <div>
             <dt>Subject</dt>
             <dd>
-              <select
-                aria-label="Subject"
+              <OrganatoSelect
+                ariaLabel="Subject"
+                options={[
+                  { value: "", label: "None" },
+                  ...subjects.map((subject) => ({
+                    value: subject.id,
+                    label: subject.displayName,
+                  })),
+                ]}
                 value={item.subjectId ?? ""}
-                onChange={(event) =>
+                onChange={(value) =>
                   dispatch({
                     type: "patchItem",
                     id: item.id,
-                    patch: { subjectId: event.target.value || null },
+                    patch: { subjectId: value || null },
                   })
                 }
-              >
-                <option value="">None</option>
-                {subjects.map((subject) => (
-                  <option key={subject.id} value={subject.id}>
-                    {subject.displayName}
-                  </option>
-                ))}
-              </select>
+              />
             </dd>
           </div>
           <div>
             <dt>Priority</dt>
             <dd>
-              <select
-                aria-label="Priority"
+              <OrganatoSelect
+                ariaLabel="Priority"
+                options={[
+                  { value: "", label: "Blank" },
+                  { value: "low", label: "low" },
+                  { value: "medium", label: "medium" },
+                  { value: "high", label: "high" },
+                  { value: "urgent", label: "urgent" },
+                ]}
                 value={item.priority ?? ""}
-                onChange={(event) =>
+                onChange={(value) =>
                   dispatch({
                     type: "patchItem",
                     id: item.id,
                     patch: {
-                      priority: (event.target.value ||
-                        null) as typeof item.priority,
+                      priority: (value || null) as typeof item.priority,
                     },
                   })
                 }
-              >
-                <option value="">Blank</option>
-                <option>low</option>
-                <option>medium</option>
-                <option>high</option>
-                <option>urgent</option>
-              </select>
+              />
             </dd>
           </div>
           {item.kind === "work" ? (
             <div>
               <dt>Classification</dt>
               <dd>
-                <select
-                  aria-label="Classification"
+                <OrganatoSelect
+                  ariaLabel="Classification"
+                  options={[
+                    { value: "assignment", label: "Assignment" },
+                    { value: "checkpoint", label: "Checkpoint" },
+                    { value: "both", label: "Both" },
+                    { value: "unclassified", label: "Decide later" },
+                  ]}
                   value={item.classification}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     dispatch({
                       type: "classify",
                       id: item.id,
-                      classification: event.target
-                        .value as typeof item.classification,
+                      classification: value as typeof item.classification,
                     })
                   }
-                >
-                  <option value="assignment">Assignment</option>
-                  <option value="checkpoint">Checkpoint</option>
-                  <option value="both">Both</option>
-                  <option value="unclassified">Decide later</option>
-                </select>
+                />
               </dd>
             </div>
           ) : null}
@@ -347,11 +349,19 @@ export function Inspector() {
             <div>
               <dt>Repeat</dt>
               <dd>
-                <select
-                  aria-label="Repeat"
+                <OrganatoSelect
+                  ariaLabel="Repeat"
+                  options={[
+                    { value: "", label: "Does not repeat" },
+                    { value: "daily", label: "Daily" },
+                    { value: "weekdays", label: "Weekdays" },
+                    { value: "weekly", label: "Weekly" },
+                    { value: "biweekly", label: "Every two weeks" },
+                    { value: "monthly", label: "Monthly" },
+                  ]}
                   value={item.recurrenceRule?.frequency ?? ""}
-                  onChange={(event) => {
-                    const frequency = event.target.value as NonNullable<
+                  onChange={(value) => {
+                    const frequency = value as NonNullable<
                       typeof item.recurrenceRule
                     >["frequency"];
                     const seriesId =
@@ -359,7 +369,7 @@ export function Inspector() {
                     dispatch({
                       type: "patchItem",
                       id: item.id,
-                      patch: event.target.value
+                      patch: value
                         ? {
                             recurrenceRule: {
                               frequency,
@@ -374,14 +384,7 @@ export function Inspector() {
                           },
                     });
                   }}
-                >
-                  <option value="">Does not repeat</option>
-                  <option value="daily">Daily</option>
-                  <option value="weekdays">Weekdays</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="biweekly">Every two weeks</option>
-                  <option value="monthly">Monthly</option>
-                </select>
+                />
               </dd>
             </div>
           ) : null}
@@ -473,19 +476,21 @@ export function Inspector() {
                 pattern="https://.*"
                 required
               />
-              <select
-                aria-label="Link type"
+              <OrganatoSelect
+                ariaLabel="Link type"
+                options={[
+                  { value: "reference", label: "Reference" },
+                  { value: "brief", label: "Brief" },
+                  { value: "rubric", label: "Rubric" },
+                  {
+                    value: "working_document",
+                    label: "Working document",
+                  },
+                  { value: "other", label: "Other" },
+                ]}
                 value={linkType}
-                onChange={(event) =>
-                  setLinkType(event.target.value as typeof linkType)
-                }
-              >
-                <option value="reference">Reference</option>
-                <option value="brief">Brief</option>
-                <option value="rubric">Rubric</option>
-                <option value="working_document">Working document</option>
-                <option value="other">Other</option>
-              </select>
+                onChange={(value) => setLinkType(value as typeof linkType)}
+              />
               <div>
                 <button type="submit">Add link</button>
                 <button type="button" onClick={() => setAddingLink(false)}>

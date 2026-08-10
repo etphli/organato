@@ -24,6 +24,8 @@ interface ExchangeResponse {
   returnTo: string;
 }
 
+class GoogleCallbackError extends Error {}
+
 export async function exchangeGoogleCallbackIfPresent(): Promise<boolean> {
   const isAuthenticationCallback =
     window.location.pathname === "/auth/google/callback" ||
@@ -53,7 +55,14 @@ export async function exchangeGoogleCallbackIfPresent(): Promise<boolean> {
       }),
     },
   );
-  if (!response.ok) throw new Error("exchange_failed");
+  if (!response.ok) {
+    const failure = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new GoogleCallbackError(
+      failure.error ?? "Google sign-in could not finish. Please try again.",
+    );
+  }
   const exchange = (await response.json()) as ExchangeResponse;
   if (isAuthenticationCallback) {
     sessionStorage.setItem("organato_csrf", exchange.csrfToken);
@@ -113,7 +122,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       setState({ status: "signed_in", owner: session.owner });
     }
 
-    void finishSignIn().catch(() => {
+    void finishSignIn().catch((error: unknown) => {
       const callbackFailed =
         window.location.pathname === "/auth/google/callback" ||
         window.location.pathname === "/api/auth/google/callback" ||
@@ -124,7 +133,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
           ? callbackFailed
             ? {
                 status: "signed_out",
-                message: "Google sign-in could not finish. Please try again.",
+                message:
+                  error instanceof GoogleCallbackError
+                    ? error.message
+                    : "Google sign-in could not finish. Please try again.",
               }
             : { status: "signed_out" }
           : { status: "offline" },
@@ -186,7 +198,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
             Continue with Google
           </button>
           {state.message ? <small role="alert">{state.message}</small> : null}
-          <footer>Only approved accounts can enter this workspace.</footer>
+          <footer>
+            Every verified Google account receives a private workspace.
+          </footer>
         </section>
       </main>
     );

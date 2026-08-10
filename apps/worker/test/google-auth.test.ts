@@ -83,6 +83,7 @@ describe("Google integration callback", () => {
         `oidc:${stateHash}:verifier`,
       ),
       return_to: "integration:owner@example.com",
+      workspace_id: "owner@example.com",
       expires_at: new Date(Date.now() + 60_000).toISOString(),
     };
     const db = {

@@ -171,11 +171,15 @@ export async function recordSecurityEvent(
   await db
     .prepare(
       `INSERT INTO security_event
-        (id, category, actor_email, summary, created_at)
-       VALUES (?, ?, ?, ?, ?)`,
+        (id, workspace_id, category, actor_email, summary, created_at)
+       VALUES (?,
+         CASE WHEN EXISTS (SELECT 1 FROM workspace WHERE id = ?) THEN ? ELSE NULL END,
+         ?, ?, ?, ?)`,
     )
     .bind(
       crypto.randomUUID(),
+      actorEmail?.toLowerCase() ?? null,
+      actorEmail?.toLowerCase() ?? null,
       category.slice(0, 100),
       actorEmail?.toLowerCase() ?? null,
       summary.slice(0, 500),
@@ -278,6 +282,7 @@ export function requireSession(): MiddlewareHandler<{
     if (context.env.DEMO_MODE === "true") {
       context.set("user", {
         email: "owner@example.com",
+        workspaceId: "owner@example.com",
         displayName: "Alex Smith",
         csrfToken: "demo-csrf",
         sessionIdHash: "demo",
@@ -293,7 +298,7 @@ export function requireSession(): MiddlewareHandler<{
     const row = await context.env.DB.prepare(
       `SELECT s.id_hash, s.csrf_hash, s.created_at, s.idle_expires_at,
               s.absolute_expires_at,
-              i.email_normalized, i.display_name, i.enabled
+              i.email_normalized, i.workspace_id, i.display_name, i.enabled
        FROM session s
        JOIN allowed_identity i ON i.email_normalized = s.email_normalized
        WHERE s.id_hash = ? AND s.revoked_at IS NULL`,
@@ -306,6 +311,7 @@ export function requireSession(): MiddlewareHandler<{
         idle_expires_at: string;
         absolute_expires_at: string;
         email_normalized: string;
+        workspace_id: string;
         display_name: string;
         enabled: number;
       }>();
@@ -320,6 +326,7 @@ export function requireSession(): MiddlewareHandler<{
     const csrfToken = context.req.header("X-CSRF-Token") ?? "";
     const user: SessionUser = {
       email: row.email_normalized,
+      workspaceId: row.workspace_id,
       displayName: row.display_name,
       csrfToken,
       sessionIdHash: row.id_hash,

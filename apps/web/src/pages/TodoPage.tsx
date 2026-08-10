@@ -15,6 +15,7 @@ import {
   visibleStatus,
 } from "@organato/domain";
 import { PageHeader } from "../components/PageHeader";
+import { OrganatoSelect } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
 import { useOrganato } from "../state/OrganatoProvider";
 
@@ -195,49 +196,49 @@ export default function TodoPage() {
                     : "No due date"}
                 </small>
               </span>
-              <select
-                aria-label={`Subject for ${todo.displayName}`}
+              <OrganatoSelect
+                ariaLabel={`Subject for ${todo.displayName}`}
+                options={[
+                  { value: "", label: "No subject" },
+                  ...subjects.map((subject) => ({
+                    value: subject.id,
+                    label: subject.displayName,
+                  })),
+                ]}
                 value={todo.subjectId ?? ""}
-                onChange={(event) =>
+                onChange={(value) =>
                   dispatch({
                     type: "patchItem",
                     id: todo.id,
-                    patch: { subjectId: event.target.value || null },
+                    patch: { subjectId: value || null },
                   })
                 }
-              >
-                <option value="">No subject</option>
-                {subjects.map((subject) => (
-                  <option value={subject.id} key={subject.id}>
-                    {subject.displayName}
-                  </option>
-                ))}
-              </select>
+              />
               <span className="todo-subject-mobile">
                 <SubjectDot subjectId={todo.subjectId} />
                 {subjectsById.get(todo.subjectId ?? "")?.displayName ??
                   "No subject"}
               </span>
-              <select
-                aria-label={`Priority for ${todo.displayName}`}
+              <OrganatoSelect
+                ariaLabel={`Priority for ${todo.displayName}`}
+                options={[
+                  { value: "", label: "—" },
+                  { value: "low", label: "Low" },
+                  { value: "medium", label: "Medium" },
+                  { value: "high", label: "High" },
+                  { value: "urgent", label: "Urgent" },
+                ]}
                 value={todo.priority ?? ""}
-                onChange={(event) =>
+                onChange={(value) =>
                   dispatch({
                     type: "patchItem",
                     id: todo.id,
                     patch: {
-                      priority: (event.target.value ||
-                        null) as typeof todo.priority,
+                      priority: (value || null) as typeof todo.priority,
                     },
                   })
                 }
-              >
-                <option value="">—</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
+              />
               <span className="recurrence-label">
                 {todo.recurrenceRule ? (
                   <>

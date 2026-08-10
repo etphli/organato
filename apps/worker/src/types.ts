@@ -16,6 +16,7 @@ export interface Env {
 
 export interface SessionUser {
   email: string;
+  workspaceId: string;
   displayName: string;
   csrfToken: string;
   sessionIdHash: string;

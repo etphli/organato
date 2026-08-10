@@ -300,6 +300,7 @@ function canvasConnectionState(
 
 async function getCanvasConnectionStatus(
   env: Env,
+  workspaceId: string,
 ): Promise<CanvasConnectionStatus> {
   const installation = configuredCanvasInstallation(env);
   const [connection, latestSync, activeCourses, upcomingItems] =
@@ -307,37 +308,46 @@ async function getCanvasConnectionStatus(
       env.DB.prepare(
         `SELECT account_label, status, last_success_at, reconnect_needed,
                 metadata_json
-         FROM integration_connection WHERE provider = 'canvas'`,
-      ).first<{
-        account_label: string;
-        status: string;
-        last_success_at: string | null;
-        reconnect_needed: number;
-        metadata_json: string;
-      }>(),
+         FROM integration_connection
+         WHERE workspace_id = ? AND provider = 'canvas'`,
+      )
+        .bind(workspaceId)
+        .first<{
+          account_label: string;
+          status: string;
+          last_success_at: string | null;
+          reconnect_needed: number;
+          metadata_json: string;
+        }>(),
       env.DB.prepare(
         `SELECT started_at, finished_at, result, fetched_count, created_count,
                 updated_count, archived_count
-         FROM sync_run WHERE provider = 'canvas'
+         FROM sync_run WHERE workspace_id = ? AND provider = 'canvas'
          ORDER BY started_at DESC LIMIT 1`,
-      ).first<{
-        started_at: string;
-        finished_at: string | null;
-        result: string;
-        fetched_count: number;
-        created_count: number;
-        updated_count: number;
-        archived_count: number;
-      }>(),
+      )
+        .bind(workspaceId)
+        .first<{
+          started_at: string;
+          finished_at: string | null;
+          result: string;
+          fetched_count: number;
+          created_count: number;
+          updated_count: number;
+          archived_count: number;
+        }>(),
       env.DB.prepare(
         `SELECT COUNT(*) AS count FROM subject
-         WHERE canvas_course_id IS NOT NULL AND active = 1`,
-      ).first<{ count: number }>(),
+         WHERE workspace_id = ? AND canvas_course_id IS NOT NULL AND active = 1`,
+      )
+        .bind(workspaceId)
+        .first<{ count: number }>(),
       env.DB.prepare(
         `SELECT COUNT(*) AS count FROM item
-         WHERE source_type = 'canvas' AND archived_at IS NULL
+         WHERE workspace_id = ? AND source_type = 'canvas' AND archived_at IS NULL
            AND working_status NOT IN ('completed', 'submitted')`,
-      ).first<{ count: number }>(),
+      )
+        .bind(workspaceId)
+        .first<{ count: number }>(),
     ]);
   const metadata = connection
     ? parseCanvasConnectionMetadata(
@@ -400,14 +410,14 @@ apiRoutes.get("/session", async (context) => {
     owner: { email: user.email, displayName: user.displayName },
     csrfToken,
     recentAuthentication: hasRecentAuthentication(user.authenticatedAt),
-    workspace: { id: "workspace", name: "Organato" },
+    workspace: { id: user.workspaceId, name: "Organato" },
   });
 });
 
 apiRoutes.get("/home", async (context) => {
   const [items, subjects] = await Promise.all([
-    listItems(context.env.DB, { limit: 250 }),
-    listSubjects(context.env.DB),
+    listItems(context.env.DB, context.get("user").workspaceId, { limit: 250 }),
+    listSubjects(context.env.DB, context.get("user").workspaceId),
   ]);
   return context.json({
     unclassified: items.filter(
@@ -428,12 +438,19 @@ apiRoutes.get("/items", async (context) => {
   const archived = context.req.query("archived") === "true";
   const limit = Number(context.req.query("limit") ?? 500);
   return context.json({
-    items: await listItems(context.env.DB, { archived, limit }),
+    items: await listItems(context.env.DB, context.get("user").workspaceId, {
+      archived,
+      limit,
+    }),
   });
 });
 
 apiRoutes.get("/items/:id", async (context) => {
-  const item = await getItem(context.env.DB, context.req.param("id"));
+  const item = await getItem(
+    context.env.DB,
+    context.get("user").workspaceId,
+    context.req.param("id"),
+  );
   return item
     ? context.json({ item })
     : context.json({ error: "Item not found." }, 404);
@@ -451,13 +468,14 @@ apiRoutes.post(
       await context.env.DB.batch([
         context.env.DB.prepare(
           `INSERT INTO item
-             (id, kind, classification, source_type, display_name, due_at, due_date_local,
+             (id, workspace_id, kind, classification, source_type, display_name, due_at, due_date_local,
               due_has_explicit_time, subject_id, priority, working_status, recurrence_rule_json,
               recurrence_series_id, calendar_enabled, reminders_enabled, calendar_sync_state,
               created_at, updated_at)
-             VALUES (?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, 'not_started', ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, 'not_started', ?, ?, ?, ?, ?, ?, ?)`,
         ).bind(
           id,
+          context.get("user").workspaceId,
           input.kind,
           input.kind === "todo" ? "unclassified" : input.classification,
           input.displayName,
@@ -480,7 +498,16 @@ apiRoutes.post(
              VALUES (?, ?, 'user', ?, 'created', 'Created in Organato', ?)`,
         ).bind(crypto.randomUUID(), id, context.get("user").email, now),
       ]);
-      return context.json({ item: await getItem(context.env.DB, id) }, 201);
+      return context.json(
+        {
+          item: await getItem(
+            context.env.DB,
+            context.get("user").workspaceId,
+            id,
+          ),
+        },
+        201,
+      );
     } catch (error) {
       const response = errorResponse(error);
       return context.json({ error: response.error }, response.status);
@@ -494,7 +521,11 @@ apiRoutes.patch(
   async (context) => {
     const { version, ...patch } = context.req.valid("json");
     try {
-      const before = await getItem(context.env.DB, context.req.param("id"));
+      const before = await getItem(
+        context.env.DB,
+        context.get("user").workspaceId,
+        context.req.param("id"),
+      );
       if (!before) throw new Error("not_found");
       const deadlineChanged = [
         "dueAt",
@@ -540,6 +571,7 @@ apiRoutes.patch(
       }
       const updated = await patchItem(
         context.env.DB,
+        context.get("user").workspaceId,
         context.req.param("id"),
         version,
         normalizedPatch,
@@ -551,7 +583,8 @@ apiRoutes.patch(
         before.workingStatus !== "completed" &&
         updated.workingStatus === "completed" &&
         updated.recurrenceRule &&
-        (await getSettings(context.env.DB)).recurrenceOnCompletion
+        (await getSettings(context.env.DB, context.get("user").workspaceId))
+          .recurrenceOnCompletion
       ) {
         const nextDeadline = nextRecurrenceDeadline(
           updated,
@@ -563,16 +596,17 @@ apiRoutes.patch(
           await context.env.DB.batch([
             context.env.DB.prepare(
               `INSERT INTO item
-                (id, kind, classification, source_type, display_name, due_at,
+                (id, workspace_id, kind, classification, source_type, display_name, due_at,
                  due_date_local, due_has_explicit_time, subject_id, priority,
                  working_status, notes_markdown, recurrence_rule_json,
                  recurrence_series_id, calendar_enabled, reminders_enabled,
                  calendar_sync_state, calendar_note, pinned, sort_rank,
                  created_at, updated_at)
-               VALUES (?, 'todo', 'unclassified', 'manual', ?, ?, ?, ?, ?, ?,
+               VALUES (?, ?, 'todo', 'unclassified', 'manual', ?, ?, ?, ?, ?, ?,
                        'not_started', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             ).bind(
               nextId,
+              context.get("user").workspaceId,
               updated.displayName,
               nextDeadline.dueAt,
               nextDeadline.dueDateLocal,
@@ -598,7 +632,11 @@ apiRoutes.patch(
                        'Created when the previous occurrence was completed', ?)`,
             ).bind(crypto.randomUUID(), nextId, now),
           ]);
-          nextOccurrence = await getItem(context.env.DB, nextId);
+          nextOccurrence = await getItem(
+            context.env.DB,
+            context.get("user").workspaceId,
+            nextId,
+          );
         }
       }
       return context.json({
@@ -629,8 +667,14 @@ apiRoutes.post(
       context.env.DB.prepare(
         `UPDATE item SET classification = ?, version = version + 1,
            updated_at = ?
-         WHERE id = ? AND version = ? AND archived_at IS NULL`,
-      ).bind(input.classification, now, id, input.version),
+         WHERE id = ? AND workspace_id = ? AND version = ? AND archived_at IS NULL`,
+      ).bind(
+        input.classification,
+        now,
+        id,
+        context.get("user").workspaceId,
+        input.version,
+      ),
       context.env.DB.prepare(
         `INSERT INTO item_history
            (id, item_id, actor_type, actor_identity, action, summary,
@@ -648,7 +692,9 @@ apiRoutes.post(
     ]);
     if (!results[0]?.meta.changes)
       return context.json({ error: "Item changed elsewhere." }, 409);
-    return context.json({ item: await getItem(context.env.DB, id) });
+    return context.json({
+      item: await getItem(context.env.DB, context.get("user").workspaceId, id),
+    });
   },
 );
 
@@ -664,8 +710,8 @@ apiRoutes.post(
         `UPDATE item SET archived_at = ?, archive_reason = 'Manual archive',
            manual_archive = 1, calendar_sync_state = 'pending',
            version = version + 1, updated_at = ?
-         WHERE id = ? AND version = ? AND archived_at IS NULL`,
-      ).bind(now, now, id, version),
+         WHERE id = ? AND workspace_id = ? AND version = ? AND archived_at IS NULL`,
+      ).bind(now, now, id, context.get("user").workspaceId, version),
       context.env.DB.prepare(
         `INSERT INTO item_history
            (id, item_id, actor_type, actor_identity, action, summary,
@@ -682,7 +728,9 @@ apiRoutes.post(
     ]);
     if (!results[0]?.meta.changes)
       return context.json({ error: "Item changed elsewhere." }, 409);
-    return context.json({ item: await getItem(context.env.DB, id) });
+    return context.json({
+      item: await getItem(context.env.DB, context.get("user").workspaceId, id),
+    });
   },
 );
 
@@ -700,8 +748,8 @@ apiRoutes.post(
            calendar_sync_state = CASE WHEN calendar_enabled = 1
              THEN 'pending' ELSE 'suppressed' END,
            version = version + 1, updated_at = ?
-         WHERE id = ? AND version = ? AND archived_at IS NOT NULL`,
-      ).bind(now, id, version),
+         WHERE id = ? AND workspace_id = ? AND version = ? AND archived_at IS NOT NULL`,
+      ).bind(now, id, context.get("user").workspaceId, version),
       context.env.DB.prepare(
         `INSERT INTO item_history
            (id, item_id, actor_type, actor_identity, action, summary,
@@ -718,7 +766,9 @@ apiRoutes.post(
     ]);
     if (!results[0]?.meta.changes)
       return context.json({ error: "Item changed elsewhere." }, 409);
-    return context.json({ item: await getItem(context.env.DB, id) });
+    return context.json({
+      item: await getItem(context.env.DB, context.get("user").workspaceId, id),
+    });
   },
 );
 
@@ -729,14 +779,12 @@ apiRoutes.post(
   async (context) => {
     const id = context.req.param("id");
     const input = context.req.valid("json");
-    const item = await getItem(context.env.DB, id);
+    const item = await getItem(
+      context.env.DB,
+      context.get("user").workspaceId,
+      id,
+    );
     if (!item) return context.json({ error: "Item not found." }, 404);
-    if (!item.archivedAt) {
-      return context.json(
-        { error: "Only archived items can be permanently deleted." },
-        409,
-      );
-    }
     if (item.version !== input.version) {
       return context.json({ error: "Item changed elsewhere." }, 409);
     }
@@ -747,13 +795,17 @@ apiRoutes.post(
       );
     }
     const linkedEvent = await context.env.DB.prepare(
-      `SELECT google_event_id FROM calendar_link WHERE item_id = ?`,
+      `SELECT google_event_id FROM calendar_link
+       WHERE workspace_id = ? AND item_id = ?`,
     )
-      .bind(id)
+      .bind(context.get("user").workspaceId, id)
       .first<{ google_event_id: string | null }>();
     if (linkedEvent?.google_event_id) {
       try {
-        await runCalendarReconciliation(context.env);
+        await runCalendarReconciliation(
+          context.env,
+          context.get("user").workspaceId,
+        );
       } catch {
         return context.json(
           {
@@ -765,9 +817,9 @@ apiRoutes.post(
       }
       const remaining = await context.env.DB.prepare(
         `SELECT google_event_id FROM calendar_link
-         WHERE item_id = ? AND google_event_id IS NOT NULL`,
+         WHERE workspace_id = ? AND item_id = ? AND google_event_id IS NOT NULL`,
       )
-        .bind(id)
+        .bind(context.get("user").workspaceId, id)
         .first();
       if (remaining) {
         return context.json(
@@ -782,18 +834,18 @@ apiRoutes.post(
     const now = new Date().toISOString();
     const result = await context.env.DB.batch([
       context.env.DB.prepare(
-        `DELETE FROM item WHERE id = ? AND version = ?
-         AND archived_at IS NOT NULL`,
-      ).bind(id, input.version),
+        `DELETE FROM item WHERE id = ? AND workspace_id = ? AND version = ?`,
+      ).bind(id, context.get("user").workspaceId, input.version),
       context.env.DB.prepare(
         `INSERT INTO security_event
-          (id, category, actor_email, summary, created_at)
-         SELECT ?, 'item_permanently_deleted', ?, ?, ?
+          (id, workspace_id, category, actor_email, summary, created_at)
+         SELECT ?, ?, 'item_permanently_deleted', ?, ?, ?
          WHERE changes() > 0`,
       ).bind(
         crypto.randomUUID(),
+        context.get("user").workspaceId,
         context.get("user").email,
-        `Permanently deleted archived ${item.kind} "${item.displayName}".`,
+        `${item.archivedAt ? "Permanently deleted archived" : "Permanently deleted"} ${item.kind} "${item.displayName}".`,
         now,
       ),
     ]);
@@ -814,7 +866,11 @@ apiRoutes.post(
     try {
       const id = context.req.param("id");
       const { fieldName } = context.req.valid("json");
-      const item = await getItem(context.env.DB, id);
+      const item = await getItem(
+        context.env.DB,
+        context.get("user").workspaceId,
+        id,
+      );
       if (!item) throw new Error("not_found");
       if (fieldName !== "calendarNote" && item.sourceType !== "canvas") {
         throw new InvalidItemMutationError(
@@ -832,8 +888,8 @@ apiRoutes.post(
         update = context.env.DB.prepare(
           `UPDATE item SET display_name = ?, version = version + 1,
            calendar_sync_state = CASE WHEN calendar_enabled = 1 THEN 'pending' ELSE calendar_sync_state END,
-           updated_at = ? WHERE id = ?`,
-        ).bind(item.sourceName, now, id);
+           updated_at = ? WHERE id = ? AND workspace_id = ?`,
+        ).bind(item.sourceName, now, id, context.get("user").workspaceId);
       } else if (fieldName === "due") {
         const sourceDeadline = normalizeDeadlineFields({
           dueAt: item.sourceDueAt,
@@ -844,38 +900,47 @@ apiRoutes.post(
           `UPDATE item SET due_at = ?, due_date_local = ?,
            due_has_explicit_time = ?, version = version + 1,
            calendar_sync_state = CASE WHEN calendar_enabled = 1 THEN 'pending' ELSE calendar_sync_state END,
-           updated_at = ? WHERE id = ?`,
+           updated_at = ? WHERE id = ? AND workspace_id = ?`,
         ).bind(
           sourceDeadline.dueAt,
           sourceDeadline.dueDateLocal,
           sourceDeadline.dueHasExplicitTime ? 1 : 0,
           now,
           id,
+          context.get("user").workspaceId,
         );
       } else if (fieldName === "subject") {
         const sourceSubject = item.canvasCourseId
           ? await context.env.DB.prepare(
-              "SELECT id FROM subject WHERE canvas_course_id = ?",
+              "SELECT id FROM subject WHERE workspace_id = ? AND canvas_course_id = ?",
             )
-              .bind(item.canvasCourseId)
+              .bind(
+                context.get("user").workspaceId,
+                `${context.get("user").workspaceId}:${item.canvasCourseId}`,
+              )
               .first<{ id: string }>()
           : null;
         update = context.env.DB.prepare(
           `UPDATE item SET subject_id = ?, version = version + 1,
            calendar_sync_state = CASE WHEN calendar_enabled = 1 THEN 'pending' ELSE calendar_sync_state END,
-           updated_at = ? WHERE id = ?`,
-        ).bind(sourceSubject?.id ?? null, now, id);
+           updated_at = ? WHERE id = ? AND workspace_id = ?`,
+        ).bind(
+          sourceSubject?.id ?? null,
+          now,
+          id,
+          context.get("user").workspaceId,
+        );
       } else {
         update = context.env.DB.prepare(
           `UPDATE item SET calendar_note = '', version = version + 1,
            calendar_sync_state = CASE WHEN calendar_enabled = 1 THEN 'pending' ELSE calendar_sync_state END,
-           updated_at = ? WHERE id = ?`,
-        ).bind(now, id);
+           updated_at = ? WHERE id = ? AND workspace_id = ?`,
+        ).bind(now, id, context.get("user").workspaceId);
       }
       await context.env.DB.batch([
         context.env.DB.prepare(
-          "DELETE FROM field_override WHERE item_id = ? AND field_name = ?",
-        ).bind(id, fieldName),
+          "DELETE FROM field_override WHERE workspace_id = ? AND item_id = ? AND field_name = ?",
+        ).bind(context.get("user").workspaceId, id, fieldName),
         update,
         context.env.DB.prepare(
           `INSERT INTO item_history
@@ -889,7 +954,13 @@ apiRoutes.post(
           now,
         ),
       ]);
-      return context.json({ item: await getItem(context.env.DB, id) });
+      return context.json({
+        item: await getItem(
+          context.env.DB,
+          context.get("user").workspaceId,
+          id,
+        ),
+      });
     } catch (error) {
       const response = errorResponse(error);
       return context.json({ error: response.error }, response.status);
@@ -919,7 +990,11 @@ apiRoutes.post(
     const id = crypto.randomUUID();
     const itemId = context.req.param("id");
     const now = new Date().toISOString();
-    const item = await getItem(context.env.DB, itemId);
+    const item = await getItem(
+      context.env.DB,
+      context.get("user").workspaceId,
+      itemId,
+    );
     if (!item) return context.json({ error: "Item not found." }, 404);
     await context.env.DB.batch([
       context.env.DB.prepare(
@@ -933,23 +1008,45 @@ apiRoutes.post(
          VALUES (?, ?, 'user', ?, 'attachment_added', 'Added linked attachment', ?)`,
       ).bind(crypto.randomUUID(), itemId, context.get("user").email, now),
     ]);
-    return context.json({ item: await getItem(context.env.DB, itemId) }, 201);
+    return context.json(
+      {
+        item: await getItem(
+          context.env.DB,
+          context.get("user").workspaceId,
+          itemId,
+        ),
+      },
+      201,
+    );
   },
 );
 
 apiRoutes.delete("/items/:id/attachments/:attachmentId", async (context) => {
   await context.env.DB.prepare(
-    "DELETE FROM attachment_link WHERE id = ? AND item_id = ?",
+    "DELETE FROM attachment_link WHERE id = ? AND item_id = ? AND workspace_id = ?",
   )
-    .bind(context.req.param("attachmentId"), context.req.param("id"))
+    .bind(
+      context.req.param("attachmentId"),
+      context.req.param("id"),
+      context.get("user").workspaceId,
+    )
     .run();
   return context.json({
-    item: await getItem(context.env.DB, context.req.param("id")),
+    item: await getItem(
+      context.env.DB,
+      context.get("user").workspaceId,
+      context.req.param("id"),
+    ),
   });
 });
 
 apiRoutes.get("/subjects", async (context) =>
-  context.json({ subjects: await listSubjects(context.env.DB) }),
+  context.json({
+    subjects: await listSubjects(
+      context.env.DB,
+      context.get("user").workspaceId,
+    ),
+  }),
 );
 
 apiRoutes.post(
@@ -971,13 +1068,29 @@ apiRoutes.post(
     const now = new Date().toISOString();
     await context.env.DB.prepare(
       `INSERT INTO subject
-        (id, canvas_course_id, source_name, display_name, short_name,
+        (id, workspace_id, canvas_course_id, source_name, display_name, short_name,
          colour, active, created_at, updated_at)
-       VALUES (?, NULL, NULL, ?, ?, ?, 1, ?, ?)`,
+       VALUES (?, ?, NULL, NULL, ?, ?, ?, 1, ?, ?)`,
     )
-      .bind(id, input.displayName, input.shortName, input.colour, now, now)
+      .bind(
+        id,
+        context.get("user").workspaceId,
+        input.displayName,
+        input.shortName,
+        input.colour,
+        now,
+        now,
+      )
       .run();
-    return context.json({ subjects: await listSubjects(context.env.DB) }, 201);
+    return context.json(
+      {
+        subjects: await listSubjects(
+          context.env.DB,
+          context.get("user").workspaceId,
+        ),
+      },
+      201,
+    );
   },
 );
 
@@ -1006,7 +1119,7 @@ apiRoutes.patch(
     const entries = Object.entries(input);
     if (entries.length) {
       await context.env.DB.prepare(
-        `UPDATE subject SET ${entries.map(([key]) => `${mapping[key]} = ?`).join(", ")}, updated_at = ? WHERE id = ?`,
+        `UPDATE subject SET ${entries.map(([key]) => `${mapping[key]} = ?`).join(", ")}, updated_at = ? WHERE id = ? AND workspace_id = ?`,
       )
         .bind(
           ...entries.map(([key, value]) =>
@@ -1014,15 +1127,26 @@ apiRoutes.patch(
           ),
           new Date().toISOString(),
           context.req.param("id"),
+          context.get("user").workspaceId,
         )
         .run();
     }
-    return context.json({ subjects: await listSubjects(context.env.DB) });
+    return context.json({
+      subjects: await listSubjects(
+        context.env.DB,
+        context.get("user").workspaceId,
+      ),
+    });
   },
 );
 
 apiRoutes.get("/settings", async (context) =>
-  context.json({ settings: await getSettings(context.env.DB) }),
+  context.json({
+    settings: await getSettings(
+      context.env.DB,
+      context.get("user").workspaceId,
+    ),
+  }),
 );
 
 apiRoutes.patch(
@@ -1033,9 +1157,13 @@ apiRoutes.patch(
       Object.entries(context.req.valid("json")).filter(
         ([, value]) => value !== undefined,
       ),
-    ) as Parameters<typeof updateSettings>[1];
+    ) as Parameters<typeof updateSettings>[2];
     return context.json({
-      settings: await updateSettings(context.env.DB, patch),
+      settings: await updateSettings(
+        context.env.DB,
+        context.get("user").workspaceId,
+        patch,
+      ),
     });
   },
 );
@@ -1044,17 +1172,20 @@ apiRoutes.get("/views", async (context) => {
   const result = await context.env.DB.prepare(
     `SELECT id, page, name, filters_json, sort_json, columns_json,
             column_widths_json, is_default
-     FROM saved_view ORDER BY page, is_default DESC, name`,
-  ).all<{
-    id: string;
-    page: string;
-    name: string;
-    filters_json: string;
-    sort_json: string;
-    columns_json: string;
-    column_widths_json: string;
-    is_default: number;
-  }>();
+     FROM saved_view WHERE workspace_id = ?
+     ORDER BY page, is_default DESC, name`,
+  )
+    .bind(context.get("user").workspaceId)
+    .all<{
+      id: string;
+      page: string;
+      name: string;
+      filters_json: string;
+      sort_json: string;
+      columns_json: string;
+      column_widths_json: string;
+      is_default: number;
+    }>();
   return context.json({
     views: result.results.map((row) => ({
       id: row.id,
@@ -1078,16 +1209,16 @@ apiRoutes.post(
     const now = new Date().toISOString();
     if (input.isDefault) {
       await context.env.DB.prepare(
-        "UPDATE saved_view SET is_default = 0, updated_at = ? WHERE page = ?",
+        "UPDATE saved_view SET is_default = 0, updated_at = ? WHERE workspace_id = ? AND page = ?",
       )
-        .bind(now, input.page)
+        .bind(now, context.get("user").workspaceId, input.page)
         .run();
     }
     await context.env.DB.prepare(
       `INSERT INTO saved_view
-        (id, page, name, filters_json, sort_json, columns_json,
+        (id, workspace_id, page, name, filters_json, sort_json, columns_json,
          column_widths_json, is_default, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          page = excluded.page,
          name = excluded.name,
@@ -1100,6 +1231,7 @@ apiRoutes.post(
     )
       .bind(
         id,
+        context.get("user").workspaceId,
         input.page,
         input.name,
         JSON.stringify(input.filters),
@@ -1116,8 +1248,10 @@ apiRoutes.post(
 );
 
 apiRoutes.delete("/views/:id", async (context) => {
-  await context.env.DB.prepare("DELETE FROM saved_view WHERE id = ?")
-    .bind(context.req.param("id"))
+  await context.env.DB.prepare(
+    "DELETE FROM saved_view WHERE id = ? AND workspace_id = ?",
+  )
+    .bind(context.req.param("id"), context.get("user").workspaceId)
     .run();
   return context.json({ ok: true });
 });
@@ -1126,8 +1260,10 @@ apiRoutes.get("/integrations", async (context) => {
   const result = await context.env.DB.prepare(
     `SELECT provider, account_label, status, scopes_json, last_success_at,
             last_attempt_at, last_error_category, reconnect_needed
-     FROM integration_connection`,
-  ).all();
+     FROM integration_connection WHERE workspace_id = ?`,
+  )
+    .bind(context.get("user").workspaceId)
+    .all();
   return context.json({ integrations: result.results });
 });
 
@@ -1136,14 +1272,22 @@ apiRoutes.get("/reminder-deliveries", async (context) => {
     `SELECT delivery_key, delivery_type, local_date, item_snapshot_json,
             gmail_message_id, status, attempt_count, created_at, sent_at,
             last_attempt_at, next_attempt_at, last_error_category
-     FROM reminder_delivery ORDER BY created_at DESC LIMIT 50`,
-  ).all();
+     FROM reminder_delivery WHERE workspace_id = ?
+     ORDER BY created_at DESC LIMIT 50`,
+  )
+    .bind(context.get("user").workspaceId)
+    .all();
   return context.json({ deliveries: result.results });
 });
 
 apiRoutes.get("/integrations/canvas/status", async (context) => {
   try {
-    return context.json(await getCanvasConnectionStatus(context.env));
+    return context.json(
+      await getCanvasConnectionStatus(
+        context.env,
+        context.get("user").workspaceId,
+      ),
+    );
   } catch (error) {
     return context.json({ error: safeCanvasConnectionError(error) }, 503);
   }
@@ -1239,11 +1383,11 @@ apiRoutes.post(
     );
     await context.env.DB.prepare(
       `INSERT INTO integration_connection
-          (provider, account_label, status, scopes_json, encrypted_credential,
+          (workspace_id, provider, account_label, status, scopes_json, encrypted_credential,
            credential_key_version, last_success_at, last_attempt_at, reconnect_needed,
            metadata_json, updated_at)
-         VALUES ('canvas', ?, 'healthy', '["read-only"]', ?, 1, NULL, ?, 0, ?, ?)
-         ON CONFLICT(provider) DO UPDATE SET
+         VALUES (?, 'canvas', ?, 'healthy', '["read-only"]', ?, 1, NULL, ?, 0, ?, ?)
+         ON CONFLICT(workspace_id, provider) DO UPDATE SET
            account_label = excluded.account_label,
            status = excluded.status,
            encrypted_credential = excluded.encrypted_credential,
@@ -1254,6 +1398,7 @@ apiRoutes.post(
            updated_at = excluded.updated_at`,
     )
       .bind(
+        context.get("user").workspaceId,
         `${identity.name} · ${identity.hostname}`,
         encrypted,
         now,
@@ -1263,7 +1408,11 @@ apiRoutes.post(
       .run();
     let initialSync: CanvasConnectResponse["initialSync"];
     try {
-      const sync = await runCanvasSync(context.env, "manual");
+      const sync = await runCanvasSync(
+        context.env,
+        context.get("user").workspaceId,
+        "manual",
+      );
       initialSync = {
         status: sync.result === "partial" ? "partial" : "success",
         runId: sync.runId,
@@ -1278,7 +1427,10 @@ apiRoutes.post(
         message: "Reshet is connected, but the first import needs another try.",
       };
     }
-    const status = await getCanvasConnectionStatus(context.env);
+    const status = await getCanvasConnectionStatus(
+      context.env,
+      context.get("user").workspaceId,
+    );
     if (!status.connection) {
       throw new Error("Canvas connection could not be read after saving.");
     }
@@ -1300,38 +1452,47 @@ apiRoutes.post(
      SET status = 'disconnected', encrypted_credential = NULL,
          reconnect_needed = 0, last_error_category = NULL,
          last_attempt_at = ?, updated_at = ?
-     WHERE provider = 'canvas'`,
+     WHERE workspace_id = ? AND provider = 'canvas'`,
     )
-      .bind(now, now)
+      .bind(now, now, context.get("user").workspaceId)
       .run();
-    return context.json(await getCanvasConnectionStatus(context.env));
+    return context.json(
+      await getCanvasConnectionStatus(
+        context.env,
+        context.get("user").workspaceId,
+      ),
+    );
   },
 );
 
 apiRoutes.get("/statistics", async (context) => {
-  const settings = await getSettings(context.env.DB);
+  const settings = await getSettings(
+    context.env.DB,
+    context.get("user").workspaceId,
+  );
   const [active, archived, overdue, completed] = await context.env.DB.batch([
     context.env.DB.prepare(
-      "SELECT COUNT(*) AS count FROM item WHERE archived_at IS NULL",
-    ),
+      "SELECT COUNT(*) AS count FROM item WHERE workspace_id = ? AND archived_at IS NULL",
+    ).bind(context.get("user").workspaceId),
     context.env.DB.prepare(
-      "SELECT COUNT(*) AS count FROM item WHERE archived_at IS NOT NULL",
-    ),
+      "SELECT COUNT(*) AS count FROM item WHERE workspace_id = ? AND archived_at IS NOT NULL",
+    ).bind(context.get("user").workspaceId),
     context.env.DB.prepare(
       `SELECT COUNT(*) AS count FROM item
-       WHERE archived_at IS NULL
+       WHERE workspace_id = ? AND archived_at IS NULL
          AND (
            due_at < ?
            OR (due_at IS NULL AND due_date_local < ?)
          )
          AND working_status NOT IN ('completed', 'submitted')`,
     ).bind(
+      context.get("user").workspaceId,
       new Date().toISOString(),
       localDateKey(new Date(), settings.timezone),
     ),
     context.env.DB.prepare(
-      "SELECT COUNT(*) AS count FROM item WHERE working_status = 'completed'",
-    ),
+      "SELECT COUNT(*) AS count FROM item WHERE workspace_id = ? AND working_status = 'completed'",
+    ).bind(context.get("user").workspaceId),
   ]);
   const count = (result: D1Result | undefined) =>
     Number((result?.results[0] as { count?: number } | undefined)?.count ?? 0);
@@ -1345,24 +1506,30 @@ apiRoutes.get("/statistics", async (context) => {
 
 apiRoutes.get("/export", requireRecentSession(), async (context) => {
   const [items, archived, subjects, settings, savedViews] = await Promise.all([
-    listItems(context.env.DB, { all: true }),
-    listItems(context.env.DB, { archived: true, all: true }),
-    listSubjects(context.env.DB),
-    getSettings(context.env.DB),
+    listItems(context.env.DB, context.get("user").workspaceId, { all: true }),
+    listItems(context.env.DB, context.get("user").workspaceId, {
+      archived: true,
+      all: true,
+    }),
+    listSubjects(context.env.DB, context.get("user").workspaceId),
+    getSettings(context.env.DB, context.get("user").workspaceId),
     context.env.DB.prepare(
       `SELECT id, page, name, filters_json, sort_json, columns_json,
                 column_widths_json, is_default
-         FROM saved_view ORDER BY page, is_default DESC, name`,
-    ).all<{
-      id: string;
-      page: string;
-      name: string;
-      filters_json: string;
-      sort_json: string;
-      columns_json: string;
-      column_widths_json: string;
-      is_default: number;
-    }>(),
+         FROM saved_view WHERE workspace_id = ?
+         ORDER BY page, is_default DESC, name`,
+    )
+      .bind(context.get("user").workspaceId)
+      .all<{
+        id: string;
+        page: string;
+        name: string;
+        filters_json: string;
+        sort_json: string;
+        columns_json: string;
+        column_widths_json: string;
+        is_default: number;
+      }>(),
   ]);
   const backup = {
     version: 1,
@@ -1450,7 +1617,9 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
   const backup = result.data;
   const knownSubjectIds = new Set([
     ...backup.subjects.map((subject) => subject.id),
-    ...(await listSubjects(context.env.DB)).map((subject) => subject.id),
+    ...(
+      await listSubjects(context.env.DB, context.get("user").workspaceId)
+    ).map((subject) => subject.id),
   ]);
   if (
     backup.items.some(
@@ -1464,9 +1633,9 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
   }
   let canvasBaseHash: string | null = null;
   try {
-    canvasBaseHash = await sha256(
+    canvasBaseHash = `${context.get("user").workspaceId}:${await sha256(
       configuredCanvasInstallation(context.env).baseUrl.origin,
-    );
+    )}`;
   } catch {
     // Manual-only deployments can still restore non-Canvas backups.
   }
@@ -1475,9 +1644,9 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
     const subjectStatements = backup.subjects.map((subject) =>
       context.env.DB.prepare(
         `INSERT INTO subject
-            (id, canvas_course_id, source_name, display_name, short_name,
+            (id, workspace_id, canvas_course_id, source_name, display_name, short_name,
              colour, active, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              canvas_course_id = excluded.canvas_course_id,
              source_name = excluded.source_name,
@@ -1485,10 +1654,14 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
              short_name = excluded.short_name,
              colour = excluded.colour,
              active = excluded.active,
-             updated_at = excluded.updated_at`,
+             updated_at = excluded.updated_at
+           WHERE subject.workspace_id = excluded.workspace_id`,
       ).bind(
         subject.id,
-        subject.canvasCourseId,
+        context.get("user").workspaceId,
+        subject.canvasCourseId
+          ? `${context.get("user").workspaceId}:${subject.canvasCourseId}`
+          : null,
         subject.sourceName,
         subject.displayName,
         subject.shortName,
@@ -1502,6 +1675,7 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
 
     const itemColumns = [
       "id",
+      "workspace_id",
       "version",
       "kind",
       "classification",
@@ -1550,17 +1724,21 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
       ON CONFLICT(id) DO UPDATE SET ${itemColumns
         .filter((column) => !preservedOnUpdate.has(column))
         .map((column) => `${column} = excluded.${column}`)
-        .join(", ")}`;
+        .join(", ")}
+      WHERE item.workspace_id = excluded.workspace_id`;
     const itemStatements = backup.items.map((item) =>
       context.env.DB.prepare(itemSql).bind(
         item.id,
+        context.get("user").workspaceId,
         item.version,
         item.kind,
         item.classification,
         item.sourceType,
         item.sourceType === "canvas" ? canvasBaseHash : null,
         item.canvasAssignmentId,
-        item.canvasCourseId,
+        item.canvasCourseId
+          ? `${context.get("user").workspaceId}:${item.canvasCourseId}`
+          : null,
         item.canvasHtmlUrl,
         item.sourceName,
         item.sourceDueAt,
@@ -1597,14 +1775,14 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
 
     const childStatements = backup.items.flatMap((item) => [
       context.env.DB.prepare(
-        "DELETE FROM field_override WHERE item_id = ?",
-      ).bind(item.id),
+        "DELETE FROM field_override WHERE workspace_id = ? AND item_id = ?",
+      ).bind(context.get("user").workspaceId, item.id),
       context.env.DB.prepare(
-        "DELETE FROM attachment_link WHERE item_id = ?",
-      ).bind(item.id),
-      context.env.DB.prepare("DELETE FROM item_history WHERE item_id = ?").bind(
-        item.id,
-      ),
+        "DELETE FROM attachment_link WHERE workspace_id = ? AND item_id = ?",
+      ).bind(context.get("user").workspaceId, item.id),
+      context.env.DB.prepare(
+        "DELETE FROM item_history WHERE workspace_id = ? AND item_id = ?",
+      ).bind(context.get("user").workspaceId, item.id),
       ...item.overrides.map((override) =>
         context.env.DB.prepare(
           `INSERT INTO field_override
@@ -1659,9 +1837,9 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
     const viewStatements = backup.savedViews.map((view) =>
       context.env.DB.prepare(
         `INSERT INTO saved_view
-            (id, page, name, filters_json, sort_json, columns_json,
+            (id, workspace_id, page, name, filters_json, sort_json, columns_json,
              column_widths_json, is_default, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              page = excluded.page,
              name = excluded.name,
@@ -1670,9 +1848,11 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
              columns_json = excluded.columns_json,
              column_widths_json = excluded.column_widths_json,
              is_default = excluded.is_default,
-             updated_at = excluded.updated_at`,
+             updated_at = excluded.updated_at
+           WHERE saved_view.workspace_id = excluded.workspace_id`,
       ).bind(
         view.id,
+        context.get("user").workspaceId,
         view.page,
         view.name,
         JSON.stringify(view.filters),
@@ -1685,14 +1865,19 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
       ),
     );
     await runBatches(context.env.DB, viewStatements);
-    await updateSettings(context.env.DB, backup.settings);
+    await updateSettings(
+      context.env.DB,
+      context.get("user").workspaceId,
+      backup.settings,
+    );
     await context.env.DB.prepare(
       `INSERT INTO security_event
-        (id, category, actor_email, summary, created_at)
-       VALUES (?, 'backup_restore', ?, ?, ?)`,
+        (id, workspace_id, category, actor_email, summary, created_at)
+       VALUES (?, ?, 'backup_restore', ?, ?, ?)`,
     )
       .bind(
         crypto.randomUUID(),
+        context.get("user").workspaceId,
         context.get("user").email,
         `Merged ${backup.items.length} items from a validated backup`,
         now,
@@ -1722,10 +1907,10 @@ apiRoutes.get("/sessions", async (context) => {
     `SELECT email_normalized, user_agent, created_at, last_activity_at,
             idle_expires_at,
             CASE WHEN id_hash = ? THEN 1 ELSE 0 END AS is_current
-     FROM session WHERE revoked_at IS NULL
+     FROM session WHERE email_normalized = ? AND revoked_at IS NULL
      ORDER BY last_activity_at DESC`,
   )
-    .bind(context.get("user").sessionIdHash)
+    .bind(context.get("user").sessionIdHash, context.get("user").email)
     .all();
   return context.json({ sessions: result.results });
 });
@@ -1735,11 +1920,16 @@ apiRoutes.get("/identities", async (context) => {
     context.env.DB.prepare(
       `SELECT email_normalized, display_name, google_subject, enabled,
               is_owner, last_login_at, created_at
-       FROM allowed_identity ORDER BY enabled DESC, email_normalized`,
-    ).all(),
+       FROM allowed_identity WHERE workspace_id = ?
+       ORDER BY enabled DESC, email_normalized`,
+    )
+      .bind(context.get("user").workspaceId)
+      .all(),
     context.env.DB.prepare(
-      `SELECT integration_owner_email FROM workspace WHERE id = 'workspace'`,
-    ).first<{ integration_owner_email: string | null }>(),
+      `SELECT integration_owner_email FROM workspace WHERE id = ?`,
+    )
+      .bind(context.get("user").workspaceId)
+      .first<{ integration_owner_email: string | null }>(),
   ]);
   return context.json({
     identities: identities.results.map((identity) => ({
@@ -1756,49 +1946,13 @@ apiRoutes.post(
   requireRecentSession(),
   zValidator("json", addIdentitySchema),
   async (context) => {
-    if (
-      !(await rateLimit(
-        context,
-        `identity-admin:${context.get("user").email}`,
-        10,
-        60,
-      ))
-    ) {
-      return context.json({ error: "Try again in an hour." }, 429);
-    }
-    const input = context.req.valid("json");
-    const now = new Date().toISOString();
-    const existing = await context.env.DB.prepare(
-      `SELECT google_subject FROM allowed_identity WHERE email_normalized = ?`,
-    )
-      .bind(input.email)
-      .first<{ google_subject: string | null }>();
-    if (existing?.google_subject) {
-      return context.json(
-        { error: "That verified identity already exists." },
-        409,
-      );
-    }
-    await context.env.DB.prepare(
-      `INSERT INTO allowed_identity
-        (email_normalized, display_name, enabled, is_owner, created_at)
-       VALUES (?, ?, 1, 1, ?)
-       ON CONFLICT(email_normalized) DO UPDATE SET
-         display_name = excluded.display_name, enabled = 1, is_owner = 1`,
-    )
-      .bind(
-        input.email,
-        input.displayName ?? input.email.split("@")[0] ?? input.email,
-        now,
-      )
-      .run();
-    await recordSecurityEvent(
-      context.env.DB,
-      "identity_added",
-      context.get("user").email,
-      `Approved ${input.email} for owner sign-in; Google verification is still required.`,
+    return context.json(
+      {
+        error:
+          "Organato workspaces are private to one verified Google account.",
+      },
+      403,
     );
-    return context.json({ ok: true }, 201);
   },
 );
 
@@ -1807,61 +1961,10 @@ apiRoutes.patch(
   requireRecentSession(),
   zValidator("json", identityStateSchema),
   async (context) => {
-    const parsed = identityFromRoute(context.req.param("email"));
-    if (!parsed.success)
-      return context.json({ error: "Identity email is invalid." }, 400);
-    const email = parsed.data;
-    const input = context.req.valid("json");
-    if (!input.enabled) {
-      const workspace = await context.env.DB.prepare(
-        `SELECT integration_owner_email FROM workspace WHERE id = 'workspace'`,
-      ).first<{ integration_owner_email: string | null }>();
-      if (workspace?.integration_owner_email === email) {
-        return context.json(
-          {
-            error:
-              "Disconnect Google or choose another integration owner first.",
-          },
-          409,
-        );
-      }
-      const remaining = await context.env.DB.prepare(
-        `SELECT COUNT(*) AS count FROM allowed_identity
-         WHERE enabled = 1 AND is_owner = 1 AND email_normalized <> ?`,
-      )
-        .bind(email)
-        .first<{ count: number }>();
-      if (!remaining?.count) {
-        return context.json(
-          { error: "At least one approved owner must remain." },
-          409,
-        );
-      }
-    }
-    const changed = await context.env.DB.prepare(
-      `UPDATE allowed_identity SET enabled = ?
-       WHERE email_normalized = ?`,
-    )
-      .bind(input.enabled ? 1 : 0, email)
-      .run();
-    if (!changed.meta.changes)
-      return context.json({ error: "Identity was not found." }, 404);
-    if (!input.enabled) {
-      await context.env.DB.prepare(
-        `UPDATE session SET revoked_at = ?
-         WHERE email_normalized = ? AND revoked_at IS NULL`,
-      )
-        .bind(new Date().toISOString(), email)
-        .run();
-      if (email === context.get("user").email) clearSessionCookies(context);
-    }
-    await recordSecurityEvent(
-      context.env.DB,
-      input.enabled ? "identity_enabled" : "identity_disabled",
-      context.get("user").email,
-      `${email} was ${input.enabled ? "enabled" : "disabled"} for sign-in.`,
+    return context.json(
+      { error: "Personal workspace identities cannot be shared or disabled." },
+      403,
     );
-    return context.json({ ok: true });
   },
 );
 
@@ -1869,48 +1972,10 @@ apiRoutes.delete(
   "/identities/:email",
   requireRecentSession(),
   async (context) => {
-    const parsed = identityFromRoute(context.req.param("email"));
-    if (!parsed.success)
-      return context.json({ error: "Identity email is invalid." }, 400);
-    const email = parsed.data;
-    if (email === context.get("user").email) {
-      return context.json(
-        { error: "Sign in with another owner before removing this identity." },
-        409,
-      );
-    }
-    const identity = await context.env.DB.prepare(
-      `SELECT google_subject, last_login_at FROM allowed_identity
-       WHERE email_normalized = ?`,
-    )
-      .bind(email)
-      .first<{
-        google_subject: string | null;
-        last_login_at: string | null;
-      }>();
-    if (!identity)
-      return context.json({ error: "Identity was not found." }, 404);
-    if (identity.google_subject || identity.last_login_at) {
-      return context.json(
-        {
-          error:
-            "Verified identities are retained for audit safety; disable this identity instead.",
-        },
-        409,
-      );
-    }
-    await context.env.DB.prepare(
-      "DELETE FROM allowed_identity WHERE email_normalized = ?",
-    )
-      .bind(email)
-      .run();
-    await recordSecurityEvent(
-      context.env.DB,
-      "identity_removed",
-      context.get("user").email,
-      `Unused identity ${email} was removed.`,
+    return context.json(
+      { error: "Personal workspace identities cannot be shared or removed." },
+      403,
     );
-    return context.json({ ok: true });
   },
 );
 
@@ -1930,9 +1995,9 @@ apiRoutes.post(
     }
     const identity = await context.env.DB.prepare(
       `SELECT google_subject, enabled FROM allowed_identity
-       WHERE email_normalized = ? AND is_owner = 1`,
+       WHERE email_normalized = ? AND workspace_id = ? AND is_owner = 1`,
     )
-      .bind(email)
+      .bind(email, context.get("user").workspaceId)
       .first<{ google_subject: string | null; enabled: number }>();
     if (!identity?.enabled || !identity.google_subject) {
       return context.json(
@@ -1942,8 +2007,10 @@ apiRoutes.post(
     }
     const google = await context.env.DB.prepare(
       `SELECT status, metadata_json FROM integration_connection
-       WHERE provider = 'google'`,
-    ).first<{ status: string; metadata_json: string }>();
+       WHERE workspace_id = ? AND provider = 'google'`,
+    )
+      .bind(context.get("user").workspaceId)
+      .first<{ status: string; metadata_json: string }>();
     let connectedEmail: string | null = null;
     try {
       connectedEmail =
@@ -1969,9 +2036,9 @@ apiRoutes.post(
     const now = new Date().toISOString();
     await context.env.DB.prepare(
       `UPDATE workspace SET integration_owner_email = ?, updated_at = ?
-       WHERE id = 'workspace'`,
+       WHERE id = ?`,
     )
-      .bind(email, now)
+      .bind(email, now, context.get("user").workspaceId)
       .run();
     await recordSecurityEvent(
       context.env.DB,
@@ -1989,9 +2056,13 @@ apiRoutes.post(
 
 apiRoutes.post("/sessions/revoke-others", async (context) => {
   await context.env.DB.prepare(
-    "UPDATE session SET revoked_at = ? WHERE id_hash <> ? AND revoked_at IS NULL",
+    "UPDATE session SET revoked_at = ? WHERE email_normalized = ? AND id_hash <> ? AND revoked_at IS NULL",
   )
-    .bind(new Date().toISOString(), context.get("user").sessionIdHash)
+    .bind(
+      new Date().toISOString(),
+      context.get("user").email,
+      context.get("user").sessionIdHash,
+    )
     .run();
   await recordSecurityEvent(
     context.env.DB,
@@ -2004,9 +2075,9 @@ apiRoutes.post("/sessions/revoke-others", async (context) => {
 
 apiRoutes.post("/sessions/revoke-all", async (context) => {
   await context.env.DB.prepare(
-    "UPDATE session SET revoked_at = ? WHERE revoked_at IS NULL",
+    "UPDATE session SET revoked_at = ? WHERE email_normalized = ? AND revoked_at IS NULL",
   )
-    .bind(new Date().toISOString())
+    .bind(new Date().toISOString(), context.get("user").email)
     .run();
   await recordSecurityEvent(
     context.env.DB,
@@ -2021,19 +2092,24 @@ apiRoutes.post("/sessions/revoke-all", async (context) => {
 apiRoutes.get("/diagnostic", async (context) => {
   const [itemCount, subjectCount, integrations, recentRuns] =
     await context.env.DB.batch([
-      context.env.DB.prepare("SELECT COUNT(*) AS count FROM item"),
-      context.env.DB.prepare("SELECT COUNT(*) AS count FROM subject"),
+      context.env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM item WHERE workspace_id = ?",
+      ).bind(context.get("user").workspaceId),
+      context.env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM subject WHERE workspace_id = ?",
+      ).bind(context.get("user").workspaceId),
       context.env.DB.prepare(
         `SELECT provider, status, credential_key_version, last_success_at,
                 last_attempt_at, last_error_category, reconnect_needed
-         FROM integration_connection ORDER BY provider`,
-      ),
+         FROM integration_connection WHERE workspace_id = ? ORDER BY provider`,
+      ).bind(context.get("user").workspaceId),
       context.env.DB.prepare(
         `SELECT provider, trigger_type, started_at, finished_at, result,
                 error_category, created_count, updated_count, archived_count,
                 skipped_count
-         FROM sync_run ORDER BY started_at DESC LIMIT 20`,
-      ),
+         FROM sync_run WHERE workspace_id = ?
+         ORDER BY started_at DESC LIMIT 20`,
+      ).bind(context.get("user").workspaceId),
     ]);
   const count = (result: D1Result | undefined) =>
     Number((result?.results[0] as { count?: number } | undefined)?.count ?? 0);
@@ -2070,24 +2146,43 @@ apiRoutes.post(
     const input = context.req.valid("json");
     const now = new Date().toISOString();
     await context.env.DB.batch([
-      context.env.DB.prepare("DELETE FROM item"),
-      context.env.DB.prepare("DELETE FROM subject"),
-      context.env.DB.prepare("DELETE FROM saved_view"),
-      context.env.DB.prepare("DELETE FROM reminder_delivery"),
-      context.env.DB.prepare("DELETE FROM sync_run"),
-      context.env.DB.prepare("DELETE FROM integration_connection"),
-      context.env.DB.prepare("DELETE FROM oauth_transaction"),
-      context.env.DB.prepare("DELETE FROM security_event"),
-      context.env.DB.prepare("DELETE FROM rate_limit"),
-      context.env.DB.prepare("DELETE FROM session"),
-      context.env.DB.prepare("DELETE FROM allowed_identity"),
+      context.env.DB.prepare("DELETE FROM item WHERE workspace_id = ?").bind(
+        user.workspaceId,
+      ),
+      context.env.DB.prepare("DELETE FROM subject WHERE workspace_id = ?").bind(
+        user.workspaceId,
+      ),
+      context.env.DB.prepare(
+        "DELETE FROM saved_view WHERE workspace_id = ?",
+      ).bind(user.workspaceId),
+      context.env.DB.prepare(
+        "DELETE FROM reminder_delivery WHERE workspace_id = ?",
+      ).bind(user.workspaceId),
+      context.env.DB.prepare(
+        "DELETE FROM sync_run WHERE workspace_id = ?",
+      ).bind(user.workspaceId),
+      context.env.DB.prepare(
+        "DELETE FROM integration_connection WHERE workspace_id = ?",
+      ).bind(user.workspaceId),
+      context.env.DB.prepare(
+        "DELETE FROM oauth_transaction WHERE workspace_id = ?",
+      ).bind(user.workspaceId),
+      context.env.DB.prepare(
+        "DELETE FROM security_event WHERE workspace_id = ?",
+      ).bind(user.workspaceId),
+      context.env.DB.prepare(
+        "DELETE FROM session WHERE email_normalized = ?",
+      ).bind(user.email),
+      context.env.DB.prepare(
+        "DELETE FROM allowed_identity WHERE email_normalized = ? AND workspace_id = ?",
+      ).bind(user.email, user.workspaceId),
       context.env.DB.prepare(
         `UPDATE workspace
            SET name = 'Organato', timezone = 'Australia/Sydney',
                integration_owner_email = NULL, settings_json = '{}',
                updated_at = ?
-           WHERE id = 'workspace'`,
-      ).bind(now),
+           WHERE id = ?`,
+      ).bind(now, user.workspaceId),
     ]);
     clearSessionCookies(context);
     return context.json({

@@ -18,6 +18,7 @@ import {
   type CalendarTypeFilter,
   type CalendarView,
 } from "./model";
+import { OrganatoSelect } from "../../components/OrganatoControls";
 
 const viewOptions: Array<{ value: CalendarView; label: string }> = [
   { value: "month", label: "Month" },
@@ -372,16 +373,12 @@ export function MobileCalendarViewMenu({
     <label className="oc-mobile-view">
       <CalendarClock size={15} aria-hidden="true" />
       <span className="sr-only">Calendar view</span>
-      <select
+      <OrganatoSelect
+        ariaLabel="Calendar view"
+        options={viewOptions}
         value={view}
-        onChange={(event) => onChange(event.target.value as CalendarView)}
-      >
-        {viewOptions.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+        onChange={(value) => onChange(value as CalendarView)}
+      />
     </label>
   );
 }

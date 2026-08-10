@@ -9,6 +9,7 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import {
+  Archive,
   Columns3,
   Combine,
   ExternalLink,
@@ -17,6 +18,7 @@ import {
   MoreHorizontal,
   Plus,
   SlidersHorizontal,
+  Trash2,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
@@ -28,8 +30,15 @@ import {
   type SavedView,
 } from "@organato/domain";
 import { PageHeader } from "../components/PageHeader";
+import {
+  OrganatoActionMenu,
+  OrganatoDatePicker,
+  OrganatoSelect,
+  quarterHourOptions,
+} from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
 import { useOrganato } from "../state/OrganatoProvider";
+import { localDateTimeToIso } from "./calendar/model";
 
 const now = new Date();
 const columnHelper = createColumnHelper<OrganatoItem>();
@@ -52,7 +61,8 @@ export default function WorkPage({
   const [viewName, setViewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [workName, setWorkName] = useState("");
-  const [workDue, setWorkDue] = useState("");
+  const [workDueDate, setWorkDueDate] = useState("");
+  const [workDueTime, setWorkDueTime] = useState("");
   const [workSubject, setWorkSubject] = useState("");
   const [workPriority, setWorkPriority] = useState<
     NonNullable<OrganatoItem["priority"]> | ""
@@ -61,26 +71,54 @@ export default function WorkPage({
     "assignment" | "checkpoint" | "both"
   >(page === "assignments" ? "assignment" : "checkpoint");
   const pageViews = views.filter((view) => view.page === page);
-  const [activeView, setActiveView] = useState(
-    pageViews.find((view) => view.isDefault)?.id ?? "",
+  const [activeView, setActiveView] = useState("active");
+  const [deleteCandidate, setDeleteCandidate] = useState<OrganatoItem | null>(
+    null,
+  );
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const viewOptions = useMemo(
+    () => [
+      { value: "active", label: "All active" },
+      {
+        value: "all",
+        label: page === "assignments" ? "All assignments" : "All checkpoints",
+      },
+      ...pageViews.map((view) => ({ value: view.id, label: view.name })),
+    ],
+    [page, pageViews],
   );
   const data = useMemo(
     () =>
-      items.filter(
-        (item) =>
-          item.kind === "work" &&
-          !item.archivedAt &&
-          isInView(item.classification, page) &&
-          (settings.showSubmittedActive ||
-            item.workingStatus !== "submitted") &&
-          (!priorityFilter || item.priority === priorityFilter) &&
-          (activeView !== "overdue" ||
-            visibleStatus(item, now) === "overdue") &&
-          (activeView !== "due-soon" ||
-            !item.dueAt ||
-            new Date(item.dueAt).getTime() <= now.getTime() + 7 * 86_400_000),
-      ),
-    [activeView, items, page, priorityFilter, settings.showSubmittedActive],
+      items.filter((item) => {
+        if (
+          item.kind !== "work" ||
+          item.archivedAt ||
+          !isInView(item.classification, page)
+        ) {
+          return false;
+        }
+        if (priorityFilter && item.priority !== priorityFilter) return false;
+        if (activeView === "active") {
+          const status = visibleStatus(item, now);
+          if (["overdue", "submitted", "completed"].includes(status)) {
+            return false;
+          }
+        }
+        const selectedView = pageViews.find((view) => view.id === activeView);
+        if (selectedView?.filters.due === "overdue") {
+          return visibleStatus(item, now) === "overdue";
+        }
+        if (selectedView?.filters.due === "this_week") {
+          const deadline = itemDeadline(item);
+          return Boolean(
+            deadline &&
+            deadline.getTime() >= now.getTime() &&
+            deadline.getTime() <= now.getTime() + 7 * 86_400_000,
+          );
+        }
+        return true;
+      }),
+    [activeView, items, page, pageViews, priorityFilter],
   );
   const columns = useMemo(
     () => [
@@ -201,28 +239,28 @@ export default function WorkPage({
         size: 95,
         header: "Priority",
         cell: ({ row, getValue }) => (
-          <select
+          <OrganatoSelect
+            ariaLabel={`Priority for ${row.original.displayName}`}
             className={`inline-select priority-${getValue() ?? "blank"}`}
             disabled={!settings.inlineEditing}
+            options={[
+              { value: "", label: "—" },
+              { value: "low", label: "Low" },
+              { value: "medium", label: "Medium" },
+              { value: "high", label: "High" },
+              { value: "urgent", label: "Urgent" },
+            ]}
             value={getValue() ?? ""}
-            onClick={(event) => event.stopPropagation()}
-            onChange={(event) =>
+            onChange={(value) =>
               dispatch({
                 type: "patchItem",
                 id: row.original.id,
                 patch: {
-                  priority: (event.target.value ||
-                    null) as OrganatoItem["priority"],
+                  priority: (value || null) as OrganatoItem["priority"],
                 },
               })
             }
-          >
-            <option value="">—</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent</option>
-          </select>
+          />
         ),
       }),
       columnHelper.accessor("workingStatus", {
@@ -232,27 +270,27 @@ export default function WorkPage({
         cell: ({ row }) => {
           const status = visibleStatus(row.original, now);
           return (
-            <select
+            <OrganatoSelect
+              ariaLabel={`Status for ${row.original.displayName}`}
               className={`inline-select status-${status}`}
               disabled={!settings.inlineEditing}
+              options={[
+                { value: "not_started", label: "Not started" },
+                { value: "in_progress", label: "In progress" },
+                { value: "submitted", label: "Submitted" },
+                { value: "completed", label: "Completed" },
+              ]}
               value={row.original.workingStatus}
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) =>
+              onChange={(value) =>
                 dispatch({
                   type: "patchItem",
                   id: row.original.id,
                   patch: {
-                    workingStatus: event.target
-                      .value as OrganatoItem["workingStatus"],
+                    workingStatus: value as OrganatoItem["workingStatus"],
                   },
                 })
               }
-            >
-              <option value="not_started">Not started</option>
-              <option value="in_progress">In progress</option>
-              <option value="submitted">Submitted</option>
-              <option value="completed">Completed</option>
-            </select>
+            />
           );
         },
       }),
@@ -260,16 +298,31 @@ export default function WorkPage({
         id: "actions",
         size: 32,
         cell: ({ row }) => (
-          <button
-            className="row-menu"
-            onClick={(event) => {
-              event.stopPropagation();
-              dispatch({ type: "select", id: row.original.id });
-            }}
-            aria-label={`Actions for ${row.original.displayName}`}
-          >
-            <MoreHorizontal size={16} />
-          </button>
+          <OrganatoActionMenu
+            ariaLabel={`Actions for ${row.original.displayName}`}
+            items={[
+              {
+                label: "Open details",
+                onSelect: () =>
+                  dispatch({ type: "select", id: row.original.id }),
+              },
+              {
+                label: "Archive assignment",
+                icon: <Archive size={14} aria-hidden="true" />,
+                onSelect: () =>
+                  dispatch({ type: "archive", id: row.original.id }),
+              },
+              {
+                label: "Delete assignment",
+                icon: <Trash2 size={14} aria-hidden="true" />,
+                danger: true,
+                onSelect: () => {
+                  setDeleteCandidate(row.original);
+                  setDeleteConfirmation("");
+                },
+              },
+            ]}
+          />
         ),
       }),
     ],
@@ -279,6 +332,7 @@ export default function WorkPage({
       settings.showSourceIcons,
       settings.timezone,
       subjectsById,
+      setDeleteCandidate,
     ],
   );
   const table = useReactTable({
@@ -295,6 +349,13 @@ export default function WorkPage({
     getFilteredRowModel: getFilteredRowModel(),
   });
   const applySavedView = (id: string) => {
+    if (id === "active" || id === "all") {
+      setActiveView(id);
+      setQuery("");
+      setPriorityFilter("");
+      setSorting([{ id: "due", desc: false }]);
+      return;
+    }
     const selected = pageViews.find((view) => view.id === id);
     setActiveView(id);
     setQuery(selected?.filters.query ?? "");
@@ -319,22 +380,16 @@ export default function WorkPage({
     <div className="page work-page">
       <PageHeader
         title={page === "assignments" ? "Assignments" : "Checkpoints"}
-        meta={`${data.length} active`}
+        meta={`${data.length} ${activeView === "all" ? page : "active"}`}
         actions={
           <>
-            <select
+            <OrganatoSelect
+              ariaLabel="Assignment view"
               className="view-picker"
-              aria-label="Saved view"
+              options={viewOptions}
               value={activeView}
-              onChange={(event) => applySavedView(event.target.value)}
-            >
-              <option value="">All active</option>
-              {pageViews.map((view) => (
-                <option key={view.id} value={view.id}>
-                  {view.name}
-                </option>
-              ))}
-            </select>
+              onChange={applySavedView}
+            />
             <button
               className="text-button icon-labelled work-secondary-action"
               onClick={() => setShowFilters((value) => !value)}
@@ -366,18 +421,12 @@ export default function WorkPage({
               <div role="menu">
                 <label>
                   View
-                  <select
-                    aria-label="Saved view"
+                  <OrganatoSelect
+                    ariaLabel="Assignment view"
+                    options={viewOptions}
                     value={activeView}
-                    onChange={(event) => applySavedView(event.target.value)}
-                  >
-                    <option value="">All active</option>
-                    {pageViews.map((view) => (
-                      <option key={view.id} value={view.id}>
-                        {view.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={applySavedView}
+                  />
                 </label>
                 <button
                   role="menuitem"
@@ -412,12 +461,22 @@ export default function WorkPage({
               type: "addWork",
               name: workName.trim(),
               classification: workClassification,
-              dueAt: workDue ? new Date(workDue).toISOString() : null,
+              dueAt:
+                workDueDate && workDueTime
+                  ? localDateTimeToIso(
+                      workDueDate,
+                      workDueTime,
+                      settings.timezone,
+                    )
+                  : null,
+              dueDateLocal: workDueDate && !workDueTime ? workDueDate : null,
+              dueHasExplicitTime: Boolean(workDueDate && workDueTime),
               subjectId: workSubject || null,
               priority: workPriority || null,
             });
             setWorkName("");
-            setWorkDue("");
+            setWorkDueDate("");
+            setWorkDueTime("");
             setWorkSubject("");
             setWorkPriority("");
             setCreating(false);
@@ -431,55 +490,61 @@ export default function WorkPage({
             placeholder="Work item name"
             required
           />
-          <input
-            aria-label="Due date and time"
-            type="datetime-local"
-            value={workDue}
-            onChange={(event) => setWorkDue(event.target.value)}
-          />
-          <select
-            aria-label="Classification"
+          <div className="create-work-due">
+            <OrganatoDatePicker
+              ariaLabel="Due date"
+              value={workDueDate}
+              onChange={setWorkDueDate}
+              placeholder="No date"
+            />
+            <OrganatoSelect
+              ariaLabel="Due time"
+              disabled={!workDueDate}
+              options={quarterHourOptions}
+              value={workDueTime}
+              onChange={setWorkDueTime}
+            />
+          </div>
+          <OrganatoSelect
+            ariaLabel="Classification"
+            options={[
+              {
+                value: page === "assignments" ? "assignment" : "checkpoint",
+                label: page === "assignments" ? "Assignment" : "Checkpoint",
+              },
+              { value: "both", label: "Both" },
+            ]}
             value={workClassification}
-            onChange={(event) =>
-              setWorkClassification(
-                event.target.value as typeof workClassification,
-              )
+            onChange={(value) =>
+              setWorkClassification(value as typeof workClassification)
             }
-          >
-            <option
-              value={page === "assignments" ? "assignment" : "checkpoint"}
-            >
-              {page === "assignments" ? "Assignment" : "Checkpoint"}
-            </option>
-            <option value="both">Both</option>
-          </select>
-          <select
-            aria-label="Subject"
+          />
+          <OrganatoSelect
+            ariaLabel="Subject"
+            options={[
+              { value: "", label: "No subject" },
+              ...subjects
+                .filter((subject) => subject.active)
+                .map((subject) => ({
+                  value: subject.id,
+                  label: subject.displayName,
+                })),
+            ]}
             value={workSubject}
-            onChange={(event) => setWorkSubject(event.target.value)}
-          >
-            <option value="">No subject</option>
-            {subjects
-              .filter((subject) => subject.active)
-              .map((subject) => (
-                <option key={subject.id} value={subject.id}>
-                  {subject.displayName}
-                </option>
-              ))}
-          </select>
-          <select
-            aria-label="Priority"
+            onChange={setWorkSubject}
+          />
+          <OrganatoSelect
+            ariaLabel="Priority"
+            options={[
+              { value: "", label: "Blank priority" },
+              { value: "low", label: "Low" },
+              { value: "medium", label: "Medium" },
+              { value: "high", label: "High" },
+              { value: "urgent", label: "Urgent" },
+            ]}
             value={workPriority}
-            onChange={(event) =>
-              setWorkPriority(event.target.value as typeof workPriority)
-            }
-          >
-            <option value="">Blank priority</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent</option>
-          </select>
+            onChange={(value) => setWorkPriority(value as typeof workPriority)}
+          />
           <button type="submit">Create</button>
           <button type="button" onClick={() => setCreating(false)}>
             Cancel
@@ -529,15 +594,16 @@ export default function WorkPage({
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Filter this view…"
           />
-          <select
-            aria-label="Filter by priority"
+          <OrganatoSelect
+            ariaLabel="Filter by priority"
+            options={[
+              { value: "", label: "Any priority" },
+              { value: "high", label: "High" },
+              { value: "urgent", label: "Urgent" },
+            ]}
             value={priorityFilter}
-            onChange={(event) => setPriorityFilter(event.target.value)}
-          >
-            <option value="">Any priority</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent</option>
-          </select>
+            onChange={setPriorityFilter}
+          />
           <button
             onClick={() => {
               setQuery("");
@@ -700,6 +766,80 @@ export default function WorkPage({
         ) : null}
       </div>
       <p className="item-count">{table.getRowModel().rows.length} items</p>
+      {deleteCandidate ? (
+        <div
+          className="delete-item-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              setDeleteCandidate(null);
+              setDeleteConfirmation("");
+            }
+          }}
+        >
+          <section
+            className="delete-item-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-assignment-title"
+          >
+            <header>
+              <h2 id="delete-assignment-title">Delete assignment?</h2>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close delete dialog"
+                onClick={() => {
+                  setDeleteCandidate(null);
+                  setDeleteConfirmation("");
+                }}
+              >
+                ×
+              </button>
+            </header>
+            <p>
+              This permanently removes{" "}
+              <strong>{deleteCandidate.displayName}</strong> from Organato. This
+              cannot be undone.
+            </p>
+            <label>
+              Type the assignment name to confirm
+              <input
+                autoFocus
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+              />
+            </label>
+            <footer>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteCandidate(null);
+                  setDeleteConfirmation("");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                disabled={deleteConfirmation !== deleteCandidate.displayName}
+                onClick={() => {
+                  dispatch({
+                    type: "deleteItem",
+                    id: deleteCandidate.id,
+                    confirmation: deleteConfirmation,
+                  });
+                  setDeleteCandidate(null);
+                  setDeleteConfirmation("");
+                }}
+              >
+                Delete assignment
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -19,12 +19,20 @@ const googleJwks = createRemoteJWKSet(
   new URL("https://www.googleapis.com/oauth2/v3/certs"),
 );
 
-function allowList(env: Env): Set<string> {
+function allowList(env: Pick<Env, "ALLOWED_GOOGLE_EMAILS">): Set<string> {
   return new Set(
     env.ALLOWED_GOOGLE_EMAILS.split(",")
       .map((email) => email.trim().toLowerCase())
       .filter(Boolean),
   );
+}
+
+export function isConfiguredGoogleEmailAllowed(
+  env: Pick<Env, "ALLOWED_GOOGLE_EMAILS">,
+  email: string,
+): boolean {
+  const configured = allowList(env);
+  return configured.has("*") || configured.has(email.toLowerCase());
 }
 
 function isSafeReturnTo(value: string): boolean {
@@ -51,6 +59,43 @@ class GoogleSignInError extends Error {
   ) {
     super(message);
   }
+}
+
+export async function provisionPersonalWorkspace(
+  db: D1Database,
+  identity: { email: string; displayName: string; googleSubject: string },
+  now = new Date().toISOString(),
+) {
+  await db
+    .prepare(
+      `INSERT INTO workspace
+        (id, name, timezone, settings_json, created_at, updated_at)
+       VALUES (?, 'Organato', 'Australia/Sydney', '{}', ?, ?)
+       ON CONFLICT(id) DO NOTHING`,
+    )
+    .bind(identity.email, now, now)
+    .run();
+  await db
+    .prepare(
+      `INSERT INTO allowed_identity
+        (email_normalized, display_name, google_subject, enabled, is_owner,
+         last_login_at, created_at, workspace_id)
+       VALUES (?, ?, ?, 1, 1, ?, ?, ?)
+       ON CONFLICT(email_normalized) DO UPDATE SET
+         display_name = excluded.display_name,
+         google_subject = COALESCE(allowed_identity.google_subject, excluded.google_subject),
+         enabled = 1,
+         last_login_at = excluded.last_login_at`,
+    )
+    .bind(
+      identity.email,
+      identity.displayName,
+      identity.googleSubject,
+      now,
+      now,
+      identity.email,
+    )
+    .run();
 }
 
 async function completeGoogleSignIn(
@@ -201,9 +246,12 @@ async function completeGoogleSignIn(
       email,
     );
   }
-  if (!allowList(context.env).has(email) && !existing?.enabled) {
+  if (
+    !isConfiguredGoogleEmailAllowed(context.env, email) &&
+    !existing?.enabled
+  ) {
     throw new GoogleSignInError(
-      "Google sign-in was not accepted.",
+      "This Google account has not been approved for Organato.",
       403,
       "email_not_allowed",
       email,
@@ -223,23 +271,15 @@ async function completeGoogleSignIn(
     );
   }
   const now = new Date().toISOString();
-  await context.env.DB.prepare(
-    `INSERT INTO allowed_identity
-      (email_normalized, display_name, google_subject, enabled, is_owner, last_login_at, created_at)
-     VALUES (?, ?, ?, 1, 1, ?, ?)
-     ON CONFLICT(email_normalized) DO UPDATE SET
-       display_name = excluded.display_name,
-       google_subject = COALESCE(allowed_identity.google_subject, excluded.google_subject),
-       last_login_at = excluded.last_login_at`,
-  )
-    .bind(
+  await provisionPersonalWorkspace(
+    context.env.DB,
+    {
       email,
-      typeof payload.name === "string" ? payload.name : email,
-      subject,
-      now,
-      now,
-    )
-    .run();
+      displayName: typeof payload.name === "string" ? payload.name : email,
+      googleSubject: subject,
+    },
+    now,
+  );
   const { csrfToken } = await createSession(
     context,
     email,

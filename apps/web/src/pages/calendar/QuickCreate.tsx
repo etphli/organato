@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
 import { CalendarDays, Clock3 } from "lucide-react";
+import {
+  OrganatoDatePicker,
+  OrganatoSelect,
+  quarterHourOptions,
+} from "../../components/OrganatoControls";
 
 function timeFromMinutes(minutes: number | null): string {
   const value = minutes ?? 9 * 60;
@@ -85,11 +90,10 @@ export function CalendarQuickCreate({
             <label>
               <CalendarDays size={15} aria-hidden="true" />
               <span>Date</span>
-              <input
-                type="date"
+              <OrganatoDatePicker
+                ariaLabel="Date"
                 value={date}
-                onChange={(event) => setDate(event.target.value)}
-                required
+                onChange={setDate}
               />
             </label>
             <label>
@@ -102,12 +106,11 @@ export function CalendarQuickCreate({
                 aria-label="Set an exact time"
               />
               {hasTime ? (
-                <input
-                  type="time"
+                <OrganatoSelect
+                  ariaLabel="Due time"
+                  options={quarterHourOptions.slice(1)}
                   value={time}
-                  onChange={(event) => setTime(event.target.value)}
-                  aria-label="Due time"
-                  required
+                  onChange={setTime}
                 />
               ) : (
                 <small>All day</small>
