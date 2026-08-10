@@ -88,6 +88,7 @@ type Action =
   | { type: "classify"; id: string; classification: Classification }
   | { type: "archive"; id: string; reason?: string }
   | { type: "restore"; id: string }
+  | { type: "deleteItem"; id: string; confirmation: string }
   | {
       type: "addTodo";
       name: string;
@@ -102,6 +103,8 @@ type Action =
       name: string;
       classification: Classification;
       dueAt?: string | null;
+      dueDateLocal?: string | null;
+      dueHasExplicitTime?: boolean;
       subjectId?: string | null;
       priority?: OrganatoItem["priority"];
     }
@@ -128,6 +131,7 @@ const serverMutationTypes = new Set<Action["type"]>([
   "classify",
   "archive",
   "restore",
+  "deleteItem",
   "addTodo",
   "addWork",
   "settings",
@@ -499,6 +503,17 @@ function reducer(state: State, action: Action): State {
         : null,
     });
   }
+  if (action.type === "deleteItem") {
+    const current = state.items.find((item) => item.id === action.id);
+    if (!current || action.confirmation !== current.displayName) return state;
+    return persist({
+      ...state,
+      items: state.items.filter((item) => item.id !== action.id),
+      selectedItemId: null,
+      toast: `${current.kind === "work" ? "Assignment" : "Todo"} deleted`,
+      undo: null,
+    });
+  }
   if (action.type === "addTodo" || action.type === "addWork") {
     const now = new Date().toISOString();
     const isTodo = action.type === "addTodo";
@@ -517,12 +532,8 @@ function reducer(state: State, action: Action): State {
       sourcePayloadHash: null,
       displayName: action.name,
       dueAt: action.dueAt ?? null,
-      dueDateLocal:
-        action.type === "addTodo" ? (action.dueDateLocal ?? null) : null,
-      dueHasExplicitTime:
-        action.type === "addTodo"
-          ? (action.dueHasExplicitTime ?? Boolean(action.dueAt))
-          : Boolean(action.dueAt),
+      dueDateLocal: action.dueDateLocal ?? null,
+      dueHasExplicitTime: action.dueHasExplicitTime ?? Boolean(action.dueAt),
       subjectId: action.subjectId ?? null,
       priority: action.priority ?? null,
       workingStatus: "not_started",
@@ -534,9 +545,7 @@ function reducer(state: State, action: Action): State {
       calendarEnabled: isTodo ? state.settings.todoCalendarDefault : true,
       remindersEnabled: isTodo ? state.settings.todoRemindersDefault : true,
       calendarSyncState:
-        action.dueAt || (action.type === "addTodo" && action.dueDateLocal)
-          ? "pending"
-          : "synced",
+        action.dueAt || action.dueDateLocal ? "pending" : "synced",
       calendarNote: "",
       pinned: false,
       sortRank: 0,
@@ -774,6 +783,21 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
             baseDispatch({ type: "replaceItem", item: result.item });
             return;
           }
+          if (action.type === "deleteItem") {
+            if (!current) return;
+            await apiRequest(
+              `/api/items/${encodeURIComponent(action.id)}/permanent-delete`,
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  version: current.version,
+                  confirmation: action.confirmation,
+                }),
+              },
+            );
+            await refresh();
+            return;
+          }
           if (action.type === "addTodo" || action.type === "addWork") {
             const isTodo = action.type === "addTodo";
             await apiRequest("/api/items", {
@@ -784,11 +808,11 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                 displayName: action.name,
                 dueAt: action.dueAt ?? null,
                 dueDateLocal:
-                  isTodo && "dueDateLocal" in action
+                  "dueDateLocal" in action
                     ? (action.dueDateLocal ?? null)
                     : null,
                 dueHasExplicitTime:
-                  isTodo && "dueHasExplicitTime" in action
+                  "dueHasExplicitTime" in action
                     ? (action.dueHasExplicitTime ?? Boolean(action.dueAt))
                     : Boolean(action.dueAt),
                 subjectId: action.subjectId ?? null,

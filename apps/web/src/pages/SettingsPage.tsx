@@ -17,6 +17,7 @@ import {
   type WorkspaceSnapshot,
 } from "@organato/domain";
 import { PageHeader } from "../components/PageHeader";
+import { OrganatoSelect } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
 import { AccountAccessSection } from "../components/settings/AccountAccessSection";
 import { CanvasConnectionSection } from "../components/settings/CanvasConnectionSection";
@@ -864,40 +865,44 @@ export default function SettingsPage() {
                   Theme
                   <small>Surfaces change; semantic meaning does not.</small>
                 </span>
-                <select
+                <OrganatoSelect
+                  ariaLabel="Theme"
+                  options={[
+                    { value: "obsidian", label: "Obsidian Dark" },
+                    { value: "pure_black", label: "Pure Black" },
+                    { value: "soft_dark", label: "Soft Dark" },
+                    { value: "light", label: "Light" },
+                    { value: "system", label: "System" },
+                  ]}
                   value={settings.theme}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     dispatch({
                       type: "settings",
                       patch: {
-                        theme: event.target.value as typeof settings.theme,
+                        theme: value as typeof settings.theme,
                       },
                     })
                   }
-                >
-                  <option value="obsidian">Obsidian Dark</option>
-                  <option value="pure_black">Pure Black</option>
-                  <option value="soft_dark">Soft Dark</option>
-                  <option value="light">Light</option>
-                  <option value="system">System</option>
-                </select>
+                />
               </label>
               <label className="field-row">
                 <span>Density</span>
-                <select
+                <OrganatoSelect
+                  ariaLabel="Density"
+                  options={[
+                    { value: "compact", label: "Compact" },
+                    { value: "comfortable", label: "Comfortable" },
+                  ]}
                   value={settings.density}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     dispatch({
                       type: "settings",
                       patch: {
-                        density: event.target.value as typeof settings.density,
+                        density: value as typeof settings.density,
                       },
                     })
                   }
-                >
-                  <option value="compact">Compact</option>
-                  <option value="comfortable">Comfortable</option>
-                </select>
+                />
               </label>
               <label className="field-row">
                 <span>
@@ -926,22 +931,24 @@ export default function SettingsPage() {
                 <h3>Internal calendar</h3>
                 <label className="field-row">
                   <span>Default view</span>
-                  <select
+                  <OrganatoSelect
+                    ariaLabel="Default calendar view"
+                    options={[
+                      { value: "month", label: "Month" },
+                      { value: "week", label: "Week" },
+                      { value: "agenda", label: "Agenda" },
+                    ]}
                     value={settings.calendarDefaultView}
-                    onChange={(event) =>
+                    onChange={(value) =>
                       dispatch({
                         type: "settings",
                         patch: {
-                          calendarDefaultView: event.target
-                            .value as typeof settings.calendarDefaultView,
+                          calendarDefaultView:
+                            value as typeof settings.calendarDefaultView,
                         },
                       })
                     }
-                  >
-                    <option value="month">Month</option>
-                    <option value="week">Week</option>
-                    <option value="agenda">Agenda</option>
-                  </select>
+                  />
                 </label>
                 <label className="setting-row">
                   <span>
@@ -1161,70 +1168,63 @@ export default function SettingsPage() {
                     value={archiveQuery}
                     onChange={(event) => setArchiveQuery(event.target.value)}
                   />
-                  <select
-                    aria-label="Filter archive by item type"
+                  <OrganatoSelect
+                    ariaLabel="Filter archive by item type"
+                    options={[
+                      { value: "all", label: "All types" },
+                      { value: "work", label: "School work" },
+                      { value: "todo", label: "Todos" },
+                    ]}
                     value={archiveKind}
-                    onChange={(event) =>
-                      setArchiveKind(
-                        event.target.value as "all" | "work" | "todo",
-                      )
+                    onChange={(value) =>
+                      setArchiveKind(value as "all" | "work" | "todo")
                     }
-                  >
-                    <option value="all">All types</option>
-                    <option value="work">School work</option>
-                    <option value="todo">Todos</option>
-                  </select>
-                  <select
-                    aria-label="Filter archive by subject"
+                  />
+                  <OrganatoSelect
+                    ariaLabel="Filter archive by subject"
+                    options={[
+                      { value: "all", label: "All subjects" },
+                      ...subjects.map((subject) => ({
+                        value: subject.id,
+                        label: subject.displayName,
+                      })),
+                    ]}
                     value={archiveSubject}
-                    onChange={(event) => setArchiveSubject(event.target.value)}
-                  >
-                    <option value="all">All subjects</option>
-                    {subjects.map((subject) => (
-                      <option key={subject.id} value={subject.id}>
-                        {subject.displayName}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    aria-label="Filter archive by reason"
-                    value={archiveReason}
-                    onChange={(event) => setArchiveReason(event.target.value)}
-                  >
-                    <option value="all">All reasons</option>
-                    {[
-                      ...new Set(
-                        archived.map(
-                          (item) => item.archiveReason ?? "Archived",
+                    onChange={setArchiveSubject}
+                  />
+                  <OrganatoSelect
+                    ariaLabel="Filter archive by reason"
+                    options={[
+                      { value: "all", label: "All reasons" },
+                      ...[
+                        ...new Set(
+                          archived.map(
+                            (item) => item.archiveReason ?? "Archived",
+                          ),
                         ),
-                      ),
-                    ].map((reason) => (
-                      <option key={reason} value={reason}>
-                        {reason}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    aria-label="Filter archive by year"
+                      ].map((reason) => ({ value: reason, label: reason })),
+                    ]}
+                    value={archiveReason}
+                    onChange={setArchiveReason}
+                  />
+                  <OrganatoSelect
+                    ariaLabel="Filter archive by year"
+                    options={[
+                      { value: "all", label: "All years" },
+                      ...[
+                        ...new Set(
+                          archived
+                            .map((item) => item.archivedAt?.slice(0, 4))
+                            .filter((year): year is string => Boolean(year)),
+                        ),
+                      ]
+                        .sort()
+                        .reverse()
+                        .map((year) => ({ value: year, label: year })),
+                    ]}
                     value={archiveYear}
-                    onChange={(event) => setArchiveYear(event.target.value)}
-                  >
-                    <option value="all">All years</option>
-                    {[
-                      ...new Set(
-                        archived
-                          .map((item) => item.archivedAt?.slice(0, 4))
-                          .filter((year): year is string => Boolean(year)),
-                      ),
-                    ]
-                      .sort()
-                      .reverse()
-                      .map((year) => (
-                        <option key={year} value={year}>
-                          {year}
-                        </option>
-                      ))}
-                  </select>
+                    onChange={setArchiveYear}
+                  />
                 </div>
                 {archiveSelection.length ? (
                   <div className="archive-selection-bar">

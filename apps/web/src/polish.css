@@ -2027,3 +2027,461 @@ textarea::placeholder {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Organato controls */
+
+.organato-select,
+.organato-date-picker,
+.organato-action-menu {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  position: relative;
+}
+
+.organato-select__trigger,
+.organato-date-picker__trigger {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface-hover) 38%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--secondary);
+  display: inline-flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-height: var(--control-height);
+  min-width: 0;
+  padding: 0 10px;
+  text-align: left;
+  transition:
+    background-color var(--motion),
+    border-color var(--motion),
+    color var(--motion),
+    box-shadow var(--motion);
+}
+
+.organato-select__trigger:hover:not(:disabled),
+.organato-date-picker__trigger:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.organato-select__trigger[aria-expanded="true"],
+.organato-date-picker__trigger[aria-expanded="true"] {
+  background: var(--surface-active);
+  border-color: color-mix(in srgb, var(--focus) 68%, var(--border));
+  box-shadow: 0 0 0 3px var(--focus-soft);
+  color: var(--text);
+}
+
+.organato-select__value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organato-select__chevron {
+  color: var(--muted);
+  flex: 0 0 auto;
+  transition: transform var(--motion);
+}
+
+.organato-select__chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.organato-select__menu,
+.organato-action-menu__popover,
+.organato-date-picker__popover {
+  background: color-mix(in srgb, var(--surface) 96%, var(--bg));
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow:
+    0 22px 55px rgba(0, 0, 0, 0.42),
+    0 2px 8px rgba(0, 0, 0, 0.18);
+  color: var(--text);
+  overflow: auto;
+  padding: 6px;
+  position: fixed;
+  z-index: 120;
+}
+
+.organato-select__option {
+  align-items: center;
+  background: transparent;
+  border-radius: 7px;
+  color: var(--secondary);
+  display: flex;
+  font-size: 0.8125rem;
+  gap: 10px;
+  justify-content: space-between;
+  min-height: 36px;
+  padding: 0 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.organato-select__option:hover,
+.organato-select__option.is-highlighted {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.organato-select__option.is-selected {
+  color: var(--text);
+  font-weight: 520;
+}
+
+.organato-select__option.is-disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.organato-select__option > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organato-select__trigger.view-picker {
+  max-width: 190px;
+  min-width: 150px;
+}
+
+.filter-bar .organato-select {
+  flex: 0 1 170px;
+}
+
+.filter-bar .organato-select__trigger {
+  width: 100%;
+}
+
+.create-work-line .organato-select,
+.create-work-line .organato-date-picker {
+  min-width: 0;
+  width: 100%;
+}
+
+.create-work-line .organato-select__trigger,
+.create-work-line .organato-date-picker__trigger {
+  min-width: 0;
+  width: 100%;
+}
+
+.create-work-due {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  min-width: 0;
+}
+
+.mobile-actions-menu .organato-select {
+  display: flex;
+  width: 100%;
+}
+
+.mobile-actions-menu .organato-select__trigger {
+  width: 100%;
+}
+
+.field-row > .organato-select,
+.setting-row > .organato-select {
+  min-width: 135px;
+  width: min(220px, 47vw);
+}
+
+.property-list .organato-select,
+.property-list .organato-date-picker {
+  width: 100%;
+}
+
+.property-list .organato-select__trigger,
+.property-list .organato-date-picker__trigger {
+  width: 100%;
+}
+
+.todo-record > .organato-select {
+  min-width: 0;
+  width: 100%;
+}
+
+.todo-record > .organato-select .organato-select__trigger {
+  min-width: 0;
+  width: 100%;
+}
+
+.organato-action-menu__popover {
+  min-width: 190px;
+}
+
+.organato-action-menu__popover button {
+  align-items: center;
+  background: transparent;
+  border-radius: 7px;
+  color: var(--secondary);
+  display: flex;
+  font-size: 0.8125rem;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.organato-action-menu__popover button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.organato-action-menu__popover button.is-danger {
+  color: var(--danger);
+}
+
+.organato-action-menu__popover button.is-danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface-hover));
+}
+
+.organato-date-picker__trigger {
+  gap: 7px;
+}
+
+.organato-date-picker__trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organato-date-picker__popover {
+  min-width: 320px;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.organato-date-picker__header {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 30px 1fr 30px;
+  margin-bottom: 12px;
+}
+
+.organato-date-picker__header strong {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.organato-date-picker__header button,
+.organato-date-picker__footer button {
+  align-items: center;
+  border-radius: 7px;
+  color: var(--secondary);
+  display: inline-flex;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.organato-date-picker__header button:hover,
+.organato-date-picker__footer button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.organato-date-picker__weekdays,
+.organato-date-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.organato-date-picker__weekdays {
+  color: var(--muted);
+  font-size: 0.625rem;
+  gap: 3px;
+  margin-bottom: 4px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.organato-date-picker__grid {
+  gap: 3px;
+}
+
+.organato-date-picker__grid button {
+  align-items: center;
+  aspect-ratio: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--secondary);
+  display: inline-flex;
+  font-size: 0.75rem;
+  justify-content: center;
+  min-width: 32px;
+}
+
+.organato-date-picker__grid button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.organato-date-picker__grid button.is-outside {
+  color: var(--muted);
+  opacity: 0.45;
+}
+
+.organato-date-picker__grid button.is-today {
+  border-color: color-mix(in srgb, var(--focus) 65%, var(--border));
+  color: var(--text);
+}
+
+.organato-date-picker__grid button.is-selected {
+  background: var(--focus);
+  border-color: var(--focus);
+  color: #fff;
+  font-weight: 650;
+}
+
+.organato-date-picker__footer {
+  align-items: center;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.organato-date-picker__footer button {
+  color: var(--focus);
+  font-size: 0.75rem;
+}
+
+.organato-date-picker__footer button.is-muted {
+  color: var(--muted);
+}
+
+.row-menu[aria-expanded="true"] {
+  background: var(--surface-active);
+  color: var(--text);
+  opacity: 1;
+}
+
+.database-table .row-menu {
+  opacity: 0.7;
+}
+
+.database-table tr:hover .row-menu,
+.database-table tr:focus-within .row-menu {
+  opacity: 1;
+}
+
+.archive-tools .organato-select {
+  min-width: 0;
+  width: 100%;
+}
+
+.archive-tools .organato-select__trigger {
+  min-width: 0;
+  width: 100%;
+}
+
+.delete-item-backdrop {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.64);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 110;
+}
+
+.delete-item-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+  max-width: 430px;
+  padding: 22px;
+  width: 100%;
+}
+
+.delete-item-dialog header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.delete-item-dialog h2 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.delete-item-dialog p {
+  color: var(--secondary);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  margin: 14px 0;
+}
+
+.delete-item-dialog label {
+  color: var(--secondary);
+  display: grid;
+  font-size: 0.75rem;
+  gap: 7px;
+}
+
+.delete-item-dialog input {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  min-height: 38px;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.delete-item-dialog footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.delete-item-dialog footer button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--secondary);
+  min-height: 34px;
+  padding: 0 11px;
+}
+
+.delete-item-dialog footer .danger-button {
+  border-color: color-mix(in srgb, var(--danger) 62%, var(--border));
+  color: var(--danger);
+}
+
+.delete-item-dialog footer button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+@media (max-width: 720px) {
+  .organato-date-picker__popover {
+    min-width: min(320px, calc(100vw - 20px));
+  }
+
+  .delete-item-backdrop {
+    align-items: flex-end;
+    padding: 12px;
+  }
+
+  .delete-item-dialog {
+    border-radius: 14px 14px 10px 10px;
+  }
+}

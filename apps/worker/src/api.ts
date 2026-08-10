@@ -785,12 +785,6 @@ apiRoutes.post(
       id,
     );
     if (!item) return context.json({ error: "Item not found." }, 404);
-    if (!item.archivedAt) {
-      return context.json(
-        { error: "Only archived items can be permanently deleted." },
-        409,
-      );
-    }
     if (item.version !== input.version) {
       return context.json({ error: "Item changed elsewhere." }, 409);
     }
@@ -840,8 +834,7 @@ apiRoutes.post(
     const now = new Date().toISOString();
     const result = await context.env.DB.batch([
       context.env.DB.prepare(
-        `DELETE FROM item WHERE id = ? AND workspace_id = ? AND version = ?
-         AND archived_at IS NOT NULL`,
+        `DELETE FROM item WHERE id = ? AND workspace_id = ? AND version = ?`,
       ).bind(id, context.get("user").workspaceId, input.version),
       context.env.DB.prepare(
         `INSERT INTO security_event
@@ -852,7 +845,7 @@ apiRoutes.post(
         crypto.randomUUID(),
         context.get("user").workspaceId,
         context.get("user").email,
-        `Permanently deleted archived ${item.kind} "${item.displayName}".`,
+        `${item.archivedAt ? "Permanently deleted archived" : "Permanently deleted"} ${item.kind} "${item.displayName}".`,
         now,
       ),
     ]);
