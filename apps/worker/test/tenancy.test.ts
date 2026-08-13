@@ -117,7 +117,11 @@ function tenantDatabase() {
   return new SqliteD1(sqlite) as unknown as D1Database;
 }
 
-function tenantApi(db: D1Database, email: string) {
+function tenantApi(
+  db: D1Database,
+  email: string,
+  options: { authenticatedAt?: string; demoMode?: "true" | "false" } = {},
+) {
   const app = new Hono<{ Bindings: Env; Variables: Variables }>();
   app.use("*", async (context, next) => {
     context.set("user", {
@@ -126,7 +130,7 @@ function tenantApi(db: D1Database, email: string) {
       displayName: email,
       csrfToken: "test-csrf",
       sessionIdHash: `session:${email}`,
-      authenticatedAt: new Date().toISOString(),
+      authenticatedAt: options.authenticatedAt ?? new Date().toISOString(),
     });
     await next();
   });
@@ -136,7 +140,7 @@ function tenantApi(db: D1Database, email: string) {
     APP_ORIGIN: "https://organato.example",
     ALLOWED_GOOGLE_EMAILS: "*",
     CANVAS_BASE_URL: "https://canvas.example",
-    DEMO_MODE: "true",
+    DEMO_MODE: options.demoMode ?? "true",
   } as Env;
   return { app, env };
 }
@@ -290,5 +294,47 @@ describe("per-account workspace isolation", () => {
     expect((await getSettings(db, "ethan.likht@gmail.com")).theme).not.toBe(
       "pure_black",
     );
+  });
+
+  it("lets a valid long-lived session create and delete an assignment", async () => {
+    const db = tenantDatabase();
+    const { app, env } = tenantApi(db, "friend@example.com", {
+      authenticatedAt: "2026-01-01T00:00:00.000Z",
+      demoMode: "false",
+    });
+
+    const createdResponse = await app.request(
+      "/api/items",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "work",
+          classification: "assignment",
+          displayName: "Long-lived session assignment",
+        }),
+      },
+      env,
+    );
+    expect(createdResponse.status).toBe(201);
+    const created = (await createdResponse.json()) as {
+      item: { id: string; version: number; displayName: string };
+    };
+
+    const deletedResponse = await app.request(
+      `/api/items/${created.item.id}/permanent-delete`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version: created.item.version,
+          confirmation: created.item.displayName,
+        }),
+      },
+      env,
+    );
+
+    expect(deletedResponse.status).toBe(200);
+    expect(await getItem(db, "friend@example.com", created.item.id)).toBeNull();
   });
 });

@@ -216,7 +216,6 @@ function reducer(state: State, action: Action): State {
       views: action.views,
       ready: true,
       bootError: null,
-      toast: null,
     });
   }
   if (action.type === "bootStarted") {
@@ -519,11 +518,19 @@ function reducer(state: State, action: Action): State {
   if (action.type === "deleteItem") {
     const current = state.items.find((item) => item.id === action.id);
     if (!current || action.confirmation !== current.displayName) return state;
+    const itemLabel =
+      current.kind === "todo"
+        ? "Todo"
+        : current.classification === "checkpoint"
+          ? "Checkpoint"
+          : current.classification === "both"
+            ? "Assignment and checkpoint"
+            : "Assignment";
     return persist({
       ...state,
       items: state.items.filter((item) => item.id !== action.id),
       selectedItemId: null,
-      toast: `${current.kind === "work" ? "Assignment" : "Todo"} deleted`,
+      toast: `${itemLabel} deleted`,
       undo: null,
     });
   }
@@ -815,38 +822,52 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                 }),
               },
             );
-            await refresh();
             return;
           }
           if (action.type === "addTodo" || action.type === "addWork") {
             const isTodo = action.type === "addTodo";
-            await apiRequest("/api/items", {
-              method: "POST",
-              body: JSON.stringify({
-                kind: isTodo ? "todo" : "work",
-                classification: isTodo ? "unclassified" : action.classification,
-                displayName: action.name,
-                dueAt: action.dueAt ?? null,
-                dueDateLocal:
-                  "dueDateLocal" in action
-                    ? (action.dueDateLocal ?? null)
-                    : null,
-                dueHasExplicitTime:
-                  "dueHasExplicitTime" in action
-                    ? (action.dueHasExplicitTime ?? Boolean(action.dueAt))
-                    : Boolean(action.dueAt),
-                subjectId: action.subjectId ?? null,
-                priority: action.priority ?? null,
-                recurrenceRule: null,
-                calendarEnabled: isTodo
-                  ? state.settings.todoCalendarDefault
-                  : true,
-                remindersEnabled: isTodo
-                  ? state.settings.todoRemindersDefault
-                  : true,
-              }),
+            const result = await apiRequest<{ item: OrganatoItem }>(
+              "/api/items",
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  kind: isTodo ? "todo" : "work",
+                  classification: isTodo
+                    ? "unclassified"
+                    : action.classification,
+                  displayName: action.name,
+                  dueAt: action.dueAt ?? null,
+                  dueDateLocal:
+                    "dueDateLocal" in action
+                      ? (action.dueDateLocal ?? null)
+                      : null,
+                  dueHasExplicitTime:
+                    "dueHasExplicitTime" in action
+                      ? (action.dueHasExplicitTime ?? Boolean(action.dueAt))
+                      : Boolean(action.dueAt),
+                  subjectId: action.subjectId ?? null,
+                  priority: action.priority ?? null,
+                  recurrenceRule: null,
+                  calendarEnabled: isTodo
+                    ? state.settings.todoCalendarDefault
+                    : true,
+                  remindersEnabled: isTodo
+                    ? state.settings.todoRemindersDefault
+                    : true,
+                }),
+              },
+            );
+            baseDispatch({ type: "replaceItem", item: result.item });
+            baseDispatch({
+              type: "toast",
+              message: isTodo
+                ? "Todo created"
+                : action.classification === "checkpoint"
+                  ? "Checkpoint created"
+                  : action.classification === "both"
+                    ? "Assignment and checkpoint created"
+                    : "Assignment created",
             });
-            await refresh();
             return;
           }
           if (action.type === "settings") {
@@ -890,7 +911,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
             return;
           }
           if (action.type === "patchSubject") {
-            const result = await apiRequest<{ subjects: Subject[] }>(
+            await apiRequest<{ subjects: Subject[] }>(
               `/api/subjects/${encodeURIComponent(action.id)}`,
               {
                 method: "PATCH",
@@ -901,17 +922,14 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
             return;
           }
           if (action.type === "addSubject") {
-            const result = await apiRequest<{ subjects: Subject[] }>(
-              "/api/subjects",
-              {
-                method: "POST",
-                body: JSON.stringify({
-                  displayName: action.displayName,
-                  shortName: action.shortName ?? null,
-                  colour: action.colour ?? "#a78bfa",
-                }),
-              },
-            );
+            await apiRequest<{ subjects: Subject[] }>("/api/subjects", {
+              method: "POST",
+              body: JSON.stringify({
+                displayName: action.displayName,
+                shortName: action.shortName ?? null,
+                colour: action.colour ?? "#a78bfa",
+              }),
+            });
             await refresh();
             return;
           }
@@ -972,33 +990,27 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
             }
           }
         })
-        .catch((error) => {
+        .catch(async (error) => {
           if (current) baseDispatch({ type: "rollbackItem", item: current });
+          const message =
+            error instanceof Error
+              ? error.message
+              : "The change could not be saved.";
+          let refreshFailed = false;
+          try {
+            await refresh();
+          } catch {
+            refreshFailed = true;
+          }
           baseDispatch({
             type: "toast",
-            message:
-              error instanceof Error
-                ? `${error.message} · refreshing`
-                : "The change could not be saved.",
-          });
-          void refresh().catch(() => {
-            baseDispatch({
-              type: "toast",
-              message:
-                "The change could not be saved, and the workspace could not refresh. Reconnect and try again.",
-            });
+            message: refreshFailed
+              ? `${message} The workspace could not refresh; reconnect and try again.`
+              : message,
           });
         });
     },
-    [
-      apiRequest,
-      refresh,
-      state.integrations,
-      state.items,
-      state.settings,
-      state.undo,
-      state.views,
-    ],
+    [apiRequest, refresh, state.items, state.settings, state.undo],
   );
   const syncNow = useCallback(() => {
     if (isOffline()) {
