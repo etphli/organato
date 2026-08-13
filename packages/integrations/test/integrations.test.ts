@@ -59,11 +59,21 @@ describe("Canvas network boundaries", () => {
     const fetcher = vi.fn(async function (
       this: unknown,
       input: RequestInfo | URL,
+      init?: RequestInit,
     ) {
       expect(this).toBe(globalThis);
       expect(typeof input).toBe("string");
-      expect(input).toBe("https://emanuel.instructure.com/api/v1/users/self");
-      return new Response(JSON.stringify({ id: 1, name: "Ethan Likht" }), {
+      expect(new Headers(init?.headers).get("Authorization")).toBe(
+        "Bearer private-token",
+      );
+      if (String(input).endsWith("/api/v1/users/self")) {
+        expect(input).toBe("https://emanuel.instructure.com/api/v1/users/self");
+        return new Response(JSON.stringify({ id: 1, name: "Ethan Likht" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("[]", {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -71,6 +81,36 @@ describe("Canvas network boundaries", () => {
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
       "private-token",
+      fetcher,
+    );
+
+    await expect(provider.validateConnection()).resolves.toMatchObject({
+      id: "1",
+      name: "Ethan Likht",
+    });
+  });
+
+  it("normalizes a pasted Bearer token before sending it", async () => {
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(new Headers(init?.headers).get("Authorization")).toBe(
+          "Bearer private-token",
+        );
+        if (String(_input).endsWith("/api/v1/users/self")) {
+          return new Response(JSON.stringify({ id: 1, name: "Ethan Likht" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    ) as unknown as typeof fetch;
+    const provider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      '  Bearer "private-\ntoken"  ',
       fetcher,
     );
 
@@ -100,6 +140,131 @@ describe("Canvas network boundaries", () => {
       invalidTokenProvider.validateConnection(),
     ).rejects.toMatchObject({ code: "token_rejected", status: 401 });
     await expect(deniedProvider.validateConnection()).rejects.toMatchObject({
+      code: "api_access_denied",
+      status: 403,
+    });
+
+    const invalidWithoutChallengeProvider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "invalid-token",
+      (async () => new Response(null, { status: 401 })) as typeof fetch,
+    );
+    await expect(
+      invalidWithoutChallengeProvider.validateConnection(),
+    ).rejects.toMatchObject({ code: "token_rejected", status: 401 });
+  });
+
+  it("falls back to the profile endpoint when the standard identity route is denied", async () => {
+    const fetcher = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/users/self")) {
+        return new Response(null, { status: 403 });
+      }
+      if (url.endsWith("/api/v1/users/self/profile")) {
+        return new Response(
+          JSON.stringify({ id: 1, display_name: "Ethan Likht" }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.includes("/api/v1/courses?")) {
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected probe: ${url}`);
+    }) as typeof fetch;
+    const provider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "private-token",
+      fetcher,
+    );
+
+    await expect(provider.validateConnection()).resolves.toMatchObject({
+      id: "1",
+      name: "Ethan Likht",
+    });
+  });
+
+  it("accepts a token when only the course import endpoint is available", async () => {
+    const fetcher = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/users/self")) {
+        return new Response(null, { status: 403 });
+      }
+      if (url.includes("/api/v1/courses?")) {
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected probe: ${url}`);
+    }) as typeof fetch;
+    const provider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "private-token",
+      fetcher,
+    );
+
+    await expect(provider.validateConnection()).resolves.toMatchObject({
+      id: "self",
+      name: "Canvas user",
+    });
+  });
+
+  it("does not accept an identity token that cannot read courses", async () => {
+    const fetcher = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/users/self")) {
+        return new Response(JSON.stringify({ id: 1, name: "Ethan Likht" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("/api/v1/courses?")) {
+        return new Response(null, { status: 403 });
+      }
+      throw new Error(`Unexpected probe: ${url}`);
+    }) as typeof fetch;
+    const provider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "identity-only-token",
+      fetcher,
+    );
+
+    await expect(provider.validateConnection()).rejects.toMatchObject({
+      code: "api_access_denied",
+      status: 403,
+    });
+  });
+
+  it("does not accept a course-only token that cannot read assignments", async () => {
+    const fetcher = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/users/self")) {
+        return new Response(JSON.stringify({ id: 1, name: "Ethan Likht" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("/api/v1/courses?")) {
+        return new Response(JSON.stringify([{ id: 42, name: "Mathematics" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("/api/v1/courses/42/assignments?")) {
+        return new Response(null, { status: 403 });
+      }
+      throw new Error(`Unexpected probe: ${url}`);
+    }) as typeof fetch;
+    const provider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "course-only-token",
+      fetcher,
+    );
+
+    await expect(provider.validateConnection()).rejects.toMatchObject({
       code: "api_access_denied",
       status: 403,
     });

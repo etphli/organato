@@ -327,8 +327,10 @@ export function OrganatoActionMenu({
   items: OrganatoActionMenuItem[];
 }) {
   const [open, setOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const id = useId().replaceAll(":", "");
   const menuId = `organato-action-menu-${id}`;
   const position = useFloatingMenu(triggerRef, open, 190, 260);
@@ -337,6 +339,16 @@ export function OrganatoActionMenu({
     setOpen(false);
     triggerRef.current?.focus();
   }, []);
+
+  const openMenu = useCallback((index = 0) => {
+    setHighlightedIndex(Math.max(0, Math.min(index, items.length - 1)));
+    setOpen(true);
+  }, [items.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    itemRefs.current[highlightedIndex]?.focus();
+  }, [highlightedIndex, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -375,7 +387,17 @@ export function OrganatoActionMenu({
         aria-controls={open ? menuId : undefined}
         onClick={(event) => {
           event.stopPropagation();
-          setOpen((current) => !current);
+          if (open) close();
+          else openMenu();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openMenu();
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            openMenu(items.length - 1);
+          }
         }}
       >
         <MoreHorizontal size={16} aria-hidden="true" />
@@ -390,12 +412,35 @@ export function OrganatoActionMenu({
               aria-label={ariaLabel}
               style={menuStyle(position, 260)}
             >
-              {items.map((item) => (
+              {items.map((item, index) => (
                 <button
                   key={item.label}
+                  ref={(element) => {
+                    itemRefs.current[index] = element;
+                  }}
                   type="button"
                   className={item.danger ? "is-danger" : ""}
                   role="menuitem"
+                  tabIndex={index === highlightedIndex ? 0 : -1}
+                  onMouseEnter={() => setHighlightedIndex(index)}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                      event.preventDefault();
+                      setHighlightedIndex((current) =>
+                        (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length,
+                      );
+                    } else if (event.key === "Home" || event.key === "End") {
+                      event.preventDefault();
+                      setHighlightedIndex(event.key === "Home" ? 0 : items.length - 1);
+                    } else if (event.key === "Escape") {
+                      event.preventDefault();
+                      close();
+                    } else if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      close();
+                      item.onSelect();
+                    }
+                  }}
                   onClick={(event) => {
                     event.stopPropagation();
                     close();
@@ -452,8 +497,12 @@ export function OrganatoDatePicker({
       selectedDate ??
       new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12),
   );
+  const [activeDateKey, setActiveDateKey] = useState(() =>
+    format(selectedDate ?? new Date(), "yyyy-MM-dd"),
+  );
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const dateButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const id = useId().replaceAll(":", "");
   const popoverId = `organato-date-picker-${id}`;
   const position = useFloatingMenu(triggerRef, open, 320, 400);
@@ -464,10 +513,9 @@ export function OrganatoDatePicker({
   }, []);
 
   const openPicker = () => {
-    setMonth(
-      selectedDate ??
-        new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12),
-    );
+    const nextDate = selectedDate ?? new Date();
+    setMonth(new Date(nextDate.getFullYear(), nextDate.getMonth(), 1, 12));
+    setActiveDateKey(format(nextDate, "yyyy-MM-dd"));
     setOpen(true);
   };
 
@@ -508,6 +556,22 @@ export function OrganatoDatePicker({
   }
   const weekdays = dates.slice(0, 7);
   const todayKey = format(new Date(), "yyyy-MM-dd");
+
+  useEffect(() => {
+    if (!open) return;
+    dateButtonRefs.current[activeDateKey]?.focus();
+  }, [activeDateKey, open, month]);
+
+  const moveActiveDate = (dateKey: string, amount: number) => {
+    const current = parseDateKey(dateKey) ?? new Date();
+    const next = new Date(current);
+    next.setDate(next.getDate() + amount);
+    const nextKey = format(next, "yyyy-MM-dd");
+    setActiveDateKey(nextKey);
+    if (!isSameMonth(next, month)) {
+      setMonth(new Date(next.getFullYear(), next.getMonth(), 1, 12));
+    }
+  };
 
   return (
     <span className="organato-date-picker">
@@ -579,12 +643,53 @@ export function OrganatoDatePicker({
                   return (
                     <button
                       key={dateKey}
+                      ref={(element) => {
+                        dateButtonRefs.current[dateKey] = element;
+                      }}
                       type="button"
                       className={`${isSameMonth(date, month) ? "" : "is-outside"}${selected ? " is-selected" : ""}${dateKey === todayKey ? " is-today" : ""}`}
                       aria-label={format(date, "EEEE d MMMM yyyy")}
-                      aria-pressed={selected}
+                      aria-selected={selected}
+                      tabIndex={dateKey === activeDateKey ? 0 : -1}
+                      onFocus={() => setActiveDateKey(dateKey)}
+                      onKeyDown={(event) => {
+                        const offsets: Record<string, number> = {
+                          ArrowLeft: -1,
+                          ArrowRight: 1,
+                          ArrowUp: -7,
+                          ArrowDown: 7,
+                        };
+                        const offset = offsets[event.key];
+                        if (offset !== undefined) {
+                          event.preventDefault();
+                          moveActiveDate(dateKey, offset);
+                        } else if (event.key === "Home" || event.key === "End") {
+                          event.preventDefault();
+                          const dayIndex =
+                            (date.getDay() - firstDayOfWeek + 7) % 7;
+                          const target = new Date(date);
+                          target.setDate(
+                            date.getDate() -
+                              dayIndex +
+                              (event.key === "End" ? 6 : 0),
+                          );
+                          const targetKey = format(target, "yyyy-MM-dd");
+                          setActiveDateKey(targetKey);
+                        } else if (event.key === "PageUp" || event.key === "PageDown") {
+                          event.preventDefault();
+                          const target = event.key === "PageUp" ? subMonths(date, 1) : addMonths(date, 1);
+                          const targetKey = format(target, "yyyy-MM-dd");
+                          setMonth(new Date(target.getFullYear(), target.getMonth(), 1, 12));
+                          setActiveDateKey(targetKey);
+                        } else if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onChange(dateKey);
+                          close();
+                        }
+                      }}
                       onClick={(event) => {
                         event.stopPropagation();
+                        setActiveDateKey(dateKey);
                         onChange(dateKey);
                         close();
                       }}

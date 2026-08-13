@@ -16,6 +16,9 @@ describe("Canvas connection boundary", () => {
       canvasConnectSchema.safeParse({ token: "a-secure-token-value" }).success,
     ).toBe(true);
     expect(
+      canvasConnectSchema.parse({ token: '  Bearer "a-secure-token-value"\n' }),
+    ).toEqual({ token: "a-secure-token-value" });
+    expect(
       canvasConnectSchema.safeParse({
         token: "a-secure-token-value",
         baseUrl: "https://attacker.example",
@@ -74,7 +77,7 @@ describe("Canvas connection boundary", () => {
     );
 
     expect(safeCanvasConnectionError(error)).toMatch(
-      /creating another token will not fix this/i,
+      /GET \/api\/v1\/courses.*assignments/i,
     );
     expect(canvasConnectionErrorCode(error)).toBe("api_access_denied");
   });

@@ -21,11 +21,6 @@ const navigation = [
   { to: "/calendar", label: "Calendar", icon: CalendarDays },
   { to: "/todo", label: "Todo", icon: CheckSquare2 },
 ];
-const mobileNavigation = [
-  ...navigation,
-  { to: "/settings", label: "Settings", icon: Settings },
-];
-
 type ShellSyncTone = "neutral" | "healthy" | "busy" | "attention";
 
 const integrationSettingsPath: Record<IntegrationHealth["provider"], string> = {
@@ -94,6 +89,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
+      <NavLink
+        to="/settings"
+        className="mobile-account-link"
+        aria-label={`Open Settings for ${displayName}`}
+      >
+        <span className="avatar" aria-hidden="true">
+          {initials}
+        </span>
+      </NavLink>
       <aside className="sidebar" aria-label="Primary navigation">
         <NavLink
           to="/"
@@ -154,7 +158,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {children}
       </main>
       <nav className="bottom-nav" aria-label="Primary navigation">
-        {mobileNavigation.map(({ to, label, icon: Icon }) => (
+        {navigation.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}

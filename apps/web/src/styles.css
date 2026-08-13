@@ -149,8 +149,8 @@ textarea:focus-visible {
 }
 
 button:disabled {
-  cursor: wait;
-  opacity: 0.65;
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
 ::selection {
@@ -521,12 +521,12 @@ button:disabled {
 
 .icon-button {
   align-items: center;
-  border-radius: 5px;
+  border-radius: 7px;
   color: var(--secondary);
   display: inline-flex;
-  height: 30px;
+  height: 36px;
   justify-content: center;
-  width: 30px;
+  width: 36px;
 }
 
 .icon-button:hover {
@@ -2293,6 +2293,26 @@ kbd {
   display: none;
 }
 
+.mobile-account-link {
+  display: none;
+}
+
+[data-density="compact"] .database-table th,
+[data-density="compact"] .database-table td {
+  padding-bottom: 7px;
+  padding-top: 7px;
+}
+
+[data-density="compact"] .page-header {
+  margin-bottom: 12px;
+}
+
+[data-density="comfortable"] .database-table th,
+[data-density="comfortable"] .database-table td {
+  padding-bottom: 12px;
+  padding-top: 12px;
+}
+
 .page-loading {
   height: 200px;
   overflow: hidden;
@@ -2403,7 +2423,7 @@ kbd {
     border-top: 1px solid var(--border-strong);
     bottom: 0;
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     left: 0;
     min-height: 65px;
     padding: 6px 3px max(6px, env(safe-area-inset-bottom));
@@ -2425,6 +2445,21 @@ kbd {
 
   .bottom-nav a.active {
     color: var(--focus);
+  }
+
+  .mobile-account-link {
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    display: flex;
+    height: 36px;
+    justify-content: center;
+    position: fixed;
+    right: 14px;
+    top: 14px;
+    width: 36px;
+    z-index: 45;
   }
 
   .page {

@@ -57,6 +57,7 @@ type Action =
       views: SavedView[];
     }
   | { type: "replaceItem"; item: OrganatoItem }
+  | { type: "rollbackItem"; item: OrganatoItem }
   | {
       type: "resetOverride";
       id: string;
@@ -237,6 +238,18 @@ function reducer(state: State, action: Action): State {
             item.id === action.item.id ? action.item : item,
           )
         : [action.item, ...state.items],
+    };
+  }
+  if (action.type === "rollbackItem") {
+    const exists = state.items.some((item) => item.id === action.item.id);
+    return {
+      ...state,
+      items: exists
+        ? state.items.map((item) =>
+            item.id === action.item.id ? action.item : item,
+          )
+        : [action.item, ...state.items],
+      undo: null,
     };
   }
   if (isOffline() && isServerMutation(action)) {
@@ -702,8 +715,15 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
           ? state.items.find((item) => item.id === action.id)
           : null;
       const undoState = state.undo;
-      baseDispatch(action);
+      const optimistic =
+        demoMode || !["addTodo", "addWork"].includes(action.type);
+      if (optimistic) baseDispatch(action);
       if (isOffline() && isServerMutation(action)) {
+        if (current) baseDispatch({ type: "rollbackItem", item: current });
+        baseDispatch({
+          type: "toast",
+          message: "Offline · this change was not saved",
+        });
         return;
       }
       if (
@@ -877,14 +897,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                 body: JSON.stringify(action.patch),
               },
             );
-            baseDispatch({
-              type: "hydrate",
-              items: state.items,
-              subjects: result.subjects,
-              settings: state.settings,
-              integrations: state.integrations,
-              views: state.views,
-            });
+            await refresh();
             return;
           }
           if (action.type === "addSubject") {
@@ -899,14 +912,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                 }),
               },
             );
-            baseDispatch({
-              type: "hydrate",
-              items: state.items,
-              subjects: result.subjects,
-              settings: state.settings,
-              integrations: state.integrations,
-              views: state.views,
-            });
+            await refresh();
             return;
           }
           if (action.type === "undo" && undoState) {
@@ -967,6 +973,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
           }
         })
         .catch((error) => {
+          if (current) baseDispatch({ type: "rollbackItem", item: current });
           baseDispatch({
             type: "toast",
             message:

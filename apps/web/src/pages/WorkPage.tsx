@@ -20,7 +20,7 @@ import {
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   daysRemainingLabel,
   itemDeadline,
@@ -38,6 +38,7 @@ import {
 } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
 import { useOrganato } from "../state/OrganatoProvider";
+import { useDialogFocus } from "../components/useDialogFocus";
 import { localDateTimeToIso } from "./calendar/model";
 
 const now = new Date();
@@ -75,7 +76,16 @@ export default function WorkPage({
   const [deleteCandidate, setDeleteCandidate] = useState<OrganatoItem | null>(
     null,
   );
+  const deleteDialogRef = useRef<HTMLElement>(null);
+  const deleteCloseRef = useRef<HTMLButtonElement>(null);
+  useDialogFocus(
+    deleteCandidate !== null,
+    deleteDialogRef,
+    deleteCloseRef,
+    deleteCandidate?.id ?? "closed",
+  );
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const itemNoun = page === "assignments" ? "assignment" : "checkpoint";
   const viewOptions = useMemo(
     () => [
       { value: "active", label: "All active" },
@@ -100,9 +110,8 @@ export default function WorkPage({
         if (priorityFilter && item.priority !== priorityFilter) return false;
         if (activeView === "active") {
           const status = visibleStatus(item, now);
-          if (["overdue", "submitted", "completed"].includes(status)) {
-            return false;
-          }
+          if (status === "completed") return false;
+          if (status === "submitted" && !settings.showSubmittedActive) return false;
         }
         const selectedView = pageViews.find((view) => view.id === activeView);
         if (selectedView?.filters.due === "overdue") {
@@ -118,7 +127,7 @@ export default function WorkPage({
         }
         return true;
       }),
-    [activeView, items, page, pageViews, priorityFilter],
+    [activeView, items, page, pageViews, priorityFilter, settings.showSubmittedActive],
   );
   const columns = useMemo(
     () => [
@@ -307,13 +316,13 @@ export default function WorkPage({
                   dispatch({ type: "select", id: row.original.id }),
               },
               {
-                label: "Archive assignment",
+                label: `Archive ${itemNoun}`,
                 icon: <Archive size={14} aria-hidden="true" />,
                 onSelect: () =>
                   dispatch({ type: "archive", id: row.original.id }),
               },
               {
-                label: "Delete assignment",
+                label: `Delete ${itemNoun}`,
                 icon: <Trash2 size={14} aria-hidden="true" />,
                 danger: true,
                 onSelect: () => {
@@ -330,6 +339,7 @@ export default function WorkPage({
       dispatch,
       settings.inlineEditing,
       settings.showSourceIcons,
+      itemNoun,
       settings.timezone,
       subjectsById,
       setDeleteCandidate,
@@ -384,7 +394,7 @@ export default function WorkPage({
         actions={
           <>
             <OrganatoSelect
-              ariaLabel="Assignment view"
+              ariaLabel={`${page === "assignments" ? "Assignment" : "Checkpoint"} view`}
               className="view-picker"
               options={viewOptions}
               value={activeView}
@@ -422,7 +432,7 @@ export default function WorkPage({
                 <label>
                   View
                   <OrganatoSelect
-                    ariaLabel="Assignment view"
+                    ariaLabel={`${page === "assignments" ? "Assignment" : "Checkpoint"} view`}
                     options={viewOptions}
                     value={activeView}
                     onChange={applySavedView}
@@ -701,18 +711,38 @@ export default function WorkPage({
                   <th
                     key={header.id}
                     style={{ width: header.getSize() }}
-                    onClick={header.column.getToggleSortingHandler()}
+                    aria-sort={
+                      header.column.getIsSorted() === "asc"
+                        ? "ascending"
+                        : header.column.getIsSorted() === "desc"
+                          ? "descending"
+                          : "none"
+                    }
                     className={`column-${header.id}`}
                   >
-                    {flexRender(
-                      header.column.columnDef.header,
-                      header.getContext(),
+                    {header.column.getCanSort() ? (
+                      <button
+                        type="button"
+                        className="column-sort-button"
+                        onClick={header.column.getToggleSortingHandler()}
+                        aria-label={`Sort by ${header.column.id}`}
+                      >
+                        {flexRender(
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        )}
+                        {header.column.getIsSorted() ? (
+                          <span aria-hidden="true">
+                            {header.column.getIsSorted() === "asc" ? " ↑" : " ↓"}
+                          </span>
+                        ) : null}
+                      </button>
+                    ) : (
+                      flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )
                     )}
-                    {header.column.getIsSorted() ? (
-                      <span>
-                        {header.column.getIsSorted() === "asc" ? " ↑" : " ↓"}
-                      </span>
-                    ) : null}
                     <span
                       className={`column-resizer${header.column.getIsResizing() ? " active" : ""}`}
                       onMouseDown={header.getResizeHandler()}
@@ -778,14 +808,18 @@ export default function WorkPage({
           }}
         >
           <section
+            ref={deleteDialogRef}
             className="delete-item-dialog"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="delete-assignment-title"
+            aria-labelledby="delete-item-title"
           >
             <header>
-              <h2 id="delete-assignment-title">Delete assignment?</h2>
+              <h2 id="delete-item-title">
+                Delete {deleteCandidate.kind === "work" ? itemNoun : "todo"}?
+              </h2>
               <button
+                ref={deleteCloseRef}
                 type="button"
                 className="icon-button"
                 aria-label="Close delete dialog"
@@ -803,7 +837,7 @@ export default function WorkPage({
               cannot be undone.
             </p>
             <label>
-              Type the assignment name to confirm
+              Type the {deleteCandidate.kind === "work" ? itemNoun : "todo"} name to confirm
               <input
                 autoFocus
                 value={deleteConfirmation}
@@ -834,7 +868,7 @@ export default function WorkPage({
                   setDeleteConfirmation("");
                 }}
               >
-                Delete assignment
+                Delete {deleteCandidate.kind === "work" ? itemNoun : "todo"}
               </button>
             </footer>
           </section>

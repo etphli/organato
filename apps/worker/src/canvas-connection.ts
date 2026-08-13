@@ -1,10 +1,17 @@
-import { CanvasConnectionError, validateBaseUrl } from "@organato/integrations";
+import {
+  CanvasConnectionError,
+  normalizeCanvasToken,
+  validateBaseUrl,
+} from "@organato/integrations";
 import { z } from "zod";
 import type { Env } from "./types";
 
 export const canvasConnectSchema = z
   .object({
-    token: z.string().trim().min(10).max(500),
+    token: z
+      .string()
+      .transform(normalizeCanvasToken)
+      .pipe(z.string().min(10).max(500)),
   })
   .strict();
 
@@ -103,7 +110,7 @@ export function safeCanvasConnectionError(error: unknown): string {
       return "Reshet says this token is invalid or expired. Copy the full token value shown when it is created (not the token ID), then try once.";
     }
     if (error.code === "api_access_denied") {
-      return "Emanuel Canvas received the request but denied API access. Creating another token will not fix this; ask the school's Canvas administrator to allow personal API access for your account.";
+      return "Emanuel Canvas denied the read-only API access Organato needs. The token must allow GET /api/v1/courses and GET /api/v1/courses/:course_id/assignments. If those scopes are unavailable, ask the school's Canvas administrator to allow them; another token with the same restrictions will fail too.";
     }
     if (
       error.code === "unexpected_origin" ||

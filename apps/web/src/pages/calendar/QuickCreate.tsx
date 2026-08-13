@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarDays, Clock3 } from "lucide-react";
 import {
   OrganatoDatePicker,
   OrganatoSelect,
   quarterHourOptions,
 } from "../../components/OrganatoControls";
+import { useDialogFocus } from "../../components/useDialogFocus";
 
 function timeFromMinutes(minutes: number | null): string {
   const value = minutes ?? 9 * 60;
@@ -28,6 +29,10 @@ export function CalendarQuickCreate({
   const [date, setDate] = useState(dateKey);
   const [hasTime, setHasTime] = useState(initialMinutes !== null);
   const [time, setTime] = useState(() => timeFromMinutes(initialMinutes));
+  const dialogRef = useRef<HTMLElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+
+  useDialogFocus(true, dialogRef, titleRef, dateKey);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -46,6 +51,7 @@ export function CalendarQuickCreate({
       }}
     >
       <section
+        ref={dialogRef}
         className="oc-quick-create"
         role="dialog"
         aria-modal="true"
@@ -78,12 +84,12 @@ export function CalendarQuickCreate({
           }}
         >
           <input
+            ref={titleRef}
             className="oc-quick-create__title"
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="What needs doing?"
             aria-label="Todo title"
-            autoFocus
             required
           />
           <div className="oc-quick-create__fields">

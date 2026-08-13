@@ -6,6 +6,10 @@ import {
   googleIntegrationCallback,
   googleIntegrationRoutes,
 } from "./google-auth";
+import {
+  canvasConnectionErrorCode,
+  safeCanvasConnectionError,
+} from "./canvas-connection";
 import { GoogleConnectionError } from "./google-connection";
 import {
   rateLimit,
@@ -156,11 +160,11 @@ app.post("/api/integrations/canvas/sync", async (context) => {
       ]).then(() => undefined),
     );
     return context.json({ ok: true, runId: result.runId });
-  } catch {
+  } catch (error) {
     return context.json(
       {
-        error:
-          "Canvas could not be checked. Existing Organato items are unchanged; review integration health and retry.",
+        error: safeCanvasConnectionError(error),
+        code: canvasConnectionErrorCode(error),
       },
       502,
     );

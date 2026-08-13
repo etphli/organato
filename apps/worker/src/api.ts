@@ -1327,18 +1327,9 @@ apiRoutes.post(
     const allowed = await rateLimit(
       context,
       `canvas-connect:${context.get("user").email}`,
-      10,
+      5,
     );
-    if (!allowed) {
-      return context.json(
-        {
-          error:
-            "Too many connection attempts. Create a new Reshet token, then try again at the start of the next hour.",
-          code: "rate_limited",
-        },
-        429,
-      );
-    }
+    if (!allowed) return context.json({ error: "Try again later." }, 429);
     const input = context.req.valid("json");
     let installation: ReturnType<typeof configuredCanvasInstallation>;
     try {
@@ -1421,10 +1412,10 @@ apiRoutes.post(
         created: sync.created,
         updated: sync.updated,
       };
-    } catch {
+    } catch (error) {
       initialSync = {
         status: "failed",
-        message: "Reshet is connected, but the first import needs another try.",
+        message: safeCanvasConnectionError(error),
       };
     }
     const status = await getCanvasConnectionStatus(
