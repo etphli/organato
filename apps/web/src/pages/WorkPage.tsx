@@ -3,8 +3,10 @@ import {
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
+  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
+  type PaginationState,
   type RowSelectionState,
   type SortingState,
 } from "@tanstack/react-table";
@@ -37,24 +39,42 @@ import {
   quarterHourOptions,
 } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
-import { useOrganato } from "../state/OrganatoProvider";
+import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
 import { useDialogFocus } from "../components/useDialogFocus";
 import { localDateTimeToIso } from "./calendar/model";
 
 const now = new Date();
 const columnHelper = createColumnHelper<OrganatoItem>();
+const defaultPageSize = 50;
+const priorityOptions = [
+  { value: "", label: "—" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "urgent", label: "Urgent" },
+];
+const statusOptions = [
+  { value: "not_started", label: "Not started" },
+  { value: "in_progress", label: "In progress" },
+  { value: "submitted", label: "Submitted" },
+  { value: "completed", label: "Completed" },
+];
 
 export default function WorkPage({
   page,
 }: {
   page: "assignments" | "checkpoints";
 }) {
-  const { items, subjects, subjectsById, views, settings, dispatch } =
-    useOrganato();
+  const { items, subjects, subjectsById, views, settings } = useOrganatoData();
+  const { dispatch } = useOrganatoActions();
   const [sorting, setSorting] = useState<SortingState>([
     { id: "due", desc: false },
   ]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: defaultPageSize,
+  });
   const [query, setQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [showColumns, setShowColumns] = useState(false);
@@ -146,12 +166,12 @@ export default function WorkPage({
           <input
             aria-label="Select all visible items"
             type="checkbox"
-            checked={table.getIsAllRowsSelected()}
+            checked={table.getIsAllPageRowsSelected()}
             ref={(element) => {
               if (element)
-                element.indeterminate = table.getIsSomeRowsSelected();
+                element.indeterminate = table.getIsSomePageRowsSelected();
             }}
-            onChange={table.getToggleAllRowsSelectedHandler()}
+            onChange={table.getToggleAllPageRowsSelectedHandler()}
             onClick={(event) => event.stopPropagation()}
           />
         ),
@@ -260,13 +280,7 @@ export default function WorkPage({
             ariaLabel={`Priority for ${row.original.displayName}`}
             className={`inline-select priority-${getValue() ?? "blank"}`}
             disabled={!settings.inlineEditing}
-            options={[
-              { value: "", label: "—" },
-              { value: "low", label: "Low" },
-              { value: "medium", label: "Medium" },
-              { value: "high", label: "High" },
-              { value: "urgent", label: "Urgent" },
-            ]}
+            options={priorityOptions}
             value={getValue() ?? ""}
             onChange={(value) =>
               dispatch({
@@ -291,12 +305,7 @@ export default function WorkPage({
               ariaLabel={`Status for ${row.original.displayName}`}
               className={`inline-select status-${status}`}
               disabled={!settings.inlineEditing}
-              options={[
-                { value: "not_started", label: "Not started" },
-                { value: "in_progress", label: "In progress" },
-                { value: "submitted", label: "Submitted" },
-                { value: "completed", label: "Completed" },
-              ]}
+              options={statusOptions}
               value={row.original.workingStatus}
               onChange={(value) =>
                 dispatch({
@@ -356,16 +365,26 @@ export default function WorkPage({
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, globalFilter: query, rowSelection },
+    state: { sorting, globalFilter: query, rowSelection, pagination },
     onSortingChange: setSorting,
     onGlobalFilterChange: setQuery,
     onRowSelectionChange: setRowSelection,
+    onPaginationChange: setPagination,
     enableRowSelection: true,
     columnResizeMode: "onChange",
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
   });
+  const filteredRowCount = table.getFilteredRowModel().rows.length;
+  const firstVisibleRow = filteredRowCount
+    ? pagination.pageIndex * pagination.pageSize + 1
+    : 0;
+  const lastVisibleRow = Math.min(
+    filteredRowCount,
+    (pagination.pageIndex + 1) * pagination.pageSize,
+  );
   const applySavedView = (id: string) => {
     if (id === "active" || id === "all") {
       setActiveView(id);
@@ -805,7 +824,43 @@ export default function WorkPage({
           <p className="empty-line">No {page} match this view.</p>
         ) : null}
       </div>
-      <p className="item-count">{table.getRowModel().rows.length} items</p>
+      {filteredRowCount > pagination.pageSize ? (
+        <nav className="list-pagination" aria-label={`${itemNoun} pages`}>
+          <span>
+            {firstVisibleRow}–{lastVisibleRow} of {filteredRowCount}
+          </span>
+          <label>
+            Rows
+            <select
+              aria-label="Rows per page"
+              value={pagination.pageSize}
+              onChange={(event) =>
+                table.setPageSize(Number(event.target.value))
+              }
+            >
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={!table.getCanPreviousPage()}
+            onClick={() => table.previousPage()}
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            disabled={!table.getCanNextPage()}
+            onClick={() => table.nextPage()}
+          >
+            Next
+          </button>
+        </nav>
+      ) : filteredRowCount ? (
+        <p className="item-count">{filteredRowCount} items</p>
+      ) : null}
       {deleteCandidate ? (
         <div
           className="delete-item-backdrop"

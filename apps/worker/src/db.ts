@@ -158,7 +158,12 @@ export async function listSubjects(
 export async function listItems(
   db: D1Database,
   workspaceId: string,
-  options: { archived?: boolean; limit?: number; all?: boolean } = {},
+  options: {
+    archived?: boolean;
+    limit?: number;
+    all?: boolean;
+    includeDetails?: boolean;
+  } = {},
 ): Promise<OrganatoItem[]> {
   const archivedClause = options.archived
     ? "archived_at IS NOT NULL"
@@ -178,7 +183,8 @@ export async function listItems(
       ? statement.bind(...bindings)
       : statement.bind(...bindings, limit);
   };
-  const results = await db.batch([
+  const includeDetails = options.all || options.includeDetails;
+  const statements = [
     prepareScoped(
       `SELECT * FROM item WHERE workspace_id = ? AND ${archivedClause}
        ORDER BY due_at IS NULL, due_at${options.all ? "" : " LIMIT ?"}`,
@@ -187,20 +193,35 @@ export async function listItems(
       `SELECT * FROM field_override WHERE workspace_id = ? AND item_id IN (${itemScope})`,
       2,
     ),
-    prepareScoped(
-      `SELECT * FROM attachment_link WHERE workspace_id = ? AND item_id IN (${itemScope})`,
-      2,
-    ),
-    prepareScoped(
-      `SELECT * FROM item_history WHERE workspace_id = ? AND item_id IN (${itemScope})
-       ORDER BY created_at DESC`,
-      2,
-    ),
-  ]);
+  ];
+  if (includeDetails) {
+    statements.push(
+      prepareScoped(
+        `SELECT * FROM attachment_link WHERE workspace_id = ? AND item_id IN (${itemScope})`,
+        2,
+      ),
+      prepareScoped(
+        options.all
+          ? `SELECT * FROM item_history WHERE workspace_id = ? AND item_id IN (${itemScope})
+             ORDER BY created_at DESC`
+          : `SELECT * FROM (
+               SELECT item_history.*,
+                      ROW_NUMBER() OVER (
+                        PARTITION BY item_id ORDER BY created_at DESC
+                      ) AS history_rank
+               FROM item_history
+               WHERE workspace_id = ? AND item_id IN (${itemScope})
+             ) WHERE history_rank <= 20
+             ORDER BY created_at DESC`,
+        2,
+      ),
+    );
+  }
+  const results = await db.batch(statements);
   const itemResult = results[0]!;
   const overrideResult = results[1]!;
-  const attachmentResult = results[2]!;
-  const historyResult = results[3]!;
+  const attachmentResult = results[2];
+  const historyResult = results[3];
   const overrides = new Map<string, FieldOverride[]>();
   for (const row of overrideResult.results as Row[]) {
     const itemId = String(row.item_id);
@@ -215,7 +236,7 @@ export async function listItems(
     overrides.set(itemId, list);
   }
   const attachments = new Map<string, AttachmentLink[]>();
-  for (const row of attachmentResult.results as Row[]) {
+  for (const row of (attachmentResult?.results ?? []) as Row[]) {
     const itemId = String(row.item_id);
     const list = attachments.get(itemId) ?? [];
     list.push({
@@ -228,7 +249,7 @@ export async function listItems(
     attachments.set(itemId, list);
   }
   const history = new Map<string, HistoryEntry[]>();
-  for (const row of historyResult.results as Row[]) {
+  for (const row of (historyResult?.results ?? []) as Row[]) {
     const itemId = String(row.item_id);
     const list = history.get(itemId) ?? [];
     if (options.all || list.length < 20) {

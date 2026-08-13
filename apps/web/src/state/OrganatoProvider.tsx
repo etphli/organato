@@ -34,8 +34,10 @@ interface State {
   integrations: IntegrationHealth[];
   views: SavedView[];
   ready: boolean;
+  archivedReady: boolean;
   bootError: string | null;
   selectedItemId: string | null;
+  selectedItemDetail: OrganatoItem | null;
   commandOpen: boolean;
   searchOpen: boolean;
   syncing: boolean;
@@ -55,9 +57,14 @@ type Action =
       settings: WorkspaceSettings;
       integrations: IntegrationHealth[];
       views: SavedView[];
+      preserveArchived?: boolean;
+      archivedReady?: boolean;
     }
   | { type: "replaceItem"; item: OrganatoItem }
   | { type: "rollbackItem"; item: OrganatoItem }
+  | { type: "detailLoaded"; item: OrganatoItem }
+  | { type: "syncSubjects"; subjects: Subject[] }
+  | { type: "releaseArchived" }
   | {
       type: "resetOverride";
       id: string;
@@ -160,8 +167,10 @@ function initialState(): State {
           integrations: seedIntegrations,
           views: "views" in parsed ? (parsed as State).views : seedViews,
           ready: true,
+          archivedReady: true,
           bootError: null,
           selectedItemId: null,
+          selectedItemDetail: null,
           commandOpen: false,
           searchOpen: false,
           syncing: false,
@@ -180,8 +189,10 @@ function initialState(): State {
     integrations: seedIntegrations,
     views: demoMode ? seedViews : [],
     ready: demoMode,
+    archivedReady: demoMode,
     bootError: null,
     selectedItemId: null,
+    selectedItemDetail: null,
     commandOpen: false,
     searchOpen: false,
     syncing: false,
@@ -191,30 +202,30 @@ function initialState(): State {
 }
 
 function persist(state: State): State {
-  if (demoMode) {
-    localStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        items: state.items,
-        subjects: state.subjects,
-        settings: state.settings,
-        views: state.views,
-      }),
-    );
-  }
   return state;
+}
+
+function listItem(item: OrganatoItem): OrganatoItem {
+  return demoMode ? item : { ...item, attachments: [], history: [] };
 }
 
 function reducer(state: State, action: Action): State {
   if (action.type === "hydrate") {
     return persist({
       ...state,
-      items: action.items,
+      items: action.preserveArchived
+        ? [
+            ...action.items.filter((item) => !item.archivedAt),
+            ...state.items.filter((item) => item.archivedAt),
+          ]
+        : action.items,
       subjects: action.subjects,
       settings: action.settings,
       integrations: action.integrations,
       views: action.views,
       ready: true,
+      archivedReady: action.archivedReady ?? state.archivedReady,
+      selectedItemDetail: null,
       bootError: null,
     });
   }
@@ -230,13 +241,18 @@ function reducer(state: State, action: Action): State {
   }
   if (action.type === "replaceItem") {
     const exists = state.items.some((item) => item.id === action.item.id);
+    const compactItem = listItem(action.item);
     return {
       ...state,
       items: exists
         ? state.items.map((item) =>
-            item.id === action.item.id ? action.item : item,
+            item.id === action.item.id ? compactItem : item,
           )
-        : [action.item, ...state.items],
+        : [compactItem, ...state.items],
+      selectedItemDetail:
+        state.selectedItemId === action.item.id
+          ? action.item
+          : state.selectedItemDetail,
     };
   }
   if (action.type === "rollbackItem") {
@@ -249,6 +265,28 @@ function reducer(state: State, action: Action): State {
           )
         : [action.item, ...state.items],
       undo: null,
+      selectedItemDetail:
+        state.selectedItemId === action.item.id
+          ? action.item
+          : state.selectedItemDetail,
+    };
+  }
+  if (action.type === "detailLoaded") {
+    if (state.selectedItemId !== action.item.id) return state;
+    return { ...state, selectedItemDetail: action.item };
+  }
+  if (action.type === "syncSubjects") {
+    return { ...state, subjects: action.subjects };
+  }
+  if (action.type === "releaseArchived") {
+    if (!state.archivedReady) return state;
+    const selectedIsArchived = state.selectedItemDetail?.archivedAt != null;
+    return {
+      ...state,
+      items: state.items.filter((item) => !item.archivedAt),
+      archivedReady: false,
+      selectedItemId: selectedIsArchived ? null : state.selectedItemId,
+      selectedItemDetail: selectedIsArchived ? null : state.selectedItemDetail,
     };
   }
   if (isOffline() && isServerMutation(action)) {
@@ -372,7 +410,16 @@ function reducer(state: State, action: Action): State {
       undo: null,
     });
   }
-  if (action.type === "select") return { ...state, selectedItemId: action.id };
+  if (action.type === "select") {
+    return {
+      ...state,
+      selectedItemId: action.id,
+      selectedItemDetail:
+        action.id && state.selectedItemDetail?.id === action.id
+          ? state.selectedItemDetail
+          : null,
+    };
+  }
   if (action.type === "command") return { ...state, commandOpen: action.open };
   if (action.type === "search") return { ...state, searchOpen: action.open };
   if (action.type === "syncing") return { ...state, syncing: action.value };
@@ -474,6 +521,7 @@ function reducer(state: State, action: Action): State {
     return persist({
       ...state,
       selectedItemId: null,
+      selectedItemDetail: null,
       items: state.items.map((item) =>
         item.id === action.id
           ? {
@@ -530,6 +578,7 @@ function reducer(state: State, action: Action): State {
       ...state,
       items: state.items.filter((item) => item.id !== action.id),
       selectedItemId: null,
+      selectedItemDetail: null,
       toast: `${itemLabel} deleted`,
       undo: null,
     });
@@ -602,18 +651,65 @@ function reducer(state: State, action: Action): State {
   });
 }
 
-interface ContextValue extends State {
-  subjectsById: Map<string, Subject>;
-  selectedItem: OrganatoItem | null;
+interface ActionsContextValue {
   dispatch: React.Dispatch<Action>;
-  refresh(): Promise<void>;
+  refresh(options?: { includeArchived?: boolean }): Promise<void>;
+  loadItemDetails(id: string): Promise<void>;
   syncNow(): void;
 }
 
-const OrganatoContext = createContext<ContextValue | null>(null);
+type DataContextValue = Pick<
+  State,
+  | "items"
+  | "subjects"
+  | "settings"
+  | "integrations"
+  | "views"
+  | "ready"
+  | "archivedReady"
+  | "bootError"
+> & { subjectsById: Map<string, Subject> };
+type UiContextValue = Pick<
+  State,
+  "selectedItemId" | "commandOpen" | "searchOpen" | "syncing" | "toast" | "undo"
+> & { selectedItem: OrganatoItem | null };
+
+const OrganatoDataContext = createContext<DataContextValue | null>(null);
+const OrganatoUiContext = createContext<UiContextValue | null>(null);
+const OrganatoActionsContext = createContext<ActionsContextValue | null>(null);
 
 export function OrganatoProvider({ children }: { children: ReactNode }) {
   const [state, baseDispatch] = useReducer(reducer, undefined, initialState);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const archivedRequest = useRef<Promise<{ items: OrganatoItem[] }> | null>(
+    null,
+  );
+  const detailedItemRequest = useRef<{
+    id: string;
+    promise: Promise<OrganatoItem>;
+  } | null>(null);
+  const lastDetailedItem = useRef<OrganatoItem | null>(null);
+  const serverVersions = useRef(new Map<string, number>());
+  useEffect(() => {
+    if (!demoMode) return;
+    const timeout = window.setTimeout(() => {
+      try {
+        localStorage.setItem(
+          storageKey,
+          JSON.stringify({
+            items: state.items,
+            subjects: state.subjects,
+            settings: state.settings,
+            views: state.views,
+          }),
+        );
+      } catch {
+        // Storage limits must not take down the interactive app.
+      }
+    }, 200);
+    return () => window.clearTimeout(timeout);
+  }, [state.items, state.settings, state.subjects, state.views]);
   const apiRequest = useCallback(
     async <T,>(path: string, init: RequestInit = {}): Promise<T> => {
       const headers = new Headers(init.headers);
@@ -639,61 +735,88 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
-  const refresh = useCallback(async () => {
-    if (demoMode) return;
-    const [active, archived, subjects, settings, integrations, views] =
-      await Promise.all([
-        apiRequest<{ items: OrganatoItem[] }>("/api/items?limit=2000"),
-        apiRequest<{ items: OrganatoItem[] }>(
+  const refresh = useCallback(
+    async (options?: { includeArchived?: boolean }) => {
+      if (demoMode) return;
+      if (options?.includeArchived && !archivedRequest.current) {
+        archivedRequest.current = apiRequest<{ items: OrganatoItem[] }>(
           "/api/items?archived=true&limit=2000",
-        ),
-        apiRequest<{ subjects: Subject[] }>("/api/subjects"),
-        apiRequest<{ settings: WorkspaceSettings }>("/api/settings"),
-        apiRequest<{
-          integrations: Array<{
-            provider: "canvas" | "google";
-            status: IntegrationHealth["state"];
-            last_success_at: string | null;
-            last_attempt_at: string | null;
-            last_error_category: string | null;
-            reconnect_needed: number;
-          }>;
-        }>("/api/integrations"),
-        apiRequest<{ views: SavedView[] }>("/api/views"),
-      ]);
-    const integrationHealth = seedIntegrations.map((fallback) => {
-      const provider = fallback.provider === "canvas" ? "canvas" : "google";
-      const connection = integrations.integrations.find(
-        (entry) => entry.provider === provider,
+        ).then(
+          (result) => {
+            archivedRequest.current = null;
+            return result;
+          },
+          (error: unknown) => {
+            archivedRequest.current = null;
+            throw error;
+          },
+        );
+      }
+      const [active, archived, subjects, settings, integrations, views] =
+        await Promise.all([
+          apiRequest<{ items: OrganatoItem[] }>("/api/items?limit=2000"),
+          options?.includeArchived
+            ? archivedRequest.current
+            : Promise.resolve(null),
+          apiRequest<{ subjects: Subject[] }>("/api/subjects"),
+          apiRequest<{ settings: WorkspaceSettings }>("/api/settings"),
+          apiRequest<{
+            integrations: Array<{
+              provider: "canvas" | "google";
+              status: IntegrationHealth["state"];
+              last_success_at: string | null;
+              last_attempt_at: string | null;
+              last_error_category: string | null;
+              reconnect_needed: number;
+            }>;
+          }>("/api/integrations"),
+          apiRequest<{ views: SavedView[] }>("/api/views"),
+        ]);
+      detailedItemRequest.current = null;
+      lastDetailedItem.current = null;
+      serverVersions.current = new Map(
+        [...active.items, ...(archived?.items ?? [])].map((item) => [
+          item.id,
+          item.version,
+        ]),
       );
-      if (!connection) {
+      const integrationHealth = seedIntegrations.map((fallback) => {
+        const provider = fallback.provider === "canvas" ? "canvas" : "google";
+        const connection = integrations.integrations.find(
+          (entry) => entry.provider === provider,
+        );
+        if (!connection) {
+          return {
+            ...fallback,
+            state: "disconnected" as const,
+            lastAttemptAt: null,
+            lastSuccessAt: null,
+            lastError: null,
+          };
+        }
         return {
           ...fallback,
-          state: "disconnected" as const,
-          lastAttemptAt: null,
-          lastSuccessAt: null,
-          lastError: null,
+          state: connection.reconnect_needed
+            ? ("action_needed" as const)
+            : connection.status,
+          lastAttemptAt: connection.last_attempt_at,
+          lastSuccessAt: connection.last_success_at,
+          lastError: connection.last_error_category,
         };
-      }
-      return {
-        ...fallback,
-        state: connection.reconnect_needed
-          ? ("action_needed" as const)
-          : connection.status,
-        lastAttemptAt: connection.last_attempt_at,
-        lastSuccessAt: connection.last_success_at,
-        lastError: connection.last_error_category,
-      };
-    });
-    baseDispatch({
-      type: "hydrate",
-      items: [...active.items, ...archived.items],
-      subjects: subjects.subjects,
-      settings: { ...seedSettings, ...settings.settings },
-      integrations: integrationHealth,
-      views: views.views,
-    });
-  }, [apiRequest]);
+      });
+      baseDispatch({
+        type: "hydrate",
+        items: archived ? [...active.items, ...archived.items] : active.items,
+        subjects: subjects.subjects,
+        settings: { ...seedSettings, ...settings.settings },
+        integrations: integrationHealth,
+        views: views.views,
+        preserveArchived: archived === null,
+        ...(archived ? { archivedReady: true } : {}),
+      });
+    },
+    [apiRequest],
+  );
 
   const loadWorkspace = useCallback(async () => {
     baseDispatch({ type: "bootStarted" });
@@ -714,17 +837,54 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
     void loadWorkspace();
   }, [loadWorkspace]);
 
-  const mutationQueue = useRef(Promise.resolve());
+  const mutationQueues = useRef(new Map<string, Promise<void>>());
+  const loadItemDetails = useCallback(
+    async (id: string) => {
+      if (demoMode) return;
+      if (lastDetailedItem.current?.id === id) {
+        baseDispatch({ type: "detailLoaded", item: lastDetailedItem.current });
+        return;
+      }
+      const pending = detailedItemRequest.current;
+      if (pending?.id === id) {
+        const item = await pending.promise;
+        baseDispatch({ type: "detailLoaded", item });
+        return;
+      }
+      const promise = apiRequest<{ item: OrganatoItem }>(
+        `/api/items/${encodeURIComponent(id)}`,
+      ).then((result) => result.item);
+      detailedItemRequest.current = { id, promise };
+      try {
+        const item = await promise;
+        lastDetailedItem.current = item;
+        baseDispatch({ type: "detailLoaded", item });
+      } finally {
+        if (detailedItemRequest.current?.promise === promise) {
+          detailedItemRequest.current = null;
+        }
+      }
+    },
+    [apiRequest],
+  );
+  useEffect(() => {
+    if (!state.selectedItemId) return;
+    void loadItemDetails(state.selectedItemId).catch(() => undefined);
+  }, [loadItemDetails, state.selectedItemId]);
   const dispatch = useCallback(
     (action: Action) => {
+      const currentState = stateRef.current;
       const current =
         "id" in action
-          ? state.items.find((item) => item.id === action.id)
+          ? currentState.items.find((item) => item.id === action.id)
           : null;
-      const undoState = state.undo;
+      const undoState = currentState.undo;
       const optimistic =
         demoMode || !["addTodo", "addWork"].includes(action.type);
       if (optimistic) baseDispatch(action);
+      if (!demoMode && action.type === "select" && action.id) {
+        void loadItemDetails(action.id).catch(() => undefined);
+      }
       if (isOffline() && isServerMutation(action)) {
         if (current) baseDispatch({ type: "rollbackItem", item: current });
         baseDispatch({
@@ -738,6 +898,10 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
         [
           "hydrate",
           "replaceItem",
+          "rollbackItem",
+          "detailLoaded",
+          "syncSubjects",
+          "releaseArchived",
           "select",
           "command",
           "search",
@@ -750,19 +914,37 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
       ) {
         return;
       }
-      mutationQueue.current = mutationQueue.current
+      const queueKey =
+        "id" in action && typeof action.id === "string"
+          ? `item:${action.id}`
+          : action.type === "addAttachment"
+            ? `item:${action.itemId}`
+            : action.type === "patchSubject"
+              ? `subject:${action.id}`
+              : action.type === "settings"
+                ? "settings"
+                : action.type === "undo" && undoState
+                  ? `item:${undoState.item.id}`
+                  : action.type;
+      const previous =
+        mutationQueues.current.get(queueKey) ?? Promise.resolve();
+      const operation = previous
+        .catch(() => undefined)
         .then(async () => {
           if (action.type === "patchItem" && current) {
+            const version =
+              serverVersions.current.get(current.id) ?? current.version;
             const result = await apiRequest<{
               item: OrganatoItem;
               nextOccurrence?: OrganatoItem | null;
             }>(`/api/items/${encodeURIComponent(action.id)}`, {
               method: "PATCH",
               body: JSON.stringify({
-                version: current.version,
+                version,
                 ...action.patch,
               }),
             });
+            serverVersions.current.set(result.item.id, result.item.version);
             baseDispatch({ type: "replaceItem", item: result.item });
             if (result.nextOccurrence) {
               baseDispatch({
@@ -773,55 +955,67 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
             return;
           }
           if (action.type === "classify" && current) {
+            const version =
+              serverVersions.current.get(current.id) ?? current.version;
             const result = await apiRequest<{ item: OrganatoItem }>(
               `/api/items/${encodeURIComponent(action.id)}/classify`,
               {
                 method: "POST",
                 body: JSON.stringify({
-                  version: current.version,
+                  version,
                   classification: action.classification,
                 }),
               },
             );
+            serverVersions.current.set(result.item.id, result.item.version);
             baseDispatch({ type: "replaceItem", item: result.item });
             return;
           }
           if (action.type === "archive") {
             if (!current) return;
+            const version =
+              serverVersions.current.get(current.id) ?? current.version;
             const result = await apiRequest<{ item: OrganatoItem }>(
               `/api/items/${encodeURIComponent(action.id)}/archive`,
               {
                 method: "POST",
-                body: JSON.stringify({ version: current.version }),
+                body: JSON.stringify({ version }),
               },
             );
+            serverVersions.current.set(result.item.id, result.item.version);
             baseDispatch({ type: "replaceItem", item: result.item });
             return;
           }
           if (action.type === "restore") {
             if (!current) return;
+            const version =
+              serverVersions.current.get(current.id) ?? current.version;
             const result = await apiRequest<{ item: OrganatoItem }>(
               `/api/items/${encodeURIComponent(action.id)}/restore`,
               {
                 method: "POST",
-                body: JSON.stringify({ version: current.version }),
+                body: JSON.stringify({ version }),
               },
             );
+            serverVersions.current.set(result.item.id, result.item.version);
             baseDispatch({ type: "replaceItem", item: result.item });
             return;
           }
           if (action.type === "deleteItem") {
             if (!current) return;
+            const version =
+              serverVersions.current.get(current.id) ?? current.version;
             await apiRequest(
               `/api/items/${encodeURIComponent(action.id)}/permanent-delete`,
               {
                 method: "POST",
                 body: JSON.stringify({
-                  version: current.version,
+                  version,
                   confirmation: action.confirmation,
                 }),
               },
             );
+            serverVersions.current.delete(current.id);
             return;
           }
           if (action.type === "addTodo" || action.type === "addWork") {
@@ -849,14 +1043,15 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                   priority: action.priority ?? null,
                   recurrenceRule: null,
                   calendarEnabled: isTodo
-                    ? state.settings.todoCalendarDefault
+                    ? currentState.settings.todoCalendarDefault
                     : true,
                   remindersEnabled: isTodo
-                    ? state.settings.todoRemindersDefault
+                    ? currentState.settings.todoRemindersDefault
                     : true,
                 }),
               },
             );
+            serverVersions.current.set(result.item.id, result.item.version);
             baseDispatch({ type: "replaceItem", item: result.item });
             baseDispatch({
               type: "toast",
@@ -896,6 +1091,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                 }),
               },
             );
+            serverVersions.current.set(result.item.id, result.item.version);
             baseDispatch({ type: "replaceItem", item: result.item });
             return;
           }
@@ -907,34 +1103,38 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                 body: JSON.stringify({ fieldName: action.fieldName }),
               },
             );
+            serverVersions.current.set(result.item.id, result.item.version);
             baseDispatch({ type: "replaceItem", item: result.item });
             return;
           }
           if (action.type === "patchSubject") {
-            await apiRequest<{ subjects: Subject[] }>(
+            const result = await apiRequest<{ subjects: Subject[] }>(
               `/api/subjects/${encodeURIComponent(action.id)}`,
               {
                 method: "PATCH",
                 body: JSON.stringify(action.patch),
               },
             );
-            await refresh();
+            baseDispatch({ type: "syncSubjects", subjects: result.subjects });
             return;
           }
           if (action.type === "addSubject") {
-            await apiRequest<{ subjects: Subject[] }>("/api/subjects", {
-              method: "POST",
-              body: JSON.stringify({
-                displayName: action.displayName,
-                shortName: action.shortName ?? null,
-                colour: action.colour ?? "#a78bfa",
-              }),
-            });
-            await refresh();
+            const result = await apiRequest<{ subjects: Subject[] }>(
+              "/api/subjects",
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  displayName: action.displayName,
+                  shortName: action.shortName ?? null,
+                  colour: action.colour ?? "#a78bfa",
+                }),
+              },
+            );
+            baseDispatch({ type: "syncSubjects", subjects: result.subjects });
             return;
           }
           if (action.type === "undo" && undoState) {
-            const currentItem = state.items.find(
+            const currentItem = currentState.items.find(
               (item) => item.id === undoState.item.id,
             );
             if (undoState.kind === "patch" && currentItem) {
@@ -949,11 +1149,14 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                 {
                   method: "PATCH",
                   body: JSON.stringify({
-                    version: currentItem.version,
+                    version:
+                      serverVersions.current.get(currentItem.id) ??
+                      currentItem.version,
                     ...patch,
                   }),
                 },
               );
+              serverVersions.current.set(result.item.id, result.item.version);
               baseDispatch({ type: "replaceItem", item: result.item });
               return;
             }
@@ -963,11 +1166,14 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                 {
                   method: "POST",
                   body: JSON.stringify({
-                    version: currentItem.version,
+                    version:
+                      serverVersions.current.get(currentItem.id) ??
+                      currentItem.version,
                     classification: undoState.item.classification,
                   }),
                 },
               );
+              serverVersions.current.set(result.item.id, result.item.version);
               baseDispatch({ type: "replaceItem", item: result.item });
               return;
             }
@@ -979,14 +1185,19 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                   : null;
             if (path) {
               if (!currentItem) return;
-              await apiRequest(
+              const result = await apiRequest<{ item: OrganatoItem }>(
                 `/api/items/${encodeURIComponent(undoState.item.id)}/${path}`,
                 {
                   method: "POST",
-                  body: JSON.stringify({ version: currentItem.version }),
+                  body: JSON.stringify({
+                    version:
+                      serverVersions.current.get(currentItem.id) ??
+                      currentItem.version,
+                  }),
                 },
               );
-              await refresh();
+              serverVersions.current.set(result.item.id, result.item.version);
+              baseDispatch({ type: "replaceItem", item: result.item });
             }
           }
         })
@@ -996,21 +1207,33 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
             error instanceof Error
               ? error.message
               : "The change could not be saved.";
-          let refreshFailed = false;
-          try {
-            await refresh();
-          } catch {
-            refreshFailed = true;
+          let recoveryFailed = false;
+          if (current) {
+            try {
+              const result = await apiRequest<{ item: OrganatoItem }>(
+                `/api/items/${encodeURIComponent(current.id)}`,
+              );
+              serverVersions.current.set(result.item.id, result.item.version);
+              baseDispatch({ type: "replaceItem", item: result.item });
+            } catch {
+              recoveryFailed = true;
+            }
           }
           baseDispatch({
             type: "toast",
-            message: refreshFailed
-              ? `${message} The workspace could not refresh; reconnect and try again.`
+            message: recoveryFailed
+              ? `${message} The item could not refresh; reconnect and try again.`
               : message,
           });
+        })
+        .finally(() => {
+          if (mutationQueues.current.get(queueKey) === operation) {
+            mutationQueues.current.delete(queueKey);
+          }
         });
+      mutationQueues.current.set(queueKey, operation);
     },
-    [apiRequest, refresh, state.items, state.settings, state.undo],
+    [apiRequest, loadItemDetails],
   );
   const syncNow = useCallback(() => {
     if (isOffline()) {
@@ -1026,7 +1249,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
         method: "POST",
         body: JSON.stringify({}),
       })
-        .then(refresh)
+        .then(() => refresh())
         .then(() =>
           baseDispatch({
             type: "toast",
@@ -1054,21 +1277,61 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
       });
     }, 900);
   }, [apiRequest, dispatch, refresh]);
-  const value = useMemo<ContextValue>(
+  const subjectsById = useMemo(
+    () => new Map(state.subjects.map((subject) => [subject.id, subject])),
+    [state.subjects],
+  );
+  const dataValue = useMemo<DataContextValue>(
     () => ({
-      ...state,
-      subjectsById: new Map(
-        state.subjects.map((subject) => [subject.id, subject]),
-      ),
-      selectedItem:
-        state.items.find((item) => item.id === state.selectedItemId) ?? null,
-      views: state.views,
+      items: state.items,
+      subjects: state.subjects,
+      settings: state.settings,
       integrations: state.integrations,
-      dispatch,
-      refresh,
-      syncNow,
+      views: state.views,
+      ready: state.ready,
+      archivedReady: state.archivedReady,
+      bootError: state.bootError,
+      subjectsById,
     }),
-    [dispatch, refresh, state, syncNow],
+    [
+      state.archivedReady,
+      state.bootError,
+      state.integrations,
+      state.items,
+      state.ready,
+      state.settings,
+      state.subjects,
+      state.views,
+      subjectsById,
+    ],
+  );
+  const selectedItem =
+    state.selectedItemDetail ??
+    state.items.find((item) => item.id === state.selectedItemId) ??
+    null;
+  const uiValue = useMemo<UiContextValue>(
+    () => ({
+      selectedItemId: state.selectedItemId,
+      selectedItem,
+      commandOpen: state.commandOpen,
+      searchOpen: state.searchOpen,
+      syncing: state.syncing,
+      toast: state.toast,
+      undo: state.undo,
+    }),
+    [
+      selectedItem,
+      state.commandOpen,
+      state.searchOpen,
+      state.selectedItemId,
+      state.syncing,
+      state.toast,
+      state.undo,
+    ],
+  );
+  const actionsValue = useMemo<ActionsContextValue>(
+    () => ({ dispatch, refresh, loadItemDetails, syncNow }),
+    [dispatch, loadItemDetails, refresh, syncNow],
   );
   if (!state.ready) {
     if (state.bootError) {
@@ -1095,15 +1358,33 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
     return <div className="auth-loading" aria-label="Loading workspace" />;
   }
   return (
-    <OrganatoContext.Provider value={value}>
-      {children}
-    </OrganatoContext.Provider>
+    <OrganatoActionsContext.Provider value={actionsValue}>
+      <OrganatoDataContext.Provider value={dataValue}>
+        <OrganatoUiContext.Provider value={uiValue}>
+          {children}
+        </OrganatoUiContext.Provider>
+      </OrganatoDataContext.Provider>
+    </OrganatoActionsContext.Provider>
   );
 }
 
-export function useOrganato() {
-  const context = useContext(OrganatoContext);
+export function useOrganatoData() {
+  const context = useContext(OrganatoDataContext);
   if (!context)
-    throw new Error("useOrganato must be used inside OrganatoProvider");
+    throw new Error("useOrganatoData must be used inside OrganatoProvider");
+  return context;
+}
+
+export function useOrganatoUi() {
+  const context = useContext(OrganatoUiContext);
+  if (!context)
+    throw new Error("useOrganatoUi must be used inside OrganatoProvider");
+  return context;
+}
+
+export function useOrganatoActions() {
+  const context = useContext(OrganatoActionsContext);
+  if (!context)
+    throw new Error("useOrganatoActions must be used inside OrganatoProvider");
   return context;
 }

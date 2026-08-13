@@ -88,12 +88,23 @@ function useFloatingMenu(
 
   useEffect(() => {
     if (!open) return;
-    const handleViewportChange = () => updatePosition();
+    let frame: number | null = null;
+    const handleViewportChange = () => {
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        updatePosition();
+      });
+    };
     window.addEventListener("resize", handleViewportChange);
-    window.addEventListener("scroll", handleViewportChange, true);
+    window.addEventListener("scroll", handleViewportChange, {
+      capture: true,
+      passive: true,
+    });
     return () => {
       window.removeEventListener("resize", handleViewportChange);
       window.removeEventListener("scroll", handleViewportChange, true);
+      if (frame !== null) window.cancelAnimationFrame(frame);
     };
   }, [open, updatePosition]);
 

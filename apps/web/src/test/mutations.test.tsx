@@ -111,7 +111,7 @@ describe("server-backed item mutations", () => {
       fetchMock.mock.calls.filter(([input]) =>
         String(input).startsWith("/api/items?"),
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -138,7 +138,7 @@ describe("server-backed item mutations", () => {
       fetchMock.mock.calls.filter(([input]) =>
         String(input).startsWith("/api/items?"),
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
 
     createShouldFail = true;
     fireEvent.click(screen.getByRole("button", { name: "New" }));

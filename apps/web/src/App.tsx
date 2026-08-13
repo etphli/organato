@@ -14,7 +14,7 @@ import { PwaUpdateNotice } from "./components/PwaUpdateNotice";
 import { SearchOverlay } from "./components/SearchOverlay";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { Toast } from "./components/Toast";
-import { useOrganato } from "./state/OrganatoProvider";
+import { useOrganatoActions, useOrganatoData } from "./state/OrganatoProvider";
 
 const HomePage = lazy(() => import("./pages/HomePage"));
 const WorkPage = lazy(() => import("./pages/WorkPage"));
@@ -24,7 +24,8 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 
 function ItemDeepLink() {
   const { id } = useParams();
-  const { items, dispatch } = useOrganato();
+  const { items } = useOrganatoData();
+  const { dispatch } = useOrganatoActions();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -70,9 +71,11 @@ function PageFallback() {
 }
 
 export function App() {
-  const { dispatch, ready, settings } = useOrganato();
+  const { ready, settings } = useOrganatoData();
+  const { dispatch } = useOrganatoActions();
   const navigate = useNavigate();
   const sequence = useRef("");
+  const sequenceTimeout = useRef<number | null>(null);
   const [setupDismissed, setSetupDismissed] = useState(
     () => sessionStorage.getItem("organato_setup_dismissed") === "true",
   );
@@ -142,10 +145,21 @@ export function App() {
         navigate(path);
         sequence.current = "";
       }
-      window.setTimeout(() => (sequence.current = ""), 800);
+      if (sequenceTimeout.current !== null) {
+        window.clearTimeout(sequenceTimeout.current);
+      }
+      sequenceTimeout.current = window.setTimeout(() => {
+        sequence.current = "";
+        sequenceTimeout.current = null;
+      }, 800);
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      if (sequenceTimeout.current !== null) {
+        window.clearTimeout(sequenceTimeout.current);
+      }
+    };
   }, [dispatch, navigate, settings.multiKeyNavigation]);
 
   return (

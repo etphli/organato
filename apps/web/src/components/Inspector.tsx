@@ -6,11 +6,15 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { visibleStatus, type OrganatoItem } from "@organato/domain";
 import { localDateTimeToIso } from "../pages/calendar/model";
-import { useOrganato } from "../state/OrganatoProvider";
+import {
+  useOrganatoActions,
+  useOrganatoData,
+  useOrganatoUi,
+} from "../state/OrganatoProvider";
 import {
   OrganatoDatePicker,
   OrganatoSelect,
@@ -94,15 +98,15 @@ export function duePatchFromInputs(
 }
 
 export function Inspector() {
-  const {
-    selectedItem: item,
-    subjects,
-    subjectsById,
-    settings,
-    dispatch,
-  } = useOrganato();
+  const { subjects, subjectsById, settings } = useOrganatoData();
+  const { selectedItem } = useOrganatoUi();
+  const { dispatch } = useOrganatoActions();
+  const retainedItemRef = useRef<OrganatoItem | null>(null);
+  if (selectedItem) retainedItemRef.current = selectedItem;
+  const item = selectedItem ?? retainedItemRef.current;
   const inspectorRef = useRef<HTMLElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const [nameDraft, setNameDraft] = useState("");
   const [addingLink, setAddingLink] = useState(false);
   const [linkLabel, setLinkLabel] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
@@ -110,11 +114,20 @@ export function Inspector() {
     "reference" | "brief" | "rubric" | "working_document" | "other"
   >("other");
   useDialogFocus(
-    Boolean(item),
+    Boolean(selectedItem),
     inspectorRef,
     nameInputRef,
     item?.id ?? "inspector-closed",
   );
+  useEffect(() => {
+    if (selectedItem) setNameDraft(selectedItem.displayName);
+  }, [selectedItem]);
+  useEffect(() => {
+    if (selectedItem) return;
+    setAddingLink(false);
+    setLinkLabel("");
+    setLinkUrl("");
+  }, [selectedItem]);
   if (!item) return null;
   const status = visibleStatus(item);
   const dueInput = dueInputValues(item, settings.timezone);
@@ -162,9 +175,11 @@ export function Inspector() {
     <aside
       ref={inspectorRef}
       className="inspector"
-      key={item.id}
+      hidden={!selectedItem}
+      inert={!selectedItem}
       role="dialog"
       aria-modal="true"
+      aria-hidden={!selectedItem}
       aria-label={`Details for ${item.displayName}`}
       tabIndex={-1}
     >
@@ -173,7 +188,8 @@ export function Inspector() {
           <SubjectDot subjectId={item.subjectId} />
           <input
             ref={nameInputRef}
-            defaultValue={item.displayName}
+            value={nameDraft}
+            onChange={(event) => setNameDraft(event.target.value)}
             onBlur={(event) => {
               const displayName = event.target.value.trim();
               if (displayName && displayName !== item.displayName) {
@@ -182,6 +198,8 @@ export function Inspector() {
                   id: item.id,
                   patch: { displayName },
                 });
+              } else if (!displayName) {
+                setNameDraft(item.displayName);
               }
             }}
             aria-label="Item name"

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuthOwner } from "../AuthGate";
-import { useOrganato } from "../../state/OrganatoProvider";
+import { useOrganatoData } from "../../state/OrganatoProvider";
 import { ActiveSessions } from "./ActiveSessions";
 
 interface AllowedIdentity {
@@ -35,7 +35,7 @@ function lastSignIn(value: string | null) {
 
 export function AccountAccessSection() {
   const owner = useAuthOwner();
-  const { settings } = useOrganato();
+  const { settings } = useOrganatoData();
   const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
   const [identity, setIdentity] = useState<AllowedIdentity | null>(() =>
     demoMode

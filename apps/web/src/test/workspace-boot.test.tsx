@@ -59,5 +59,9 @@ describe("workspace boot", () => {
       "/api/settings",
       expect.objectContaining({ credentials: "same-origin" }),
     );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/items?archived=true&limit=2000",
+      expect.anything(),
+    );
   });
 });
