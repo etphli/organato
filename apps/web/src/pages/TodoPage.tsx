@@ -17,9 +17,10 @@ import {
 import { PageHeader } from "../components/PageHeader";
 import { OrganatoSelect } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
-import { useOrganato } from "../state/OrganatoProvider";
+import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
 
 const now = new Date();
+const todoPageSize = 50;
 
 function parseQuickTodo(input: string) {
   const priorityMatch = input.match(/!(low|medium|high|urgent)\b/i);
@@ -40,10 +41,12 @@ function parseQuickTodo(input: string) {
 }
 
 export default function TodoPage() {
-  const { items, subjects, subjectsById, settings, dispatch } = useOrganato();
+  const { items, subjects, subjectsById, settings } = useOrganatoData();
+  const { dispatch } = useOrganatoActions();
   const [searchParams, setSearchParams] = useSearchParams();
   const quickAddRef = useRef<HTMLInputElement>(null);
   const [entry, setEntry] = useState("");
+  const [pageIndex, setPageIndex] = useState(0);
   const [preview, setPreview] = useState<ReturnType<
     typeof parseQuickTodo
   > | null>(null);
@@ -54,6 +57,14 @@ export default function TodoPage() {
         .toSorted((a, b) => compareItems(a, b, now)),
     [items],
   );
+  const pageCount = Math.max(1, Math.ceil(todos.length / todoPageSize));
+  const visibleTodos = todos.slice(
+    pageIndex * todoPageSize,
+    (pageIndex + 1) * todoPageSize,
+  );
+  useEffect(() => {
+    setPageIndex((current) => Math.min(current, pageCount - 1));
+  }, [pageCount]);
   useEffect(() => {
     if (searchParams.get("new") !== "1") return;
     quickAddRef.current?.focus();
@@ -147,7 +158,7 @@ export default function TodoPage() {
           <span>Priority</span>
           <span>Recurrence</span>
         </div>
-        {todos.map((todo) => {
+        {visibleTodos.map((todo) => {
           const status = visibleStatus(todo, now);
           return (
             <div
@@ -264,6 +275,31 @@ export default function TodoPage() {
           </p>
         ) : null}
       </section>
+      {todos.length > todoPageSize ? (
+        <nav className="list-pagination" aria-label="Todo pages">
+          <span>
+            {pageIndex * todoPageSize + 1}–
+            {Math.min(todos.length, (pageIndex + 1) * todoPageSize)} of{" "}
+            {todos.length}
+          </span>
+          <button
+            type="button"
+            disabled={pageIndex === 0}
+            onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            disabled={pageIndex >= pageCount - 1}
+            onClick={() =>
+              setPageIndex((current) => Math.min(pageCount - 1, current + 1))
+            }
+          >
+            Next
+          </button>
+        </nav>
+      ) : null}
       <p className="todo-help">
         <CalendarPlus size={14} /> Todos with dates appear once in the internal
         and dedicated Google calendars.

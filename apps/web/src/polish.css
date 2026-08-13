@@ -2449,6 +2449,47 @@ textarea::placeholder {
   opacity: 1;
 }
 
+.list-pagination {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 0.75rem;
+  gap: 8px;
+  justify-content: flex-end;
+  margin: 16px 0;
+}
+
+.list-pagination span {
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+}
+
+.list-pagination label {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.list-pagination button,
+.list-pagination select {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--secondary);
+  font: inherit;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.list-pagination button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.list-pagination button:disabled {
+  opacity: 0.4;
+}
+
 .archive-tools .organato-select {
   min-width: 0;
   width: 100%;
@@ -2542,6 +2583,15 @@ textarea::placeholder {
 }
 
 @media (max-width: 720px) {
+  .list-pagination {
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+
+  .list-pagination span {
+    flex: 1 0 100%;
+  }
+
   .organato-date-picker__popover {
     min-width: min(320px, calc(100vw - 20px));
   }

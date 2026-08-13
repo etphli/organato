@@ -56,7 +56,9 @@ function mount() {
     </StrictMode>,
   );
   window.addEventListener("load", () => {
-    void prepareServiceWorker();
+    void prepareServiceWorker().catch(() => {
+      // Offline support is optional; a registration failure must not affect the app.
+    });
   });
 }
 

@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import WorkPage from "../pages/WorkPage";
 import { OrganatoProvider } from "../state/OrganatoProvider";
+import { seedItems, seedSettings, seedSubjects } from "../data/seed";
 
 function renderAssignments() {
   return render(
@@ -91,5 +92,44 @@ describe("Assignment controls", () => {
     fireEvent.click(deleteButton);
 
     expect(screen.queryByText("Group lab report")).not.toBeInTheDocument();
+  });
+
+  it("keeps large assignment lists bounded and paginated", () => {
+    const template = seedItems.find(
+      (item) =>
+        item.kind === "work" &&
+        item.classification === "assignment" &&
+        item.workingStatus === "not_started",
+    )!;
+    const items = Array.from({ length: 2_000 }, (_, index) => ({
+      ...template,
+      id: `large-assignment-${index + 1}`,
+      canvasAssignmentId: `canvas-large-assignment-${index + 1}`,
+      displayName: `Large assignment ${String(index + 1).padStart(3, "0")}`,
+      sourceName: `Large assignment ${String(index + 1).padStart(3, "0")}`,
+      history: [],
+    }));
+    localStorage.setItem(
+      "organato-demo-state-v1",
+      JSON.stringify({
+        items,
+        subjects: seedSubjects,
+        settings: seedSettings,
+        views: [],
+      }),
+    );
+
+    renderAssignments();
+
+    expect(screen.getByText("1–50 of 2000")).toBeInTheDocument();
+    expect(screen.getByText("Large assignment 001")).toBeInTheDocument();
+    expect(screen.queryByText("Large assignment 051")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("row")).toHaveLength(51);
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(screen.getByText("51–100 of 2000")).toBeInTheDocument();
+    expect(screen.getByText("Large assignment 051")).toBeInTheDocument();
+    expect(screen.queryByText("Large assignment 001")).not.toBeInTheDocument();
   });
 });

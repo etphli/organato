@@ -27,7 +27,7 @@ import {
 } from "@organato/domain";
 import { PageHeader } from "../components/PageHeader";
 import { SubjectDot } from "../components/SubjectDot";
-import { useOrganato } from "../state/OrganatoProvider";
+import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
 
 const today = new Date();
 
@@ -41,8 +41,8 @@ function itemDueDate(
 }
 
 function ClassificationInbox() {
-  const { items, subjectsById, settings, integrations, dispatch } =
-    useOrganato();
+  const { items, subjectsById, settings, integrations } = useOrganatoData();
+  const { dispatch } = useOrganatoActions();
   const unclassified = items.filter(
     (item) =>
       item.kind === "work" &&
@@ -178,7 +178,8 @@ function ClassificationInbox() {
 }
 
 function MiniCalendar() {
-  const { items, settings, subjectsById, dispatch } = useOrganato();
+  const { items, settings, subjectsById } = useOrganatoData();
+  const { dispatch } = useOrganatoActions();
   const [monthStart, setMonthStart] = useState(() => startOfMonth(today));
   const [selectedDate, setSelectedDate] = useState(() => today);
   const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 });
@@ -293,7 +294,8 @@ function MiniCalendar() {
 }
 
 function TodayList() {
-  const { items, subjectsById, settings, dispatch } = useOrganato();
+  const { items, subjectsById, settings } = useOrganatoData();
+  const { dispatch } = useOrganatoActions();
   const [name, setName] = useState("");
   const todos = items
     .filter((item) => item.kind === "todo" && !item.archivedAt)
@@ -363,7 +365,8 @@ function TodayList() {
 }
 
 function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
-  const { items, subjectsById, settings, dispatch } = useOrganato();
+  const { items, subjectsById, settings } = useOrganatoData();
+  const { dispatch } = useOrganatoActions();
   const limit =
     page === "assignments"
       ? settings.upcomingAssignmentCount
@@ -435,7 +438,7 @@ function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
 }
 
 function WorkloadStrip() {
-  const { items, settings } = useOrganato();
+  const { items, settings } = useOrganatoData();
   const days = Array.from({ length: 7 }, (_, index) => {
     const date = addDays(today, index);
     const count = items.filter(
@@ -475,7 +478,7 @@ function WorkloadStrip() {
 }
 
 export default function HomePage() {
-  const { settings } = useOrganato();
+  const { settings } = useOrganatoData();
   return (
     <div className="page home-page">
       <PageHeader title="Home" meta={format(today, "EEEE, d MMMM")} />

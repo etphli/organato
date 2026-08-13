@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { PageHeader } from "../components/PageHeader";
-import { useOrganato } from "../state/OrganatoProvider";
+import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
 import { AgendaView } from "./calendar/AgendaView";
 import {
   CalendarLegend,
@@ -35,8 +35,9 @@ interface QuickCreateState {
 }
 
 export default function CalendarPage() {
-  const { items, subjects, subjectsById, settings, integrations, dispatch } =
-    useOrganato();
+  const { items, subjects, subjectsById, settings, integrations } =
+    useOrganatoData();
+  const { dispatch } = useOrganatoActions();
   const [preferences, setPreferences] = useCalendarPreferences(
     settings.calendarDefaultView,
     settings.timezone,
