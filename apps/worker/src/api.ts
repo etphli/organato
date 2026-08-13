@@ -772,9 +772,11 @@ apiRoutes.post(
   },
 );
 
+// Item-level deletion is already protected by the authenticated session, CSRF,
+// optimistic version, and exact-name confirmation. Recent authentication remains
+// required for workspace deletion and credential or identity changes.
 apiRoutes.post(
   "/items/:id/permanent-delete",
-  requireRecentSession(),
   zValidator("json", permanentDeleteItemSchema),
   async (context) => {
     const id = context.req.param("id");

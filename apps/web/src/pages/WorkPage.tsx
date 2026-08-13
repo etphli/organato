@@ -111,7 +111,8 @@ export default function WorkPage({
         if (activeView === "active") {
           const status = visibleStatus(item, now);
           if (status === "completed") return false;
-          if (status === "submitted" && !settings.showSubmittedActive) return false;
+          if (status === "submitted" && !settings.showSubmittedActive)
+            return false;
         }
         const selectedView = pageViews.find((view) => view.id === activeView);
         if (selectedView?.filters.due === "overdue") {
@@ -127,7 +128,14 @@ export default function WorkPage({
         }
         return true;
       }),
-    [activeView, items, page, pageViews, priorityFilter, settings.showSubmittedActive],
+    [
+      activeView,
+      items,
+      page,
+      pageViews,
+      priorityFilter,
+      settings.showSubmittedActive,
+    ],
   );
   const columns = useMemo(
     () => [
@@ -733,7 +741,9 @@ export default function WorkPage({
                         )}
                         {header.column.getIsSorted() ? (
                           <span aria-hidden="true">
-                            {header.column.getIsSorted() === "asc" ? " ↑" : " ↓"}
+                            {header.column.getIsSorted() === "asc"
+                              ? " ↑"
+                              : " ↓"}
                           </span>
                         ) : null}
                       </button>
@@ -837,7 +847,8 @@ export default function WorkPage({
               cannot be undone.
             </p>
             <label>
-              Type the {deleteCandidate.kind === "work" ? itemNoun : "todo"} name to confirm
+              Type the {deleteCandidate.kind === "work" ? itemNoun : "todo"}{" "}
+              name to confirm
               <input
                 autoFocus
                 value={deleteConfirmation}

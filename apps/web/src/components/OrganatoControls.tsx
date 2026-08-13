@@ -340,10 +340,13 @@ export function OrganatoActionMenu({
     triggerRef.current?.focus();
   }, []);
 
-  const openMenu = useCallback((index = 0) => {
-    setHighlightedIndex(Math.max(0, Math.min(index, items.length - 1)));
-    setOpen(true);
-  }, [items.length]);
+  const openMenu = useCallback(
+    (index = 0) => {
+      setHighlightedIndex(Math.max(0, Math.min(index, items.length - 1)));
+      setOpen(true);
+    },
+    [items.length],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -391,7 +394,11 @@ export function OrganatoActionMenu({
           else openMenu();
         }}
         onKeyDown={(event) => {
-          if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+          if (
+            event.key === "ArrowDown" ||
+            event.key === "Enter" ||
+            event.key === " "
+          ) {
             event.preventDefault();
             openMenu();
           } else if (event.key === "ArrowUp") {
@@ -426,12 +433,18 @@ export function OrganatoActionMenu({
                   onKeyDown={(event) => {
                     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                       event.preventDefault();
-                      setHighlightedIndex((current) =>
-                        (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length,
+                      setHighlightedIndex(
+                        (current) =>
+                          (current +
+                            (event.key === "ArrowDown" ? 1 : -1) +
+                            items.length) %
+                          items.length,
                       );
                     } else if (event.key === "Home" || event.key === "End") {
                       event.preventDefault();
-                      setHighlightedIndex(event.key === "Home" ? 0 : items.length - 1);
+                      setHighlightedIndex(
+                        event.key === "Home" ? 0 : items.length - 1,
+                      );
                     } else if (event.key === "Escape") {
                       event.preventDefault();
                       close();
@@ -663,7 +676,10 @@ export function OrganatoDatePicker({
                         if (offset !== undefined) {
                           event.preventDefault();
                           moveActiveDate(dateKey, offset);
-                        } else if (event.key === "Home" || event.key === "End") {
+                        } else if (
+                          event.key === "Home" ||
+                          event.key === "End"
+                        ) {
                           event.preventDefault();
                           const dayIndex =
                             (date.getDay() - firstDayOfWeek + 7) % 7;
@@ -675,11 +691,24 @@ export function OrganatoDatePicker({
                           );
                           const targetKey = format(target, "yyyy-MM-dd");
                           setActiveDateKey(targetKey);
-                        } else if (event.key === "PageUp" || event.key === "PageDown") {
+                        } else if (
+                          event.key === "PageUp" ||
+                          event.key === "PageDown"
+                        ) {
                           event.preventDefault();
-                          const target = event.key === "PageUp" ? subMonths(date, 1) : addMonths(date, 1);
+                          const target =
+                            event.key === "PageUp"
+                              ? subMonths(date, 1)
+                              : addMonths(date, 1);
                           const targetKey = format(target, "yyyy-MM-dd");
-                          setMonth(new Date(target.getFullYear(), target.getMonth(), 1, 12));
+                          setMonth(
+                            new Date(
+                              target.getFullYear(),
+                              target.getMonth(),
+                              1,
+                              12,
+                            ),
+                          );
                           setActiveDateKey(targetKey);
                         } else if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
