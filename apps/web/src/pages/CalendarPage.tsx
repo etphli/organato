@@ -164,7 +164,7 @@ export default function CalendarPage() {
         onToday={returnToToday}
         onNext={() => movePeriod(1)}
       />
-      <main className="oc-calendar-surface">
+      <section className="oc-calendar-surface" aria-label="Calendar surface">
         {preferences.view === "month" ? (
           <MonthView
             anchorKey={preferences.anchorKey}
@@ -213,7 +213,7 @@ export default function CalendarPage() {
             onClearFilters={clearFilters}
           />
         ) : null}
-      </main>
+      </section>
       {preferences.view === "month" ? (
         <CalendarLegend
           subjects={visibleSubjects}

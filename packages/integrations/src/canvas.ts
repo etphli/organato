@@ -7,10 +7,18 @@ import type {
   CanvasSyncResult,
 } from "./contracts";
 
-const userSchema = z.object({
-  id: z.union([z.string(), z.number()]).transform(String),
-  name: z.string(),
-});
+const userIdSchema = z
+  .union([z.string().trim().min(1), z.number().int()])
+  .transform(String);
+
+const identitySchema = z
+  .object({
+    id: userIdSchema,
+    name: z.string().nullable().optional(),
+    display_name: z.string().nullable().optional(),
+    short_name: z.string().nullable().optional(),
+  })
+  .passthrough();
 
 const courseSchema = z.object({
   id: z.union([z.string(), z.number()]).transform(String),
@@ -53,6 +61,59 @@ export class CanvasConnectionError extends Error {
     super(message);
     this.name = "CanvasConnectionError";
   }
+}
+
+/**
+ * Canvas shows the token value as plain text, but clipboard managers and
+ * password tools commonly include a Bearer prefix, quotes, or line breaks.
+ * Normalize those harmless presentation details once at the integration
+ * boundary so every request uses the exact credential value Canvas expects.
+ */
+export function normalizeCanvasToken(value: string): string {
+  let token = value.replace(/^\uFEFF/, "").trim();
+  for (let pass = 0; pass < 2; pass += 1) {
+    if (
+      (token.startsWith('"') && token.endsWith('"')) ||
+      (token.startsWith("'") && token.endsWith("'"))
+    ) {
+      token = token.slice(1, -1).trim();
+    }
+    if (/^bearer\s+/i.test(token)) {
+      token = token.replace(/^bearer\s+/i, "").trim();
+    }
+  }
+  return token.replace(/(?:\s|\u200B|\u200C|\u200D|\u2060|\uFEFF)/gu, "");
+}
+
+function identityFromResponse(
+  value: unknown,
+  hostname: string,
+): CanvasIdentity {
+  const parsed = identitySchema.safeParse(value);
+  if (!parsed.success) {
+    throw new CanvasConnectionError(
+      "invalid_response",
+      "Canvas returned an unexpected identity response.",
+    );
+  }
+  const name = [
+    parsed.data.name,
+    parsed.data.display_name,
+    parsed.data.short_name,
+  ]
+    .map((candidate) => candidate?.trim())
+    .find((candidate): candidate is string => Boolean(candidate));
+  return {
+    id: parsed.data.id,
+    name: name ?? "Canvas user",
+    hostname,
+  };
+}
+
+function isInsufficientScope(response: Response): boolean {
+  return /(?:error\s*=\s*["']?insufficient_scope\b)/i.test(
+    response.headers.get("WWW-Authenticate") ?? "",
+  );
 }
 
 function validateBaseUrl(value: string): URL {
@@ -118,13 +179,16 @@ export class CanvasRestProvider implements CanvasProvider {
 
   constructor(
     baseUrl: string,
-    private readonly token: string,
+    token: string,
     private readonly fetcher: typeof fetch = fetch,
     private readonly sleep: Sleep = (milliseconds) =>
       new Promise((resolve) => setTimeout(resolve, milliseconds)),
   ) {
     this.baseUrl = validateBaseUrl(baseUrl);
+    this.token = normalizeCanvasToken(token);
   }
+
+  private readonly token: string;
 
   private async request(
     pathOrUrl: string,
@@ -166,14 +230,13 @@ export class CanvasRestProvider implements CanvasProvider {
         );
       }
       if (response.status === 401) {
-        const code = response.headers.has("WWW-Authenticate")
-          ? "token_rejected"
-          : "api_access_denied";
         throw new CanvasConnectionError(
-          code,
-          code === "token_rejected"
-            ? "Canvas rejected the token."
-            : "Canvas denied API access.",
+          isInsufficientScope(response)
+            ? "api_access_denied"
+            : "token_rejected",
+          isInsufficientScope(response)
+            ? "Canvas denied access to this API endpoint."
+            : "Canvas rejected the token.",
           response.status,
         );
       }
@@ -198,6 +261,7 @@ export class CanvasRestProvider implements CanvasProvider {
         throw new CanvasConnectionError(
           "rate_limited",
           "Canvas rate limited the request.",
+          response.status,
         );
       }
       if (!response.ok) {
@@ -285,17 +349,76 @@ export class CanvasRestProvider implements CanvasProvider {
   }
 
   async validateConnection(signal?: AbortSignal): Promise<CanvasIdentity> {
-    const response = await this.request("/api/v1/users/self", signal);
-    let user: z.infer<typeof userSchema>;
-    try {
-      user = userSchema.parse(await this.responseJson(response));
-    } catch {
-      throw new CanvasConnectionError(
-        "invalid_response",
-        "Canvas returned an unexpected identity response.",
-      );
+    const identityPaths = ["/api/v1/users/self", "/api/v1/users/self/profile"];
+    let identity: CanvasIdentity | null = null;
+
+    for (const path of identityPaths) {
+      try {
+        const response = await this.request(path, signal);
+        identity = identityFromResponse(
+          await this.responseJson(response),
+          this.baseUrl.hostname,
+        );
+        break;
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        if (!(error instanceof CanvasConnectionError)) throw error;
+      }
     }
-    return { id: user.id, name: user.name, hostname: this.baseUrl.hostname };
+
+    // Some Canvas installations scope the self/profile endpoints separately
+    // from course access. Prove the credential can perform Organato's actual
+    // read-only import before accepting it, while still failing closed for a
+    // bad token or an inaccessible course API.
+    let courseProbeError: CanvasConnectionError | null = null;
+    try {
+      const response = await this.request(
+        "/api/v1/courses?enrollment_state=active&state[]=available&per_page=1",
+        signal,
+      );
+      const body = await this.responseJson(response);
+      if (!Array.isArray(body)) {
+        throw new CanvasConnectionError(
+          "invalid_response",
+          "Canvas returned an unexpected course response.",
+        );
+      }
+      const firstCourse = body
+        .map((row) => courseSchema.safeParse(row))
+        .find((parsed) => parsed.success);
+      if (firstCourse?.success) {
+        const assignmentsResponse = await this.request(
+          `/api/v1/courses/${encodeURIComponent(firstCourse.data.id)}/assignments?bucket=upcoming&override_assignment_dates=true&include[]=submission&per_page=1`,
+          signal,
+        );
+        const assignments = await this.responseJson(assignmentsResponse);
+        if (!Array.isArray(assignments)) {
+          throw new CanvasConnectionError(
+            "invalid_response",
+            "Canvas returned an unexpected assignment response.",
+          );
+        }
+      }
+      return (
+        identity ?? {
+          id: "self",
+          name: "Canvas user",
+          hostname: this.baseUrl.hostname,
+        }
+      );
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (!(error instanceof CanvasConnectionError)) throw error;
+      courseProbeError = error;
+    }
+
+    if (courseProbeError) {
+      throw courseProbeError;
+    }
+    throw new CanvasConnectionError(
+      "request_failed",
+      "Canvas could not verify the connection.",
+    );
   }
 
   async fetchUpcomingAssignments(

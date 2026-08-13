@@ -36,6 +36,34 @@
   --radius-control: 7px;
   --radius-panel: 12px;
   --motion: 150ms cubic-bezier(0.2, 0, 0, 1);
+
+  /* Ato suite semantic contract. Legacy aliases remain for existing CSS. */
+  --ato-bg: var(--bg);
+  --ato-sidebar: var(--sidebar);
+  --ato-surface: var(--surface);
+  --ato-surface-hover: var(--surface-hover);
+  --ato-surface-active: var(--surface-active);
+  --ato-text: var(--text);
+  --ato-text-secondary: var(--secondary);
+  --ato-text-muted: var(--muted);
+  --ato-border: var(--border);
+  --ato-border-strong: var(--border-strong);
+  --ato-accent: var(--focus);
+  --ato-accent-soft: var(--focus-soft);
+  --ato-danger: var(--danger);
+  --ato-success: var(--success);
+  --ato-warning: var(--warning);
+  --ato-space-1: 4px;
+  --ato-space-2: 8px;
+  --ato-space-3: 12px;
+  --ato-space-4: 16px;
+  --ato-space-5: 24px;
+  --ato-space-6: 32px;
+  --ato-space-8: 48px;
+  --ato-control-height: var(--control-height);
+  --ato-radius-control: var(--radius-control);
+  --ato-radius-panel: var(--radius-panel);
+  --ato-motion: var(--motion);
 }
 
 :root[data-theme="pure_black"] {
@@ -348,12 +376,12 @@ textarea::placeholder {
 .page-actions button,
 .text-button,
 .shortcut-button {
-  border-radius: var(--radius-control);
-  color: var(--secondary);
+  border-radius: var(--ato-radius-control);
+  color: var(--ato-text-secondary);
   font-size: 0.8125rem;
   font-weight: 500;
-  min-height: var(--control-height);
-  padding: 0 9px;
+  min-height: var(--ato-control-height);
+  padding: 0 var(--ato-space-3);
 }
 
 .page-actions button:hover,
@@ -370,14 +398,14 @@ textarea::placeholder {
 }
 
 .new-button {
-  background: var(--text) !important;
-  border: 1px solid var(--text) !important;
-  color: var(--bg) !important;
+  background: var(--ato-text) !important;
+  border: 1px solid var(--ato-text) !important;
+  color: var(--ato-bg) !important;
   font-weight: 600 !important;
 }
 
 .new-button:hover {
-  background: color-mix(in srgb, var(--text) 90%, var(--bg)) !important;
+  background: color-mix(in srgb, var(--ato-text) 90%, var(--ato-bg)) !important;
 }
 
 .view-picker {
@@ -464,6 +492,34 @@ textarea::placeholder {
 .classification-count {
   border-bottom-color: var(--border-strong);
   min-height: 44px;
+  position: relative;
+}
+
+.classification-options {
+  background: var(--surface-active);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 28%);
+  display: grid;
+  gap: 2px;
+  min-width: 220px;
+  padding: 5px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+}
+
+.classification-options button {
+  border-radius: 5px;
+  color: var(--text);
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.classification-options button:hover,
+.classification-options button:focus-visible {
+  background: var(--surface-hover);
 }
 
 .classification-count h2,
@@ -809,6 +865,20 @@ textarea::placeholder {
   font-size: 0.75rem;
   font-weight: 500;
   height: 44px;
+}
+
+.column-sort-button {
+  align-items: center;
+  color: inherit;
+  display: inline-flex;
+  gap: 3px;
+  min-height: 30px;
+  padding: 0 4px;
+  text-align: left;
+}
+
+.column-sort-button:hover {
+  color: var(--text);
 }
 
 .database-table td {

@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 function loadEnvFile(path) {
@@ -23,20 +24,77 @@ if (!apiUrl || !token) {
   );
 }
 
-const response = await fetch(
-  `${apiUrl.replace(/\/$/, "")}/api/internal/schedule?job=${job}`,
-  {
+const endpoint = `${apiUrl.replace(/\/$/, "")}/api/internal/schedule?job=${job}`;
+
+function curlConfig() {
+  return [
+    `url = ${JSON.stringify(endpoint)}`,
+    "request = POST",
+    "silent",
+    "show-error",
+    "fail",
+    "retry = 3",
+    "retry-delay = 2",
+    "connect-timeout = 15",
+    "max-time = 120",
+    `header = ${JSON.stringify(`Authorization: Bearer ${token}`)}`,
+    `header = ${JSON.stringify("Content-Type: application/json")}`,
+    `data = ${JSON.stringify("{}")}`,
+  ].join("\n");
+}
+
+function runCurl() {
+  const executable = process.platform === "darwin" ? "/usr/bin/curl" : "curl";
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, ["--config", "-"], {
+      stdio: ["pipe", "ignore", "pipe"],
+    });
+    let errorOutput = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      errorOutput += chunk;
+    });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(
+        Object.assign(
+          new Error(
+            errorOutput.trim() ||
+              `Organato ${job} scheduler failed safely (${code ?? "unknown"}).`,
+          ),
+          { code },
+        ),
+      );
+    });
+    child.stdin.end(curlConfig());
+  });
+}
+
+async function runFetch() {
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-  },
-);
-if (!response.ok) {
-  throw new Error(
-    `Organato ${job} scheduler failed safely (${response.status}).`,
-  );
+    body: "{}",
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Organato ${job} scheduler failed safely (${response.status}).`,
+    );
+  }
+}
+
+try {
+  await runCurl();
+} catch (error) {
+  if (error?.code !== "ENOENT") throw error;
+  await runFetch();
 }
 console.log(
   `Organato ${job} scheduler completed at ${new Date().toISOString()}.`,

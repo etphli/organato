@@ -277,7 +277,7 @@ const settingsSchema = z
     stickyNameColumn: z.boolean().default(true),
     inlineEditing: z.boolean().default(true),
     showSourceIcons: z.boolean().default(true),
-    showSubmittedActive: z.boolean().default(true),
+      showSubmittedActive: z.boolean().default(false),
     confirmBulkArchive: z.boolean().default(true),
     todoCalendarDefault: z.boolean().default(true),
     todoRemindersDefault: z.boolean().default(true),

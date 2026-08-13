@@ -38,7 +38,7 @@ const defaultSettings: WorkspaceSettings = {
   stickyNameColumn: true,
   inlineEditing: true,
   showSourceIcons: true,
-  showSubmittedActive: true,
+  showSubmittedActive: false,
   confirmBulkArchive: true,
   todoCalendarDefault: true,
   todoRemindersDefault: true,

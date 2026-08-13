@@ -5,6 +5,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   addDays,
   addMonths,
@@ -49,6 +50,8 @@ function ClassificationInbox() {
       !item.archivedAt,
   );
   const active = unclassified[0];
+  const navigate = useNavigate();
+  const [optionsOpen, setOptionsOpen] = useState(false);
   if (!active) {
     const canvas = integrations.find(
       (integration) => integration.provider === "canvas",
@@ -72,9 +75,39 @@ function ClassificationInbox() {
         <h2 id="classification-title">
           {unclassified.length} items to classify
         </h2>
-        <button className="icon-button" aria-label="Classification options">
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Classification options"
+          aria-expanded={optionsOpen}
+          onClick={() => setOptionsOpen((value) => !value)}
+        >
           <MoreHorizontal size={17} />
         </button>
+        {optionsOpen ? (
+          <div className="classification-options" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOptionsOpen(false);
+                navigate("/settings/appearance");
+              }}
+            >
+              Open classification settings
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOptionsOpen(false);
+                dispatch({ type: "toast", message: "Kept for later" });
+              }}
+            >
+              Keep this item for later
+            </button>
+          </div>
+        ) : null}
       </div>
       <div className="classification-main">
         <SubjectDot subjectId={active.subjectId} />

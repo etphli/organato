@@ -14,7 +14,10 @@ import {
   type CalendarEventRecord,
   type CanvasAssignment,
 } from "@organato/integrations";
-import { parseCanvasConnectionMetadata } from "./canvas-connection";
+import {
+  canvasConnectionErrorCategory,
+  parseCanvasConnectionMetadata,
+} from "./canvas-connection";
 import { getItem, getSettings, listItems, listSubjects, patchItem } from "./db";
 import {
   GoogleConnectionError,
@@ -96,11 +99,21 @@ async function acquireCanvasRun(
   const activeKey = `${workspaceId}:canvas:active`;
   if (trigger === "scheduled") {
     const existing = await env.DB.prepare(
-      "SELECT id FROM sync_run WHERE scheduled_key = ?",
+      "SELECT id, result FROM sync_run WHERE scheduled_key = ?",
     )
       .bind(finalKey)
-      .first<{ id: string }>();
-    if (existing) {
+      .first<{ id: string; result: string }>();
+    if (existing?.result !== "failed") {
+      return { acquired: false, runId: existing?.id ?? runId, finalKey };
+    }
+    const released = await env.DB.prepare(
+      `UPDATE sync_run SET scheduled_key = 'retry:' || id
+       WHERE id = ? AND workspace_id = ? AND provider = 'canvas'
+         AND scheduled_key = ? AND result = 'failed'`,
+    )
+      .bind(existing.id, workspaceId, finalKey)
+      .run();
+    if (!released.meta.changes) {
       return { acquired: false, runId: existing.id, finalKey };
     }
   }
@@ -537,22 +550,19 @@ export async function runCanvasSync(
     const transientFailure =
       error instanceof CanvasConnectionError &&
       (error.code === "request_failed" || error.code === "rate_limited");
+    const failureCategory = authenticationFailure
+      ? "canvas_token_rejected"
+      : transientFailure
+        ? "canvas_temporarily_unavailable"
+        : error instanceof CanvasConnectionError
+          ? `canvas_${canvasConnectionErrorCategory(error)}`
+          : "canvas_sync_failed";
     await Promise.all([
       env.DB.prepare(
         `UPDATE sync_run SET finished_at = ?, result = 'failed',
          error_category = ?, scheduled_key = ? WHERE id = ? AND workspace_id = ?`,
       )
-        .bind(
-          failedAt,
-          authenticationFailure
-            ? "canvas_token_rejected"
-            : transientFailure
-              ? "canvas_temporarily_unavailable"
-              : "canvas_sync_failed",
-          finalKey,
-          runId,
-          workspaceId,
-        )
+        .bind(failedAt, failureCategory, finalKey, runId, workspaceId)
         .run(),
       env.DB.prepare(
         `UPDATE integration_connection SET status = ?,
@@ -566,11 +576,7 @@ export async function runCanvasSync(
               ? "delayed"
               : "action_needed",
           failedAt,
-          authenticationFailure
-            ? "canvas_token_rejected"
-            : transientFailure
-              ? "canvas_temporarily_unavailable"
-              : "canvas_sync_failed",
+          failureCategory,
           authenticationFailure ? 1 : 0,
           failedAt,
           workspaceId,
@@ -675,12 +681,57 @@ async function updateGoogleHealth(
     .run();
 }
 
+async function acquireCalendarRun(
+  env: Env,
+  workspaceId: string,
+  now = new Date(),
+): Promise<string | null> {
+  const activeKey = `${workspaceId}:google-calendar:active`;
+  const staleBefore = new Date(now.getTime() - 10 * 60_000).toISOString();
+  await env.DB.prepare(
+    `UPDATE sync_run
+     SET scheduled_key = 'abandoned:' || id, finished_at = ?,
+         result = 'failed', error_category = 'stale_google_calendar_lock'
+     WHERE workspace_id = ? AND provider = 'google_calendar'
+       AND scheduled_key = ? AND started_at < ?`,
+  )
+    .bind(now.toISOString(), workspaceId, activeKey, staleBefore)
+    .run();
+  const runId = crypto.randomUUID();
+  const result = await env.DB.prepare(
+    `INSERT OR IGNORE INTO sync_run
+      (id, workspace_id, provider, trigger_type, scheduled_key, started_at, result)
+     VALUES (?, ?, 'google_calendar', 'reconcile', ?, ?, 'running')`,
+  )
+    .bind(runId, workspaceId, activeKey, now.toISOString())
+    .run();
+  return result.meta.changes ? runId : null;
+}
+
+async function finishCalendarRun(
+  env: Env,
+  runId: string,
+  result: "success" | "partial" | "failed",
+  errorCategory: string | null = null,
+) {
+  await env.DB.prepare(
+    `UPDATE sync_run
+     SET scheduled_key = 'completed:' || id, finished_at = ?,
+         result = ?, error_category = ?
+     WHERE id = ?`,
+  )
+    .bind(new Date().toISOString(), result, errorCategory, runId)
+    .run();
+}
+
 export async function runCalendarReconciliation(
   env: Env,
   workspaceId: string,
 ): Promise<void> {
   const connection = await loadGoogleConnection(env, workspaceId);
   if (!connection?.metadata.calendarId) return;
+  const runId = await acquireCalendarRun(env, workspaceId);
+  if (!runId) return;
   const calendarId = connection.metadata.calendarId;
   const subjects = await listSubjects(env.DB, workspaceId);
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
@@ -964,6 +1015,12 @@ export async function runCalendarReconciliation(
         ? { syncToken: nextSyncToken }
         : {}),
     });
+    await finishCalendarRun(
+      env,
+      runId,
+      pullFailures || pushFailures ? "partial" : "success",
+      pullFailures || pushFailures ? "calendar_partial_failure" : null,
+    );
   } catch (error) {
     const authorizationFailure =
       error instanceof GoogleApiError &&
@@ -976,6 +1033,14 @@ export async function runCalendarReconciliation(
       success: false,
       reconnectNeeded: authorizationFailure,
     }).catch(() => undefined);
+    await finishCalendarRun(
+      env,
+      runId,
+      "failed",
+      authorizationFailure
+        ? "google_authorization_failed"
+        : "calendar_temporarily_unavailable",
+    ).catch(() => undefined);
     throw error;
   }
 }

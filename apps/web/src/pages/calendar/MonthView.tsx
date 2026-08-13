@@ -1,4 +1,4 @@
-import { useState, type DragEvent, type KeyboardEvent } from "react";
+import { useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { format } from "date-fns";
 import { CalendarEvent } from "./CalendarEvent";
 import {
@@ -7,6 +7,7 @@ import {
   weekdayLabels,
   type CalendarEntry,
 } from "./model";
+import { useDialogFocus } from "../../components/useDialogFocus";
 
 export function MonthView({
   anchorKey,
@@ -38,6 +39,14 @@ export function MonthView({
   onClearFilters(): void;
 }) {
   const [overflowDateKey, setOverflowDateKey] = useState<string | null>(null);
+  const overflowDialogRef = useRef<HTMLDivElement>(null);
+  const overflowCloseRef = useRef<HTMLButtonElement>(null);
+  useDialogFocus(
+    overflowDateKey !== null,
+    overflowDialogRef,
+    overflowCloseRef,
+    overflowDateKey ?? "closed",
+  );
   const monthKey = anchorKey.slice(0, 7);
   const visibleDateKeys = new Set(dates.map(dateKeyFromDate));
   const visibleEntryCount = Array.from(entries).reduce(
@@ -173,6 +182,7 @@ export function MonthView({
               </div>
               {overflowDateKey === dateKey ? (
                 <div
+                  ref={overflowDialogRef}
                   className="oc-day-popover"
                   role="dialog"
                   aria-label={`Items on ${format(date, "d MMMM")}`}
@@ -181,6 +191,7 @@ export function MonthView({
                   <header>
                     <strong>{format(date, "EEEE d MMMM")}</strong>
                     <button
+                      ref={overflowCloseRef}
                       type="button"
                       onClick={() => setOverflowDateKey(null)}
                       aria-label="Close day items"
