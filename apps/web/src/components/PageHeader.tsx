@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import { Command, RefreshCw, Search } from "lucide-react";
-import { useOrganato } from "../state/OrganatoProvider";
+import {
+  useOrganatoActions,
+  useOrganatoData,
+  useOrganatoUi,
+} from "../state/OrganatoProvider";
 
 export function PageHeader({
   title,
@@ -13,7 +17,9 @@ export function PageHeader({
   actions?: ReactNode;
   showSync?: boolean;
 }) {
-  const { dispatch, syncing, syncNow, integrations } = useOrganato();
+  const { integrations } = useOrganatoData();
+  const { syncing } = useOrganatoUi();
+  const { dispatch, syncNow } = useOrganatoActions();
   const canvas = integrations.find(
     (integration) => integration.provider === "canvas",
   );

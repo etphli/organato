@@ -12,7 +12,11 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useOrganato } from "../state/OrganatoProvider";
+import {
+  useOrganatoActions,
+  useOrganatoData,
+  useOrganatoUi,
+} from "../state/OrganatoProvider";
 import { useDialogFocus } from "./useDialogFocus";
 
 const baseCommands = [
@@ -27,7 +31,9 @@ const baseCommands = [
 ];
 
 export function CommandPalette() {
-  const { commandOpen, dispatch, syncNow, settings } = useOrganato();
+  const { settings } = useOrganatoData();
+  const { commandOpen } = useOrganatoUi();
+  const { dispatch, syncNow } = useOrganatoActions();
   const dialogRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -40,20 +46,25 @@ export function CommandPalette() {
     commandOpen ? "command-open" : "command-closed",
   );
   const commands = useMemo(
-    () => [
-      ...baseCommands,
-      { label: "Sync now", icon: RefreshCw, action: syncNow },
-      {
-        label: "Toggle theme",
-        icon: Moon,
-        action: () =>
-          dispatch({
-            type: "settings",
-            patch: { theme: settings.theme === "light" ? "obsidian" : "light" },
-          }),
-      },
-    ],
-    [dispatch, settings.theme, syncNow],
+    () =>
+      commandOpen
+        ? [
+            ...baseCommands,
+            { label: "Sync now", icon: RefreshCw, action: syncNow },
+            {
+              label: "Toggle theme",
+              icon: Moon,
+              action: () =>
+                dispatch({
+                  type: "settings",
+                  patch: {
+                    theme: settings.theme === "light" ? "obsidian" : "light",
+                  },
+                }),
+            },
+          ]
+        : [],
+    [commandOpen, dispatch, settings.theme, syncNow],
   );
   const filtered = commands.filter((command) =>
     command.label.toLowerCase().includes(query.toLowerCase()),

@@ -13,6 +13,7 @@ import { useLocation } from "react-router-dom";
 import {
   assertSecretFreeBackup,
   validateBackup,
+  visibleStatus,
   type OrganatoItem,
   type WorkspaceSnapshot,
 } from "@organato/domain";
@@ -30,7 +31,9 @@ import {
   beginGoogleConnection,
   IntegrationRequestError,
 } from "../lib/integrationApi";
-import { useOrganato } from "../state/OrganatoProvider";
+import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
+
+const archivePageSize = 50;
 
 const genericOptions: Record<string, Array<[string, string]>> = {
   home: [
@@ -133,7 +136,8 @@ function itemCsv(rows: OrganatoItem[], subjectNames: Map<string, string>) {
 }
 
 function ToggleRows({ category }: { category: string }) {
-  const { settings, dispatch } = useOrganato();
+  const { settings } = useOrganatoData();
+  const { dispatch } = useOrganatoActions();
   const settingFields: Record<string, keyof typeof settings> = {
     "Auto-expand classification inbox": "autoExpandClassification",
     "Show mini calendar": "showMiniCalendar",
@@ -201,7 +205,7 @@ interface DeliverySummary {
 }
 
 function DeliveryHistory() {
-  const { dispatch } = useOrganato();
+  const { dispatch } = useOrganatoActions();
   const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
   const [deliveries, setDeliveries] = useState<DeliverySummary[]>([]);
   const [loading, setLoading] = useState(!demoMode);
@@ -323,8 +327,9 @@ export default function SettingsPage() {
   const active =
     settingsCategories.find(([id]) => pathname.endsWith(`/${id}`))?.[0] ??
     "account";
-  const { items, subjects, settings, integrations, views, dispatch, refresh } =
-    useOrganato();
+  const { items, subjects, settings, integrations, views, archivedReady } =
+    useOrganatoData();
+  const { dispatch, loadItemDetails, refresh } = useOrganatoActions();
   const [importSummary, setImportSummary] = useState<string | null>(null);
   const [pendingImport, setPendingImport] = useState<WorkspaceSnapshot | null>(
     null,
@@ -350,9 +355,14 @@ export default function SettingsPage() {
   const [archiveYear, setArchiveYear] = useState("all");
   const [archiveSelection, setArchiveSelection] = useState<string[]>([]);
   const [archivePreviewId, setArchivePreviewId] = useState<string | null>(null);
+  const [archivePageIndex, setArchivePageIndex] = useState(0);
   const [itemDeleteConfirmation, setItemDeleteConfirmation] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
-  const archived = items.filter((item) => item.archivedAt);
+  const archiveLoadAttempted = useRef(false);
+  const archived = useMemo(
+    () => items.filter((item) => item.archivedAt),
+    [items],
+  );
   const filteredArchive = useMemo(() => {
     const query = archiveQuery.trim().toLowerCase();
     return archived.filter(
@@ -382,16 +392,44 @@ export default function SettingsPage() {
   ]);
   const archivePreview =
     archived.find((item) => item.id === archivePreviewId) ?? null;
+  const archivePageCount = Math.max(
+    1,
+    Math.ceil(filteredArchive.length / archivePageSize),
+  );
+  const visibleArchive = filteredArchive.slice(
+    archivePageIndex * archivePageSize,
+    (archivePageIndex + 1) * archivePageSize,
+  );
+  useEffect(() => {
+    if (active !== "data") {
+      archiveLoadAttempted.current = false;
+      if (archivedReady) dispatch({ type: "releaseArchived" });
+      return;
+    }
+    if (archivedReady || archiveLoadAttempted.current) {
+      return;
+    }
+    archiveLoadAttempted.current = true;
+    void refresh({ includeArchived: true }).catch(() =>
+      dispatch({
+        type: "toast",
+        message: "The archive could not be loaded. Try opening Data again.",
+      }),
+    );
+  }, [active, archivedReady, dispatch, refresh]);
+  useEffect(() => () => dispatch({ type: "releaseArchived" }), [dispatch]);
+  useEffect(() => {
+    setArchivePageIndex(0);
+  }, [archiveKind, archiveQuery, archiveReason, archiveSubject, archiveYear]);
+  useEffect(() => {
+    setArchivePageIndex((current) => Math.min(current, archivePageCount - 1));
+  }, [archivePageCount]);
   const activeCount = items.filter((item) => !item.archivedAt).length;
   const completedCount = items.filter(
     (item) => item.workingStatus === "completed",
   ).length;
-  const classifiedWithinDay = items.filter((item) =>
-    item.history.some(
-      (entry) =>
-        entry.action === "classified" &&
-        new Date(entry.createdAt).getTime() >= Date.now() - 86_400_000,
-    ),
+  const overdueCount = items.filter(
+    (item) => !item.archivedAt && visibleStatus(item) === "overdue",
   ).length;
   const snapshot = useMemo<WorkspaceSnapshot>(
     () => ({
@@ -1147,10 +1185,11 @@ export default function SettingsPage() {
                   <strong>{completedCount}</strong> completed
                 </span>
                 <span>
-                  <strong>{archived.length}</strong> archived
+                  <strong>{archivedReady ? archived.length : "…"}</strong>{" "}
+                  archived
                 </span>
                 <span>
-                  <strong>{classifiedWithinDay}</strong> classified within 24h
+                  <strong>{overdueCount}</strong> overdue
                 </span>
               </div>
               <div className="settings-block">
@@ -1254,8 +1293,12 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 ) : null}
-                {filteredArchive.length ? (
-                  filteredArchive.map((item) => (
+                {!archivedReady ? (
+                  <p className="empty-line" role="status">
+                    Loading archived items…
+                  </p>
+                ) : filteredArchive.length ? (
+                  visibleArchive.map((item) => (
                     <div className="archive-row" key={item.id}>
                       <input
                         type="checkbox"
@@ -1276,6 +1319,12 @@ export default function SettingsPage() {
                           setArchivePreviewId(item.id);
                           setItemDeleteConfirmation("");
                           setDeleteError(null);
+                          void loadItemDetails(item.id).catch(() =>
+                            dispatch({
+                              type: "toast",
+                              message: "Item details could not be loaded.",
+                            }),
+                          );
                         }}
                       >
                         <strong>{item.displayName}</strong>
@@ -1300,6 +1349,40 @@ export default function SettingsPage() {
                       : "No archived items."}
                   </p>
                 )}
+                {filteredArchive.length > archivePageSize ? (
+                  <nav className="list-pagination" aria-label="Archive pages">
+                    <span>
+                      {archivePageIndex * archivePageSize + 1}–
+                      {Math.min(
+                        filteredArchive.length,
+                        (archivePageIndex + 1) * archivePageSize,
+                      )}{" "}
+                      of {filteredArchive.length}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={archivePageIndex === 0}
+                      onClick={() =>
+                        setArchivePageIndex((current) =>
+                          Math.max(0, current - 1),
+                        )
+                      }
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      disabled={archivePageIndex >= archivePageCount - 1}
+                      onClick={() =>
+                        setArchivePageIndex((current) =>
+                          Math.min(archivePageCount - 1, current + 1),
+                        )
+                      }
+                    >
+                      Next
+                    </button>
+                  </nav>
+                ) : null}
                 {archivePreview ? (
                   <div className="archive-preview">
                     <div>

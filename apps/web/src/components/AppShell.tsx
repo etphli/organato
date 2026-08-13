@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import type { IntegrationHealth } from "@organato/domain";
 import { NavLink, type NavLinkRenderProps } from "react-router-dom";
-import { useOrganato } from "../state/OrganatoProvider";
+import { useOrganatoData, useOrganatoUi } from "../state/OrganatoProvider";
 import { useAuthOwner } from "./AuthGate";
 import { BrandMark } from "./BrandMark";
 
@@ -75,7 +75,8 @@ export function getShellSyncStatus(
 
 export function AppShell({ children }: { children: ReactNode }) {
   const owner = useAuthOwner();
-  const { integrations, syncing } = useOrganato();
+  const { integrations } = useOrganatoData();
+  const { syncing } = useOrganatoUi();
   const displayName = owner?.displayName || owner?.email || "Owner";
   const syncStatus = getShellSyncStatus(integrations, syncing);
   const initials = displayName

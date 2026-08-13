@@ -1,8 +1,14 @@
 import { useEffect } from "react";
-import { useOrganato } from "../state/OrganatoProvider";
+import {
+  useOrganatoActions,
+  useOrganatoData,
+  useOrganatoUi,
+} from "../state/OrganatoProvider";
 
 export function Toast() {
-  const { toast, undo, settings, dispatch } = useOrganato();
+  const { settings } = useOrganatoData();
+  const { toast, undo } = useOrganatoUi();
+  const { dispatch } = useOrganatoActions();
   useEffect(() => {
     if (!toast) return;
     const timeout = window.setTimeout(

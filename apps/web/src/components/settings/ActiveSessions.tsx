@@ -1,6 +1,6 @@
 import { Laptop, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useOrganato } from "../../state/OrganatoProvider";
+import { useOrganatoActions } from "../../state/OrganatoProvider";
 
 interface SessionSummary {
   email_normalized?: string;
@@ -52,7 +52,7 @@ function relativeActivity(value: string) {
 }
 
 export function ActiveSessions() {
-  const { dispatch } = useOrganato();
+  const { dispatch } = useOrganatoActions();
   const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
   const [sessions, setSessions] = useState<SessionSummary[]>(() =>
     demoMode

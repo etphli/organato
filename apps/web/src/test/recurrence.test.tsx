@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import type { OrganatoItem } from "@organato/domain";
@@ -73,6 +79,7 @@ describe("todo recurrence", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Complete Monthly review" }),
     );
+    act(() => vi.advanceTimersByTime(200));
 
     const saved = JSON.parse(localStorage.getItem(storageKey) ?? "{}") as {
       items: OrganatoItem[];

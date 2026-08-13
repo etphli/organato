@@ -196,6 +196,52 @@ describe("per-account workspace isolation", () => {
     );
   });
 
+  it("keeps list reads lightweight while item reads include full details", async () => {
+    const db = tenantDatabase();
+    await db
+      .prepare(
+        `INSERT INTO attachment_link
+          (id, item_id, label, url, link_type, created_at, workspace_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        "friend-attachment",
+        "friend-item",
+        "Brief",
+        "https://example.com/brief",
+        "brief",
+        new Date().toISOString(),
+        "friend@example.com",
+      )
+      .run();
+    await db
+      .prepare(
+        `INSERT INTO item_history
+          (id, item_id, actor_type, actor_identity, action, summary,
+           created_at, workspace_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        "friend-history",
+        "friend-item",
+        "user",
+        "friend@example.com",
+        "edited",
+        "Item edited",
+        new Date().toISOString(),
+        "friend@example.com",
+      )
+      .run();
+
+    const [summary] = await listItems(db, "friend@example.com");
+    expect(summary?.attachments).toEqual([]);
+    expect(summary?.history).toEqual([]);
+
+    const detail = await getItem(db, "friend@example.com", "friend-item");
+    expect(detail?.attachments).toHaveLength(1);
+    expect(detail?.history).toHaveLength(1);
+  });
+
   it("prevents cross-account reads and mutations through API routes", async () => {
     const db = tenantDatabase();
     const { app, env } = tenantApi(db, "friend@example.com");

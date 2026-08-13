@@ -23,7 +23,7 @@ import {
   reauthenticate,
   type SessionSecurityState,
 } from "../../lib/integrationApi";
-import { useOrganato } from "../../state/OrganatoProvider";
+import { useOrganatoActions } from "../../state/OrganatoProvider";
 import { EmailDeliverySection } from "../settings/EmailDeliverySection";
 import "./SetupWizard.css";
 
@@ -44,7 +44,7 @@ const setupSteps: Array<{
 ];
 
 export function SetupWizard({ onDismiss }: SetupWizardProps) {
-  const { dispatch, refresh } = useOrganato();
+  const { dispatch, refresh } = useOrganatoActions();
   const [step, setStep] = useState<SetupStep>(1);
   const [canvas, setCanvas] = useState<CanvasConnectionStatus | null>(null);
   const [google, setGoogle] = useState<GoogleDeliverySettings | null>(null);

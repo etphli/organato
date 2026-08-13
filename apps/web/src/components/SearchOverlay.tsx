@@ -1,8 +1,12 @@
 import { Search, Settings2 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useDeferredValue, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { visibleStatus } from "@organato/domain";
-import { useOrganato } from "../state/OrganatoProvider";
+import {
+  useOrganatoActions,
+  useOrganatoData,
+  useOrganatoUi,
+} from "../state/OrganatoProvider";
 import { SubjectDot } from "./SubjectDot";
 import { useDialogFocus } from "./useDialogFocus";
 
@@ -16,10 +20,13 @@ function fuzzyIncludes(text: string, needle: string): boolean {
 }
 
 export function SearchOverlay() {
-  const { searchOpen, dispatch, items, subjectsById, settings } = useOrganato();
+  const { items, subjectsById, settings } = useOrganatoData();
+  const { searchOpen } = useOrganatoUi();
+  const { dispatch } = useOrganatoActions();
   const dialogRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
   const [recent, setRecent] = useState<string[]>(() => {
     try {
       return JSON.parse(
@@ -47,7 +54,8 @@ export function SearchOverlay() {
     localStorage.setItem("organato_recent_searches", JSON.stringify(next));
   };
   const matches = useMemo(() => {
-    const needle = query.trim().toLowerCase();
+    if (!searchOpen) return [];
+    const needle = deferredQuery.trim().toLowerCase();
     if (!needle) return items.filter((item) => !item.archivedAt).slice(0, 6);
     const tokens = needle.split(/\s+/);
     return items
@@ -72,7 +80,14 @@ export function SearchOverlay() {
         });
       })
       .slice(0, 12);
-  }, [items, query, settings.fuzzySearch, settings.searchNotes, subjectsById]);
+  }, [
+    deferredQuery,
+    items,
+    searchOpen,
+    settings.fuzzySearch,
+    settings.searchNotes,
+    subjectsById,
+  ]);
   if (!searchOpen) return null;
   return (
     <div
