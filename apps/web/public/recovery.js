@@ -1,3 +1,5 @@
+/* global caches, navigator, sessionStorage, window */
+
 window.__organatoRecovery = (async () => {
   if (!("serviceWorker" in navigator)) return true;
   const hadController = navigator.serviceWorker.controller !== null;
