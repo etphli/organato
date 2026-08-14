@@ -15,6 +15,7 @@ const queryClient = new QueryClient({
   },
 });
 let serviceWorkerRefreshStarted = false;
+const serviceWorkerReloadKey = "organato:last-service-worker-reload";
 
 async function prepareServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
@@ -30,6 +31,15 @@ async function prepareServiceWorker() {
     "controllerchange",
     () => {
       if (hadController) {
+        const now = Date.now();
+        const lastReload = Number(
+          sessionStorage.getItem(serviceWorkerReloadKey) ?? "0",
+        );
+        if (now - lastReload > 30_000) {
+          sessionStorage.setItem(serviceWorkerReloadKey, String(now));
+          window.location.reload();
+          return;
+        }
         window.dispatchEvent(new Event("organato:pwa-update"));
       }
     },
@@ -57,7 +67,7 @@ function mount() {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter useTransitions={false}>
+        <BrowserRouter>
           <AuthGate>
             <OrganatoProvider>
               <App />
