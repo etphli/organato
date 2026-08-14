@@ -1,10 +1,6 @@
 import { Component, type ReactNode } from "react";
 import { BrandMark } from "./BrandMark";
 
-const chunkFailurePattern =
-  /chunkloaderror|failed to fetch dynamically imported module|importing a module script failed|loading chunk/i;
-const reloadMarker = "organato_chunk_recovery_at";
-
 export class AppErrorBoundary extends Component<
   { children: ReactNode },
   { error: Error | null }
@@ -16,11 +12,7 @@ export class AppErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error) {
-    if (!chunkFailurePattern.test(`${error.name} ${error.message}`)) return;
-    const lastReload = Number(sessionStorage.getItem(reloadMarker) ?? "0");
-    if (Date.now() - lastReload < 30_000) return;
-    sessionStorage.setItem(reloadMarker, String(Date.now()));
-    window.location.reload();
+    console.error("Organato render failure", error);
   }
 
   render() {
@@ -31,13 +23,16 @@ export class AppErrorBoundary extends Component<
           <span className="auth-mark">
             <BrandMark size={24} />
           </span>
-          <h1 id="app-recovery-title">Organato needs a quick refresh</h1>
+          <h1 id="app-recovery-title">Organato hit an interface error</h1>
           <p>
-            A newer app version became available while this tab was open. Your
-            workspace data is safe.
+            Your workspace data is safe. Try the interface again, or reload the
+            latest version if the problem continues.
           </p>
+          <button type="button" onClick={() => this.setState({ error: null })}>
+            Try again
+          </button>
           <button type="button" onClick={() => window.location.reload()}>
-            Reload Organato
+            Reload latest Organato
           </button>
         </section>
       </main>

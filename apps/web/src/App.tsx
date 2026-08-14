@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Navigate,
   Route,
@@ -12,24 +12,16 @@ import { DeferredOverlays } from "./components/DeferredOverlays";
 import { NetworkStatus } from "./components/NetworkStatus";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { Toast } from "./components/Toast";
+import CalendarPage from "./pages/CalendarPage";
+import HomePage from "./pages/HomePage";
+import SettingsPage from "./pages/SettingsPage";
+import TodoPage from "./pages/TodoPage";
+import WorkPage from "./pages/WorkPage";
 import {
   useOrganatoActions,
   useOrganatoItems,
   useOrganatoWorkspace,
 } from "./state/OrganatoProvider";
-import {
-  loadCalendarPage,
-  loadHomePage,
-  loadSettingsPage,
-  loadTodoPage,
-  loadWorkPage,
-} from "./pages/routeLoaders";
-
-const HomePage = lazy(loadHomePage);
-const WorkPage = lazy(loadWorkPage);
-const TodoPage = lazy(loadTodoPage);
-const CalendarPage = lazy(loadCalendarPage);
-const SettingsPage = lazy(loadSettingsPage);
 
 function ItemDeepLink() {
   const { id } = useParams();
@@ -46,37 +38,6 @@ function ItemDeepLink() {
   }, [dispatch, id, items, navigate]);
 
   return null;
-}
-
-function PageFallback() {
-  return (
-    <div
-      className="page page-fallback"
-      aria-label="Loading page"
-      aria-busy="true"
-    >
-      <div className="page-fallback-heading">
-        <span />
-        <span />
-      </div>
-      <div className="page-fallback-rule" />
-      <div className="page-fallback-row">
-        <span />
-        <span />
-        <span />
-      </div>
-      <div className="page-fallback-row">
-        <span />
-        <span />
-        <span />
-      </div>
-      <div className="page-fallback-row">
-        <span />
-        <span />
-        <span />
-      </div>
-    </div>
-  );
 }
 
 export function App() {
@@ -184,24 +145,22 @@ export function App() {
           />
         ) : (
           <AppErrorBoundary>
-            <Suspense fallback={<PageFallback />}>
-              <Routes>
-                <Route path="/" element={<HomePage />} />
-                <Route
-                  path="/assignments"
-                  element={<WorkPage page="assignments" />}
-                />
-                <Route
-                  path="/checkpoints"
-                  element={<WorkPage page="checkpoints" />}
-                />
-                <Route path="/calendar" element={<CalendarPage />} />
-                <Route path="/todo" element={<TodoPage />} />
-                <Route path="/settings/*" element={<SettingsPage />} />
-                <Route path="/items/:id" element={<ItemDeepLink />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </Suspense>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route
+                path="/assignments"
+                element={<WorkPage page="assignments" />}
+              />
+              <Route
+                path="/checkpoints"
+                element={<WorkPage page="checkpoints" />}
+              />
+              <Route path="/calendar" element={<CalendarPage />} />
+              <Route path="/todo" element={<TodoPage />} />
+              <Route path="/settings/*" element={<SettingsPage />} />
+              <Route path="/items/:id" element={<ItemDeepLink />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
           </AppErrorBoundary>
         )}
       </AppShell>

@@ -13,7 +13,6 @@ import { NavLink, type NavLinkRenderProps } from "react-router-dom";
 import { useOrganatoUi, useOrganatoWorkspace } from "../state/OrganatoProvider";
 import { useAuthOwner } from "./AuthGate";
 import { BrandMark } from "./BrandMark";
-import { preloadRoute } from "../pages/routeLoaders";
 
 const navigation = [
   { to: "/", label: "Home", icon: Home },
@@ -118,9 +117,6 @@ export function AppShell({ children }: { children: ReactNode }) {
               className={({ isActive }: NavLinkRenderProps) =>
                 `nav-item${isActive ? " active" : ""}`
               }
-              onFocus={() => preloadRoute(to)}
-              onPointerEnter={() => preloadRoute(to)}
-              onTouchStart={() => preloadRoute(to)}
             >
               <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
               <span>{label}</span>
@@ -150,12 +146,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span>{syncStatus.label}</span>
             </div>
           )}
-          <NavLink
-            to="/settings"
-            className="account-link"
-            onFocus={() => preloadRoute("/settings")}
-            onPointerEnter={() => preloadRoute("/settings")}
-          >
+          <NavLink to="/settings" className="account-link">
             <span className="avatar" aria-hidden="true">
               {initials}
             </span>
@@ -176,9 +167,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             className={({ isActive }: NavLinkRenderProps) =>
               isActive ? "active" : ""
             }
-            onFocus={() => preloadRoute(to)}
-            onPointerEnter={() => preloadRoute(to)}
-            onTouchStart={() => preloadRoute(to)}
           >
             <Icon size={21} strokeWidth={1.7} aria-hidden="true" />
             <span>{label}</span>
