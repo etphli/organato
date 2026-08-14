@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { Command, RefreshCw, Search } from "lucide-react";
 import {
   useOrganatoActions,
-  useOrganatoData,
   useOrganatoUi,
+  useOrganatoWorkspace,
 } from "../state/OrganatoProvider";
 
 export function PageHeader({
@@ -17,7 +17,7 @@ export function PageHeader({
   actions?: ReactNode;
   showSync?: boolean;
 }) {
-  const { integrations } = useOrganatoData();
+  const { integrations } = useOrganatoWorkspace();
   const { syncing } = useOrganatoUi();
   const { dispatch, syncNow } = useOrganatoActions();
   const canvas = integrations.find(

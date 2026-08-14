@@ -1,12 +1,15 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import { useRef } from "react";
 import { Inspector } from "../components/Inspector";
 import WorkPage from "../pages/WorkPage";
+import { seedItems } from "../data/seed";
 import {
   OrganatoProvider,
   useOrganatoActions,
   useOrganatoData,
+  useOrganatoWorkspace,
 } from "../state/OrganatoProvider";
 
 function DataRenderProbe() {
@@ -29,6 +32,31 @@ function DataRenderProbe() {
         onClick={() => dispatch({ type: "select", id: null })}
       >
         Clear selection
+      </button>
+    </>
+  );
+}
+
+function WorkspaceRenderProbe() {
+  const { settings } = useOrganatoWorkspace();
+  const { dispatch } = useOrganatoActions();
+  const renders = useRef(0);
+  renders.current += 1;
+  return (
+    <>
+      <output aria-label="Workspace renders">{renders.current}</output>
+      <span>{settings.timezone}</span>
+      <button
+        type="button"
+        onClick={() =>
+          dispatch({
+            type: "patchItem",
+            id: seedItems[0]!.id,
+            patch: { pinned: true },
+          })
+        }
+      >
+        Pin item
       </button>
     </>
   );
@@ -76,6 +104,20 @@ describe("long-session performance regressions", () => {
     for (let index = 0; index < 25; index += 1) {
       fireEvent.click(screen.getByRole("button", { name: "Select first" }));
       fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+    }
+    expect(count).toHaveTextContent("1");
+  });
+
+  it("does not rerender workspace-only consumers for item mutations", () => {
+    render(
+      <OrganatoProvider>
+        <WorkspaceRenderProbe />
+      </OrganatoProvider>,
+    );
+
+    const count = screen.getByLabelText("Workspace renders");
+    for (let index = 0; index < 25; index += 1) {
+      fireEvent.click(screen.getByRole("button", { name: "Pin item" }));
     }
     expect(count).toHaveTextContent("1");
   });
