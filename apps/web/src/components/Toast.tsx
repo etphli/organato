@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import {
   useOrganatoActions,
-  useOrganatoData,
   useOrganatoUi,
+  useOrganatoWorkspace,
 } from "../state/OrganatoProvider";
 
 export function Toast() {
-  const { settings } = useOrganatoData();
+  const { settings } = useOrganatoWorkspace();
   const { toast, undo } = useOrganatoUi();
   const { dispatch } = useOrganatoActions();
   useEffect(() => {
