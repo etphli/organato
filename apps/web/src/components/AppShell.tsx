@@ -9,7 +9,7 @@ import {
   Settings,
 } from "lucide-react";
 import type { IntegrationHealth } from "@organato/domain";
-import { useLocation } from "react-router-dom";
+import { NavLink, type NavLinkRenderProps } from "react-router-dom";
 import { useOrganatoUi, useOrganatoWorkspace } from "../state/OrganatoProvider";
 import { useAuthOwner } from "./AuthGate";
 import { BrandMark } from "./BrandMark";
@@ -75,7 +75,6 @@ export function getShellSyncStatus(
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { pathname } = useLocation();
   const owner = useAuthOwner();
   const { integrations } = useOrganatoWorkspace();
   const { syncing } = useOrganatoUi();
@@ -92,47 +91,46 @@ export function AppShell({ children }: { children: ReactNode }) {
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
-      <a
-        href="/settings"
+      <NavLink
+        to="/settings"
         className="mobile-account-link"
         aria-label={`Open Settings for ${displayName}`}
       >
         <span className="avatar" aria-hidden="true">
           {initials}
         </span>
-      </a>
+      </NavLink>
       <aside className="sidebar" aria-label="Primary navigation">
-        <a
-          href="/"
+        <NavLink
+          to="/"
           className="wordmark brand-lockup"
           aria-label="Organato Home"
         >
           <BrandMark size={22} />
           <span className="brand-lockup__name">Organato</span>
-        </a>
+        </NavLink>
         <nav className="sidebar-nav">
-          {navigation.map(({ to, label, icon: Icon }) => {
-            const isActive = to === "/" ? pathname === "/" : pathname === to;
-            return (
-              <a
-                key={to}
-                href={to}
-                aria-current={isActive ? "page" : undefined}
-                className={`nav-item${isActive ? " active" : ""}`}
-                onFocus={() => preloadRoute(to)}
-                onPointerEnter={() => preloadRoute(to)}
-                onTouchStart={() => preloadRoute(to)}
-              >
-                <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
-                <span>{label}</span>
-              </a>
-            );
-          })}
+          {navigation.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === "/"}
+              className={({ isActive }: NavLinkRenderProps) =>
+                `nav-item${isActive ? " active" : ""}`
+              }
+              onFocus={() => preloadRoute(to)}
+              onPointerEnter={() => preloadRoute(to)}
+              onTouchStart={() => preloadRoute(to)}
+            >
+              <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
+              <span>{label}</span>
+            </NavLink>
+          ))}
         </nav>
         <div className="sidebar-account">
           {syncStatus.to ? (
-            <a
-              href={syncStatus.to}
+            <NavLink
+              to={syncStatus.to}
               className={`sync-quiet sync-state sync-state--${syncStatus.tone} sync-state--link`}
               aria-label={`${syncStatus.label}: open ${syncStatus.targetLabel} settings`}
               title={`Open ${syncStatus.targetLabel} settings`}
@@ -142,7 +140,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="sync-state__arrow" aria-hidden="true">
                 <ChevronRight size={14} strokeWidth={1.8} />
               </span>
-            </a>
+            </NavLink>
           ) : (
             <div
               className={`sync-quiet sync-state sync-state--${syncStatus.tone}`}
@@ -152,8 +150,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span>{syncStatus.label}</span>
             </div>
           )}
-          <a
-            href="/settings"
+          <NavLink
+            to="/settings"
             className="account-link"
             onFocus={() => preloadRoute("/settings")}
             onPointerEnter={() => preloadRoute("/settings")}
@@ -163,30 +161,29 @@ export function AppShell({ children }: { children: ReactNode }) {
             </span>
             <span>{displayName}</span>
             <Settings size={17} strokeWidth={1.7} aria-label="Settings" />
-          </a>
+          </NavLink>
         </div>
       </aside>
       <main className="main-content" id="main-content" tabIndex={-1}>
         {children}
       </main>
       <nav className="bottom-nav" aria-label="Primary navigation">
-        {navigation.map(({ to, label, icon: Icon }) => {
-          const isActive = to === "/" ? pathname === "/" : pathname === to;
-          return (
-            <a
-              key={to}
-              href={to}
-              aria-current={isActive ? "page" : undefined}
-              className={isActive ? "active" : ""}
-              onFocus={() => preloadRoute(to)}
-              onPointerEnter={() => preloadRoute(to)}
-              onTouchStart={() => preloadRoute(to)}
-            >
-              <Icon size={21} strokeWidth={1.7} aria-hidden="true" />
-              <span>{label}</span>
-            </a>
-          );
-        })}
+        {navigation.map(({ to, label, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === "/"}
+            className={({ isActive }: NavLinkRenderProps) =>
+              isActive ? "active" : ""
+            }
+            onFocus={() => preloadRoute(to)}
+            onPointerEnter={() => preloadRoute(to)}
+            onTouchStart={() => preloadRoute(to)}
+          >
+            <Icon size={21} strokeWidth={1.7} aria-hidden="true" />
+            <span>{label}</span>
+          </NavLink>
+        ))}
       </nav>
     </div>
   );

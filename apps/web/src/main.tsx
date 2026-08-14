@@ -14,60 +14,37 @@ const queryClient = new QueryClient({
     mutations: { retry: 0 },
   },
 });
-let serviceWorkerRefreshStarted = false;
-const serviceWorkerReloadKey = "organato:last-service-worker-reload";
+const serviceWorkerRetirementKey = "organato:service-worker-retired-v1";
 
-async function prepareServiceWorker() {
+async function retireServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
-  if (import.meta.env.DEV) {
-    const registrations = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(
-      registrations.map((registration) => registration.unregister()),
-    );
-    return;
-  }
   const hadController = navigator.serviceWorker.controller !== null;
-  navigator.serviceWorker.addEventListener(
-    "controllerchange",
-    () => {
-      if (hadController) {
-        const now = Date.now();
-        const lastReload = Number(
-          sessionStorage.getItem(serviceWorkerReloadKey) ?? "0",
-        );
-        if (now - lastReload > 30_000) {
-          sessionStorage.setItem(serviceWorkerReloadKey, String(now));
-          window.location.reload();
-          return;
-        }
-        window.dispatchEvent(new Event("organato:pwa-update"));
-      }
-    },
-    { once: true },
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  await Promise.all(
+    registrations.map((registration) => registration.unregister()),
   );
-  const registration = await navigator.serviceWorker.register("/sw.js", {
-    scope: "/",
-    updateViaCache: "none",
-  });
-  await registration.update();
-  if (serviceWorkerRefreshStarted) return;
-  serviceWorkerRefreshStarted = true;
-  const checkForUpdate = () => {
-    if (document.visibilityState === "visible") {
-      void registration.update().catch(() => undefined);
-    }
-  };
-  document.addEventListener("visibilitychange", checkForUpdate, {
-    passive: true,
-  });
-  window.setInterval(checkForUpdate, 15 * 60_000);
+  if ("caches" in window) {
+    const cacheNames = await caches.keys();
+    await Promise.all(
+      cacheNames
+        .filter((name) => name.startsWith("organato-shell-"))
+        .map((name) => caches.delete(name)),
+    );
+  }
+  if (
+    hadController &&
+    sessionStorage.getItem(serviceWorkerRetirementKey) !== "true"
+  ) {
+    sessionStorage.setItem(serviceWorkerRetirementKey, "true");
+    window.location.reload();
+  }
 }
 
 function mount() {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
+        <BrowserRouter useTransitions={false}>
           <AuthGate>
             <OrganatoProvider>
               <App />
@@ -78,8 +55,8 @@ function mount() {
     </StrictMode>,
   );
   window.addEventListener("load", () => {
-    void prepareServiceWorker().catch(() => {
-      // Offline support is optional; a registration failure must not affect the app.
+    void retireServiceWorker().catch(() => {
+      // Cache cleanup is best effort and must never affect the app.
     });
   });
 }

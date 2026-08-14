@@ -11,7 +11,6 @@ import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { CommandPalette } from "./components/CommandPalette";
 import { Inspector } from "./components/Inspector";
 import { NetworkStatus } from "./components/NetworkStatus";
-import { PwaUpdateNotice } from "./components/PwaUpdateNotice";
 import { SearchOverlay } from "./components/SearchOverlay";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { Toast } from "./components/Toast";
@@ -176,7 +175,6 @@ export function App() {
   return (
     <>
       <NetworkStatus />
-      <PwaUpdateNotice />
       <AppShell>
         {showSetup ? (
           <SetupWizard
