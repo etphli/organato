@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react";
+import { reportClientDiagnostic } from "../clientDiagnostics";
 import { BrandMark } from "./BrandMark";
 
 export class AppErrorBoundary extends Component<
@@ -13,6 +14,10 @@ export class AppErrorBoundary extends Component<
 
   componentDidCatch(error: Error) {
     console.error("Organato render failure", error);
+    reportClientDiagnostic("react_error", {
+      message: error.message.slice(0, 240),
+      stack: error.stack?.slice(0, 800) ?? null,
+    });
   }
 
   render() {

@@ -142,6 +142,48 @@ app.use("/api/*", async (context, next) => {
   await next();
 });
 
+app.post("/api/client-diagnostics", async (context) => {
+  const user = context.get("user");
+  if (
+    !(await rateLimit(
+      context,
+      `client-diagnostics:${user.email.toLowerCase()}`,
+      120,
+      60,
+    ))
+  ) {
+    return context.json({ ok: true });
+  }
+  const body = (await context.req.json().catch(() => null)) as {
+    kind?: unknown;
+    [key: string]: unknown;
+  } | null;
+  const allowedKinds = new Set(["interaction", "runtime_error", "react_error"]);
+  if (!body || typeof body.kind !== "string" || !allowedKinds.has(body.kind)) {
+    return context.json({ error: "Invalid diagnostic event." }, 400);
+  }
+  await recordSecurityEvent(
+    context.env.DB,
+    `client_${body.kind}`,
+    user.email,
+    JSON.stringify(body),
+  );
+  return context.json({ ok: true });
+});
+
+app.get("/api/client-diagnostics", async (context) => {
+  const rows = await context.env.DB.prepare(
+    `SELECT category, summary, created_at
+     FROM security_event
+     WHERE workspace_id = ? AND category LIKE 'client_%'
+     ORDER BY created_at DESC
+     LIMIT 50`,
+  )
+    .bind(context.get("user").workspaceId)
+    .all<{ category: string; summary: string; created_at: string }>();
+  return context.json({ events: rows.results });
+});
+
 app.route("/api/integrations/google", googleIntegrationRoutes);
 
 app.post("/api/integrations/canvas/sync", async (context) => {
