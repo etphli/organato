@@ -8,19 +8,17 @@ import {
 } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
-import { CommandPalette } from "./components/CommandPalette";
-import { Inspector } from "./components/Inspector";
+import { DeferredOverlays } from "./components/DeferredOverlays";
 import { NetworkStatus } from "./components/NetworkStatus";
-import { SearchOverlay } from "./components/SearchOverlay";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { Toast } from "./components/Toast";
-import CalendarPage from "./pages/CalendarPage";
 import {
   useOrganatoActions,
   useOrganatoItems,
   useOrganatoWorkspace,
 } from "./state/OrganatoProvider";
 import {
+  loadCalendarPage,
   loadHomePage,
   loadSettingsPage,
   loadTodoPage,
@@ -30,6 +28,7 @@ import {
 const HomePage = lazy(loadHomePage);
 const WorkPage = lazy(loadWorkPage);
 const TodoPage = lazy(loadTodoPage);
+const CalendarPage = lazy(loadCalendarPage);
 const SettingsPage = lazy(loadSettingsPage);
 
 function ItemDeepLink() {
@@ -206,9 +205,7 @@ export function App() {
           </AppErrorBoundary>
         )}
       </AppShell>
-      <Inspector />
-      <CommandPalette />
-      <SearchOverlay />
+      <DeferredOverlays />
       <Toast />
     </>
   );

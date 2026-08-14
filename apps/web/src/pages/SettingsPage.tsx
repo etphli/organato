@@ -1676,19 +1676,10 @@ export default function SettingsPage() {
               </p>
               <button
                 onClick={() => {
-                  void navigator.serviceWorker
-                    ?.getRegistration()
-                    .then((registration) => registration?.update())
-                    .then(() =>
-                      dispatch({
-                        type: "toast",
-                        message:
-                          "Organato is using the latest available app shell",
-                      }),
-                    );
+                  window.location.reload();
                 }}
               >
-                <RotateCcw size={15} /> Check for PWA update
+                <RotateCcw size={15} /> Reload latest Organato
               </button>
             </div>
           ) : null}

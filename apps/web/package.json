@@ -5,14 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "node node_modules/vite/bin/vite.js",
-    "build": "node node_modules/typescript/bin/tsc -b && node node_modules/vite/bin/vite.js build && node scripts/stamp-service-worker.mjs",
+    "build": "node node_modules/typescript/bin/tsc -b && node node_modules/vite/bin/vite.js build",
     "typecheck": "node node_modules/typescript/bin/tsc -b",
     "test": "node node_modules/vitest/vitest.mjs run",
     "test:coverage": "node node_modules/vitest/vitest.mjs run --coverage"
   },
   "dependencies": {
     "@organato/domain": "workspace:*",
-    "@tanstack/react-query": "^5.83.0",
     "@tanstack/react-table": "^8.21.3",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.468.0",
