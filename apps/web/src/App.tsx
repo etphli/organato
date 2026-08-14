@@ -15,13 +15,13 @@ import { PwaUpdateNotice } from "./components/PwaUpdateNotice";
 import { SearchOverlay } from "./components/SearchOverlay";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { Toast } from "./components/Toast";
+import CalendarPage from "./pages/CalendarPage";
 import {
   useOrganatoActions,
   useOrganatoItems,
   useOrganatoWorkspace,
 } from "./state/OrganatoProvider";
 import {
-  loadCalendarPage,
   loadHomePage,
   loadSettingsPage,
   loadTodoPage,
@@ -30,7 +30,6 @@ import {
 
 const HomePage = lazy(loadHomePage);
 const WorkPage = lazy(loadWorkPage);
-const CalendarPage = lazy(loadCalendarPage);
 const TodoPage = lazy(loadTodoPage);
 const SettingsPage = lazy(loadSettingsPage);
 

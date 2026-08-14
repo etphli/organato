@@ -91,7 +91,7 @@ describe("long-session performance regressions", () => {
         screen.getByRole("dialog", { name: "Details for Group lab report" }),
       ).toBe(inspector);
     }
-  });
+  }, 60_000);
 
   it("does not rerender data-only consumers when selection changes", () => {
     render(

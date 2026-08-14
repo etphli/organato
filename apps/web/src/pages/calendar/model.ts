@@ -63,6 +63,39 @@ export interface CalendarPreferences {
   filters: CalendarFilters;
 }
 
+const timePartsFormatters = new Map<string, Intl.DateTimeFormat>();
+const entryTimeFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function timePartsFormatter(timezone: string): Intl.DateTimeFormat {
+  const cached = timePartsFormatters.get(timezone);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat("en-AU", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  timePartsFormatters.set(timezone, formatter);
+  return formatter;
+}
+
+function entryTimeFormatter(
+  timezone: string,
+  timeFormat: WorkspaceSettings["timeFormat"],
+): Intl.DateTimeFormat {
+  const key = `${timezone}:${timeFormat}`;
+  const cached = entryTimeFormatters.get(key);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat("en-AU", {
+    timeZone: timezone,
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: timeFormat === "12h",
+  });
+  entryTimeFormatters.set(key, formatter);
+  return formatter;
+}
+
 export function dateFromKey(key: string): Date {
   return new Date(`${key}T12:00:00`);
 }
@@ -87,12 +120,7 @@ function timeParts(
   date: Date,
   timezone: string,
 ): { hour: number; minute: number } {
-  const parts = new Intl.DateTimeFormat("en-AU", {
-    timeZone: timezone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
+  const parts = timePartsFormatter(timezone).formatToParts(date);
   const value = (type: "hour" | "minute") =>
     Number(parts.find((part) => part.type === type)?.value ?? 0);
   return { hour: value("hour") % 24, minute: value("minute") };
@@ -108,12 +136,7 @@ function formatEntryTime(
   timezone: string,
   timeFormat: WorkspaceSettings["timeFormat"],
 ): string {
-  return new Intl.DateTimeFormat("en-AU", {
-    timeZone: timezone,
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: timeFormat === "12h",
-  }).format(date);
+  return entryTimeFormatter(timezone, timeFormat).format(date);
 }
 
 function completedItemIsVisible(
