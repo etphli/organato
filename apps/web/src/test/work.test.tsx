@@ -108,7 +108,12 @@ describe("Assignment controls", () => {
     });
     expect(deleteButton).toBeDisabled();
 
-    fireEvent.change(confirmation, { target: { value: "Group lab report" } });
+    const assignmentName = "Group lab report";
+    for (let index = 1; index <= assignmentName.length; index += 1) {
+      fireEvent.change(confirmation, {
+        target: { value: assignmentName.slice(0, index) },
+      });
+    }
     expect(deleteButton).toBeEnabled();
     fireEvent.click(deleteButton);
 

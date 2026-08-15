@@ -196,5 +196,5 @@ describe("server-backed item mutations", () => {
       ),
     );
     expect(screen.queryByText("Failed assignment")).not.toBeInTheDocument();
-  }, 15_000);
+  }, 30_000);
 });

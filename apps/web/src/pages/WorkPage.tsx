@@ -21,7 +21,7 @@ import {
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   daysRemainingLabel,
   itemDeadline,
@@ -37,8 +37,8 @@ import {
 } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
 import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
-import { useDialogFocus } from "../components/useDialogFocus";
 import { CreateWorkControl, type NewWorkItem } from "./CreateWorkForm";
+import { DeleteWorkDialog } from "./DeleteWorkDialog";
 
 const now = new Date();
 const columnHelper = createColumnHelper<OrganatoItem>();
@@ -82,19 +82,18 @@ export default function WorkPage({
   const [deleteCandidate, setDeleteCandidate] = useState<OrganatoItem | null>(
     null,
   );
-  const deleteDialogRef = useRef<HTMLElement>(null);
-  const deleteCloseRef = useRef<HTMLButtonElement>(null);
-  useDialogFocus(
-    deleteCandidate !== null,
-    deleteDialogRef,
-    deleteCloseRef,
-    deleteCandidate?.id ?? "closed",
-  );
-  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const itemNoun = page === "assignments" ? "assignment" : "checkpoint";
   const createWork = useCallback(
     (item: NewWorkItem) => {
       dispatch({ type: "addWork", ...item });
+    },
+    [dispatch],
+  );
+  const closeDeleteDialog = useCallback(() => setDeleteCandidate(null), []);
+  const deleteWork = useCallback(
+    (candidate: OrganatoItem, confirmation: string) => {
+      dispatch({ type: "deleteItem", id: candidate.id, confirmation });
+      setDeleteCandidate(null);
     },
     [dispatch],
   );
@@ -334,10 +333,7 @@ export default function WorkPage({
                 label: `Delete ${itemNoun}`,
                 icon: <Trash2 size={14} aria-hidden="true" />,
                 danger: true,
-                onSelect: () => {
-                  setDeleteCandidate(row.original);
-                  setDeleteConfirmation("");
-                },
+                onSelect: () => setDeleteCandidate(row.original),
               },
             ]}
           />
@@ -755,83 +751,13 @@ export default function WorkPage({
         <p className="item-count">{filteredRowCount} items</p>
       ) : null}
       {deleteCandidate ? (
-        <div
-          className="delete-item-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) {
-              setDeleteCandidate(null);
-              setDeleteConfirmation("");
-            }
-          }}
-        >
-          <section
-            ref={deleteDialogRef}
-            className="delete-item-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-item-title"
-          >
-            <header>
-              <h2 id="delete-item-title">
-                Delete {deleteCandidate.kind === "work" ? itemNoun : "todo"}?
-              </h2>
-              <button
-                ref={deleteCloseRef}
-                type="button"
-                className="icon-button"
-                aria-label="Close delete dialog"
-                onClick={() => {
-                  setDeleteCandidate(null);
-                  setDeleteConfirmation("");
-                }}
-              >
-                ×
-              </button>
-            </header>
-            <p>
-              This permanently removes{" "}
-              <strong>{deleteCandidate.displayName}</strong> from Organato. This
-              cannot be undone.
-            </p>
-            <label>
-              Type the {deleteCandidate.kind === "work" ? itemNoun : "todo"}{" "}
-              name to confirm
-              <input
-                autoFocus
-                value={deleteConfirmation}
-                onChange={(event) => setDeleteConfirmation(event.target.value)}
-              />
-            </label>
-            <footer>
-              <button
-                type="button"
-                onClick={() => {
-                  setDeleteCandidate(null);
-                  setDeleteConfirmation("");
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="danger-button"
-                disabled={deleteConfirmation !== deleteCandidate.displayName}
-                onClick={() => {
-                  dispatch({
-                    type: "deleteItem",
-                    id: deleteCandidate.id,
-                    confirmation: deleteConfirmation,
-                  });
-                  setDeleteCandidate(null);
-                  setDeleteConfirmation("");
-                }}
-              >
-                Delete {deleteCandidate.kind === "work" ? itemNoun : "todo"}
-              </button>
-            </footer>
-          </section>
-        </div>
+        <DeleteWorkDialog
+          key={deleteCandidate.id}
+          candidate={deleteCandidate}
+          itemNoun={itemNoun}
+          onCancel={closeDeleteDialog}
+          onDelete={(confirmation) => deleteWork(deleteCandidate, confirmation)}
+        />
       ) : null}
     </div>
   );
