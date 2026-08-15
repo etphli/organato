@@ -63,10 +63,19 @@ describe("server-backed item mutations", () => {
     vi.stubEnv("VITE_DEMO_MODE", "false");
     const assignment = createdAssignment("Mutation response assignment");
     let createShouldFail = false;
+    let holdNextCreate = false;
+    let releaseHeldCreate: (() => void) | null = null;
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init: RequestInit = {}) => {
         const path = String(input);
         if (path === "/api/items" && init.method === "POST") {
+          if (holdNextCreate) {
+            holdNextCreate = false;
+            return new Promise<Response>((resolve) => {
+              releaseHeldCreate = () =>
+                resolve(json({ item: assignment }, 201));
+            });
+          }
           if (createShouldFail) {
             return json({ error: "Assignment service unavailable." }, 503);
           }
@@ -91,9 +100,8 @@ describe("server-backed item mutations", () => {
     const { default: WorkPage } = await import("../pages/WorkPage");
     const { Toast } = await import("../components/Toast");
 
-    window.history.replaceState(null, "", "/assignments?new=1");
     const rendered = render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={["/assignments"]}>
         <OrganatoProvider>
           <WorkPage page="assignments" />
           <Toast />
@@ -102,6 +110,7 @@ describe("server-backed item mutations", () => {
     );
 
     await screen.findByRole("heading", { name: "Assignments" });
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Work item name" }), {
       target: { value: assignment.displayName },
     });
@@ -141,11 +150,33 @@ describe("server-backed item mutations", () => {
       ),
     ).toHaveLength(1);
 
+    holdNextCreate = true;
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Work item name" }), {
+      target: { value: "Held assignment" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Work item name" }), {
+      target: { value: "Concurrent assignment" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(
+          ([input, init]) =>
+            String(input) === "/api/items" && init?.method === "POST",
+        ),
+      ).toHaveLength(3),
+    );
+    expect(releaseHeldCreate).not.toBeNull();
+    releaseHeldCreate!();
+
     createShouldFail = true;
     rendered.unmount();
-    window.history.replaceState(null, "", "/assignments?new=1");
     render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={["/assignments"]}>
         <OrganatoProvider>
           <WorkPage page="assignments" />
           <Toast />
@@ -153,6 +184,7 @@ describe("server-backed item mutations", () => {
       </MemoryRouter>,
     );
     await screen.findByRole("heading", { name: "Assignments" });
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Work item name" }), {
       target: { value: "Failed assignment" },
     });

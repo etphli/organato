@@ -3,6 +3,7 @@ import {
   Navigate,
   Route,
   Routes,
+  useLocation,
   useNavigate,
   useParams,
 } from "react-router-dom";
@@ -44,6 +45,7 @@ export function App() {
   const { ready, settings } = useOrganatoWorkspace();
   const { dispatch } = useOrganatoActions();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const sequence = useRef("");
   const sequenceTimeout = useRef<number | null>(null);
   const [setupDismissed, setSetupDismissed] = useState(
@@ -144,7 +146,7 @@ export function App() {
             }}
           />
         ) : (
-          <AppErrorBoundary>
+          <AppErrorBoundary key={pathname}>
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route

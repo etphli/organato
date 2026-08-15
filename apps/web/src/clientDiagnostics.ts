@@ -1,8 +1,13 @@
 type DiagnosticKind = "interaction" | "runtime_error" | "react_error";
 
 const sessionKey = "organato_diagnostic_session";
+const verboseDiagnosticsKey = "organato_verbose_diagnostics";
 let installed = false;
 let clickIndex = 0;
+
+export function interactionDiagnosticsEnabled(): boolean {
+  return sessionStorage.getItem(verboseDiagnosticsKey) === "true";
+}
 
 function diagnosticSessionId(): string {
   const existing = sessionStorage.getItem(sessionKey);
@@ -61,28 +66,33 @@ export function installClientDiagnostics() {
   if (installed) return;
   installed = true;
 
-  document.addEventListener(
-    "click",
-    (event) => {
-      const target =
-        event.target instanceof Element ? event.target : document.body;
-      const interactive = target.closest<HTMLElement>("a,button,[role]");
-      clickIndex += 1;
-      reportClientDiagnostic("interaction", {
-        clickIndex,
-        tag: interactive?.tagName.toLowerCase() ?? target.tagName.toLowerCase(),
-        role: interactive?.getAttribute("role") ?? null,
-        className: (interactive?.className || target.className || "")
-          .toString()
-          .slice(0, 120),
-        href:
-          interactive instanceof HTMLAnchorElement
-            ? interactive.getAttribute("href")
-            : null,
-      });
-    },
-    { capture: true },
-  );
+  // Keep the normal click path completely free of diagnostic work. Detailed
+  // interaction capture is installed only for an explicitly enabled session.
+  if (interactionDiagnosticsEnabled()) {
+    document.addEventListener(
+      "click",
+      (event) => {
+        const target =
+          event.target instanceof Element ? event.target : document.body;
+        const interactive = target.closest<HTMLElement>("a,button,[role]");
+        clickIndex += 1;
+        reportClientDiagnostic("interaction", {
+          clickIndex,
+          tag:
+            interactive?.tagName.toLowerCase() ?? target.tagName.toLowerCase(),
+          role: interactive?.getAttribute("role") ?? null,
+          className: (interactive?.className || target.className || "")
+            .toString()
+            .slice(0, 120),
+          href:
+            interactive instanceof HTMLAnchorElement
+              ? interactive.getAttribute("href")
+              : null,
+        });
+      },
+      { capture: true },
+    );
+  }
 
   window.addEventListener("error", (event) => {
     reportClientDiagnostic("runtime_error", {

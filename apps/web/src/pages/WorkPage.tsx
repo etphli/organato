@@ -18,11 +18,10 @@ import {
   Filter,
   GitCompareArrows,
   MoreHorizontal,
-  Plus,
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   daysRemainingLabel,
   itemDeadline,
@@ -34,14 +33,12 @@ import {
 import { PageHeader } from "../components/PageHeader";
 import {
   OrganatoActionMenu,
-  OrganatoDatePicker,
   OrganatoSelect,
-  quarterHourOptions,
 } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
 import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
 import { useDialogFocus } from "../components/useDialogFocus";
-import { localDateTimeToIso } from "./calendar/model";
+import { CreateWorkControl, type NewWorkItem } from "./CreateWorkForm";
 
 const now = new Date();
 const columnHelper = createColumnHelper<OrganatoItem>();
@@ -80,19 +77,6 @@ export default function WorkPage({
   const [showColumns, setShowColumns] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState("");
   const [viewName, setViewName] = useState("");
-  const [creating, setCreating] = useState(
-    () => new URLSearchParams(window.location.search).get("new") === "1",
-  );
-  const [workName, setWorkName] = useState("");
-  const [workDueDate, setWorkDueDate] = useState("");
-  const [workDueTime, setWorkDueTime] = useState("");
-  const [workSubject, setWorkSubject] = useState("");
-  const [workPriority, setWorkPriority] = useState<
-    NonNullable<OrganatoItem["priority"]> | ""
-  >("");
-  const [workClassification, setWorkClassification] = useState<
-    "assignment" | "checkpoint" | "both"
-  >(page === "assignments" ? "assignment" : "checkpoint");
   const pageViews = views.filter((view) => view.page === page);
   const [activeView, setActiveView] = useState("active");
   const [deleteCandidate, setDeleteCandidate] = useState<OrganatoItem | null>(
@@ -108,6 +92,12 @@ export default function WorkPage({
   );
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const itemNoun = page === "assignments" ? "assignment" : "checkpoint";
+  const createWork = useCallback(
+    (item: NewWorkItem) => {
+      dispatch({ type: "addWork", ...item });
+    },
+    [dispatch],
+  );
   const viewOptions = useMemo(
     () => [
       { value: "active", label: "All active" },
@@ -447,9 +437,12 @@ export default function WorkPage({
             >
               <Columns3 size={16} /> Columns
             </button>
-            <a className="new-button" href={`/${page}?new=1`}>
-              <Plus size={16} /> New
-            </a>
+            <CreateWorkControl
+              page={page}
+              subjects={subjects}
+              timezone={settings.timezone}
+              onCreate={createWork}
+            />
             <details className="mobile-actions-menu">
               <summary aria-label="More page actions">
                 <MoreHorizontal size={19} />
@@ -487,105 +480,7 @@ export default function WorkPage({
           </>
         }
       />
-      {creating ? (
-        <form
-          className="create-work-line"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!workName.trim()) return;
-            dispatch({
-              type: "addWork",
-              name: workName.trim(),
-              classification: workClassification,
-              dueAt:
-                workDueDate && workDueTime
-                  ? localDateTimeToIso(
-                      workDueDate,
-                      workDueTime,
-                      settings.timezone,
-                    )
-                  : null,
-              dueDateLocal: workDueDate && !workDueTime ? workDueDate : null,
-              dueHasExplicitTime: Boolean(workDueDate && workDueTime),
-              subjectId: workSubject || null,
-              priority: workPriority || null,
-            });
-            setWorkName("");
-            setWorkDueDate("");
-            setWorkDueTime("");
-            setWorkSubject("");
-            setWorkPriority("");
-            setCreating(false);
-          }}
-        >
-          <input
-            aria-label="Work item name"
-            value={workName}
-            onChange={(event) => setWorkName(event.target.value)}
-            placeholder="Work item name"
-            required
-          />
-          <div className="create-work-due">
-            <OrganatoDatePicker
-              ariaLabel="Due date"
-              value={workDueDate}
-              onChange={setWorkDueDate}
-              placeholder="No date"
-            />
-            <OrganatoSelect
-              ariaLabel="Due time"
-              disabled={!workDueDate}
-              options={quarterHourOptions}
-              value={workDueTime}
-              onChange={setWorkDueTime}
-            />
-          </div>
-          <OrganatoSelect
-            ariaLabel="Classification"
-            options={[
-              {
-                value: page === "assignments" ? "assignment" : "checkpoint",
-                label: page === "assignments" ? "Assignment" : "Checkpoint",
-              },
-              { value: "both", label: "Both" },
-            ]}
-            value={workClassification}
-            onChange={(value) =>
-              setWorkClassification(value as typeof workClassification)
-            }
-          />
-          <OrganatoSelect
-            ariaLabel="Subject"
-            options={[
-              { value: "", label: "No subject" },
-              ...subjects
-                .filter((subject) => subject.active)
-                .map((subject) => ({
-                  value: subject.id,
-                  label: subject.displayName,
-                })),
-            ]}
-            value={workSubject}
-            onChange={setWorkSubject}
-          />
-          <OrganatoSelect
-            ariaLabel="Priority"
-            options={[
-              { value: "", label: "Blank priority" },
-              { value: "low", label: "Low" },
-              { value: "medium", label: "Medium" },
-              { value: "high", label: "High" },
-              { value: "urgent", label: "Urgent" },
-            ]}
-            value={workPriority}
-            onChange={(value) => setWorkPriority(value as typeof workPriority)}
-          />
-          <button type="submit">Create</button>
-          <a className="create-work-cancel" href={`/${page}`}>
-            Cancel
-          </a>
-        </form>
-      ) : null}
+      <div id={`create-${page}-host`} />
       {Object.keys(rowSelection).length ? (
         <div className="bulk-bar" role="toolbar" aria-label="Bulk actions">
           <strong>{Object.keys(rowSelection).length} selected</strong>

@@ -12,13 +12,10 @@ import { OrganatoProvider } from "../state/OrganatoProvider";
 import { seedItems, seedSettings, seedSubjects } from "../data/seed";
 
 function renderAssignments({ creating = false } = {}) {
-  window.history.replaceState(
-    null,
-    "",
-    creating ? "/assignments?new=1" : "/assignments",
-  );
   return render(
-    <MemoryRouter>
+    <MemoryRouter
+      initialEntries={[creating ? "/assignments?new=1" : "/assignments"]}
+    >
       <OrganatoProvider>
         <WorkPage page="assignments" />
       </OrganatoProvider>
@@ -58,7 +55,8 @@ describe("Assignment controls", () => {
   });
 
   it("uses the custom date picker in the create form", () => {
-    renderAssignments({ creating: true });
+    renderAssignments();
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
     fireEvent.click(screen.getByRole("button", { name: "Due date" }));
 
     const calendar = screen.getByRole("dialog", {
@@ -72,6 +70,25 @@ describe("Assignment controls", () => {
       within(calendar).getByRole("button", { name: "Today" }),
     ).toBeInTheDocument();
   });
+
+  it("opens and cancels the create form repeatedly without document navigation", () => {
+    renderAssignments();
+
+    for (let index = 0; index < 25; index += 1) {
+      fireEvent.click(screen.getByRole("button", { name: "New" }));
+      expect(
+        screen.getByRole("textbox", { name: "Work item name" }),
+      ).toBeInTheDocument();
+      fireEvent.change(
+        screen.getByRole("textbox", { name: "Work item name" }),
+        { target: { value: `Draft ${index}` } },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(
+        screen.queryByRole("textbox", { name: "Work item name" }),
+      ).not.toBeInTheDocument();
+    }
+  }, 60_000);
 
   it("deletes an assignment through the row action menu", () => {
     renderAssignments();
