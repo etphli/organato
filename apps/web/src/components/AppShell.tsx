@@ -9,7 +9,7 @@ import {
   Settings,
 } from "lucide-react";
 import type { IntegrationHealth } from "@organato/domain";
-import { NavLink, type NavLinkRenderProps } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { useOrganatoUi, useOrganatoWorkspace } from "../state/OrganatoProvider";
 import { useAuthOwner } from "./AuthGate";
 import { BrandMark } from "./BrandMark";
@@ -75,6 +75,7 @@ export function getShellSyncStatus(
 
 export function AppShell({ children }: { children: ReactNode }) {
   const owner = useAuthOwner();
+  const { pathname } = useLocation();
   const { integrations } = useOrganatoWorkspace();
   const { syncing } = useOrganatoUi();
   const displayName = owner?.displayName || owner?.email || "Owner";
@@ -85,48 +86,50 @@ export function AppShell({ children }: { children: ReactNode }) {
     .map((part) => part[0])
     .join("")
     .toUpperCase();
+  const routeIsActive = (to: string) =>
+    to === "/"
+      ? pathname === "/"
+      : pathname === to || pathname.startsWith(`${to}/`);
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
-      <NavLink
-        to="/settings"
+      <a
+        href="/settings"
         className="mobile-account-link"
         aria-label={`Open Settings for ${displayName}`}
       >
         <span className="avatar" aria-hidden="true">
           {initials}
         </span>
-      </NavLink>
+      </a>
       <aside className="sidebar" aria-label="Primary navigation">
-        <NavLink
-          to="/"
+        <a
+          href="/"
           className="wordmark brand-lockup"
           aria-label="Organato Home"
         >
           <BrandMark size={22} />
           <span className="brand-lockup__name">Organato</span>
-        </NavLink>
+        </a>
         <nav className="sidebar-nav">
           {navigation.map(({ to, label, icon: Icon }) => (
-            <NavLink
+            <a
               key={to}
-              to={to}
-              end={to === "/"}
-              className={({ isActive }: NavLinkRenderProps) =>
-                `nav-item${isActive ? " active" : ""}`
-              }
+              href={to}
+              className={`nav-item${routeIsActive(to) ? " active" : ""}`}
+              aria-current={routeIsActive(to) ? "page" : undefined}
             >
               <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
               <span>{label}</span>
-            </NavLink>
+            </a>
           ))}
         </nav>
         <div className="sidebar-account">
           {syncStatus.to ? (
-            <NavLink
-              to={syncStatus.to}
+            <a
+              href={syncStatus.to}
               className={`sync-quiet sync-state sync-state--${syncStatus.tone} sync-state--link`}
               aria-label={`${syncStatus.label}: open ${syncStatus.targetLabel} settings`}
               title={`Open ${syncStatus.targetLabel} settings`}
@@ -136,7 +139,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="sync-state__arrow" aria-hidden="true">
                 <ChevronRight size={14} strokeWidth={1.8} />
               </span>
-            </NavLink>
+            </a>
           ) : (
             <div
               className={`sync-quiet sync-state sync-state--${syncStatus.tone}`}
@@ -146,13 +149,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span>{syncStatus.label}</span>
             </div>
           )}
-          <NavLink to="/settings" className="account-link">
+          <a href="/settings" className="account-link">
             <span className="avatar" aria-hidden="true">
               {initials}
             </span>
             <span>{displayName}</span>
             <Settings size={17} strokeWidth={1.7} aria-label="Settings" />
-          </NavLink>
+          </a>
         </div>
       </aside>
       <main className="main-content" id="main-content" tabIndex={-1}>
@@ -160,17 +163,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       </main>
       <nav className="bottom-nav" aria-label="Primary navigation">
         {navigation.map(({ to, label, icon: Icon }) => (
-          <NavLink
+          <a
             key={to}
-            to={to}
-            end={to === "/"}
-            className={({ isActive }: NavLinkRenderProps) =>
-              isActive ? "active" : ""
-            }
+            href={to}
+            className={routeIsActive(to) ? "active" : ""}
+            aria-current={routeIsActive(to) ? "page" : undefined}
           >
             <Icon size={21} strokeWidth={1.7} aria-hidden="true" />
             <span>{label}</span>
-          </NavLink>
+          </a>
         ))}
       </nav>
     </div>
