@@ -581,9 +581,9 @@ export default function WorkPage({
             onChange={(value) => setWorkPriority(value as typeof workPriority)}
           />
           <button type="submit">Create</button>
-          <button type="button" onClick={() => setCreating(false)}>
+          <a className="create-work-cancel" href={`/${page}`}>
             Cancel
-          </button>
+          </a>
         </form>
       ) : null}
       {Object.keys(rowSelection).length ? (

@@ -1020,14 +1020,19 @@ input[type="checkbox"] {
 
 .create-work-line input,
 .create-work-line select,
-.create-work-line button {
+.create-work-line button,
+.create-work-line .create-work-cancel {
+  align-items: center;
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 4px;
+  display: inline-flex;
   font-size: 0.72rem;
+  justify-content: center;
   min-height: 32px;
   min-width: 0;
   padding: 0 8px;
+  text-decoration: none;
 }
 
 .filter-bar input,
