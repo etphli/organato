@@ -501,8 +501,16 @@ button:disabled {
 }
 
 .new-button {
+  align-items: center;
+  border-radius: 5px;
   border: 1px solid color-mix(in srgb, var(--focus) 65%, var(--border)) !important;
   color: var(--focus) !important;
+  display: inline-flex;
+  font-size: 0.77rem;
+  gap: 7px;
+  min-height: 33px;
+  padding: 0 9px;
+  text-decoration: none;
 }
 
 .shortcut-button {

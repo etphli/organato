@@ -80,7 +80,9 @@ export default function WorkPage({
   const [showColumns, setShowColumns] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState("");
   const [viewName, setViewName] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(
+    () => new URLSearchParams(window.location.search).get("new") === "1",
+  );
   const [workName, setWorkName] = useState("");
   const [workDueDate, setWorkDueDate] = useState("");
   const [workDueTime, setWorkDueTime] = useState("");
@@ -445,12 +447,9 @@ export default function WorkPage({
             >
               <Columns3 size={16} /> Columns
             </button>
-            <button
-              className="new-button"
-              onClick={() => setCreating((value) => !value)}
-            >
+            <a className="new-button" href={`/${page}?new=1`}>
               <Plus size={16} /> New
-            </button>
+            </a>
             <details className="mobile-actions-menu">
               <summary aria-label="More page actions">
                 <MoreHorizontal size={19} />
@@ -520,7 +519,6 @@ export default function WorkPage({
           }}
         >
           <input
-            autoFocus
             aria-label="Work item name"
             value={workName}
             onChange={(event) => setWorkName(event.target.value)}

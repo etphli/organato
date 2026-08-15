@@ -55,6 +55,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.resetModules();
   sessionStorage.clear();
+  window.history.replaceState(null, "", "/");
 });
 
 describe("server-backed item mutations", () => {
@@ -90,7 +91,8 @@ describe("server-backed item mutations", () => {
     const { default: WorkPage } = await import("../pages/WorkPage");
     const { Toast } = await import("../components/Toast");
 
-    render(
+    window.history.replaceState(null, "", "/assignments?new=1");
+    const rendered = render(
       <MemoryRouter>
         <OrganatoProvider>
           <WorkPage page="assignments" />
@@ -100,7 +102,6 @@ describe("server-backed item mutations", () => {
     );
 
     await screen.findByRole("heading", { name: "Assignments" });
-    fireEvent.click(screen.getByRole("button", { name: "New" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Work item name" }), {
       target: { value: assignment.displayName },
     });
@@ -141,7 +142,17 @@ describe("server-backed item mutations", () => {
     ).toHaveLength(1);
 
     createShouldFail = true;
-    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    rendered.unmount();
+    window.history.replaceState(null, "", "/assignments?new=1");
+    render(
+      <MemoryRouter>
+        <OrganatoProvider>
+          <WorkPage page="assignments" />
+          <Toast />
+        </OrganatoProvider>
+      </MemoryRouter>,
+    );
+    await screen.findByRole("heading", { name: "Assignments" });
     fireEvent.change(screen.getByRole("textbox", { name: "Work item name" }), {
       target: { value: "Failed assignment" },
     });

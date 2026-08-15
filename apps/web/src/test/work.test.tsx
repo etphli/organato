@@ -11,7 +11,12 @@ import WorkPage from "../pages/WorkPage";
 import { OrganatoProvider } from "../state/OrganatoProvider";
 import { seedItems, seedSettings, seedSubjects } from "../data/seed";
 
-function renderAssignments() {
+function renderAssignments({ creating = false } = {}) {
+  window.history.replaceState(
+    null,
+    "",
+    creating ? "/assignments?new=1" : "/assignments",
+  );
   return render(
     <MemoryRouter>
       <OrganatoProvider>
@@ -32,6 +37,7 @@ describe("Assignment controls", () => {
 
   afterEach(() => {
     cleanup();
+    window.history.replaceState(null, "", "/");
   });
 
   it("switches between active and all assignments", () => {
@@ -52,9 +58,7 @@ describe("Assignment controls", () => {
   });
 
   it("uses the custom date picker in the create form", () => {
-    renderAssignments();
-
-    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    renderAssignments({ creating: true });
     fireEvent.click(screen.getByRole("button", { name: "Due date" }));
 
     const calendar = screen.getByRole("dialog", {
