@@ -16,9 +16,10 @@ export const DeleteWorkDialog = memo(function DeleteWorkDialog({
   onCancel,
   onDelete,
 }: DeleteWorkDialogProps) {
-  const [confirmation, setConfirmation] = useState("");
+  const [matchesCandidate, setMatchesCandidate] = useState(false);
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const confirmationRef = useRef<HTMLInputElement>(null);
   useDialogFocus(true, dialogRef, closeRef, candidate.id);
 
   return (
@@ -55,8 +56,13 @@ export const DeleteWorkDialog = memo(function DeleteWorkDialog({
         <label>
           Type the {itemNoun} name to confirm
           <input
-            value={confirmation}
-            onChange={(event) => setConfirmation(event.target.value)}
+            ref={confirmationRef}
+            onChange={(event) => {
+              const matches = event.target.value === candidate.displayName;
+              setMatchesCandidate((current) =>
+                current === matches ? current : matches,
+              );
+            }}
           />
         </label>
         <footer>
@@ -66,8 +72,8 @@ export const DeleteWorkDialog = memo(function DeleteWorkDialog({
           <button
             type="button"
             className="danger-button"
-            disabled={confirmation !== candidate.displayName}
-            onClick={() => onDelete(confirmation)}
+            disabled={!matchesCandidate}
+            onClick={() => onDelete(confirmationRef.current?.value ?? "")}
           >
             Delete {itemNoun}
           </button>
