@@ -3,12 +3,11 @@ import {
   Navigate,
   Route,
   Routes,
-  useLocation,
   useNavigate,
   useParams,
 } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
-import { AppErrorBoundary } from "./components/AppErrorBoundary";
+import { RouteErrorBoundary } from "./components/AppErrorBoundary";
 import { DeferredOverlays } from "./components/DeferredOverlays";
 import { NetworkStatus } from "./components/NetworkStatus";
 import { SetupWizard } from "./components/setup/SetupWizard";
@@ -45,7 +44,6 @@ export function App() {
   const { ready, settings } = useOrganatoWorkspace();
   const { dispatch } = useOrganatoActions();
   const navigate = useNavigate();
-  const { pathname } = useLocation();
   const sequence = useRef("");
   const sequenceTimeout = useRef<number | null>(null);
   const [setupDismissed, setSetupDismissed] = useState(
@@ -146,7 +144,7 @@ export function App() {
             }}
           />
         ) : (
-          <AppErrorBoundary key={pathname}>
+          <RouteErrorBoundary>
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route
@@ -163,7 +161,7 @@ export function App() {
               <Route path="/items/:id" element={<ItemDeepLink />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
-          </AppErrorBoundary>
+          </RouteErrorBoundary>
         )}
       </AppShell>
       <DeferredOverlays />

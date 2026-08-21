@@ -1,14 +1,19 @@
 import { Component, type ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 import { reportClientDiagnostic } from "../clientDiagnostics";
 import { BrandMark } from "./BrandMark";
 
-export class AppErrorBoundary extends Component<
-  { children: ReactNode },
-  { error: Error | null }
-> {
-  state = { error: null as Error | null };
+interface BoundaryState {
+  error: Error | null;
+}
 
-  static getDerivedStateFromError(error: Error) {
+class AppErrorBoundaryClass extends Component<
+  { children: ReactNode; locationKey: string },
+  BoundaryState
+> {
+  state: BoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): BoundaryState {
     return { error };
   }
 
@@ -18,6 +23,15 @@ export class AppErrorBoundary extends Component<
       message: error.message.slice(0, 240),
       stack: error.stack?.slice(0, 800) ?? null,
     });
+  }
+
+  componentDidUpdate(previousProps: { locationKey: string }) {
+    if (
+      this.state.error &&
+      previousProps.locationKey !== this.props.locationKey
+    ) {
+      this.setState({ error: null });
+    }
   }
 
   render() {
@@ -43,4 +57,19 @@ export class AppErrorBoundary extends Component<
       </main>
     );
   }
+}
+
+export function AppErrorBoundary({ children }: { children: ReactNode }) {
+  return (
+    <AppErrorBoundaryClass locationKey="">{children}</AppErrorBoundaryClass>
+  );
+}
+
+export function RouteErrorBoundary({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
+  return (
+    <AppErrorBoundaryClass locationKey={pathname}>
+      {children}
+    </AppErrorBoundaryClass>
+  );
 }
