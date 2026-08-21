@@ -172,7 +172,7 @@ Changing conflict policy away from `Google wins for Organato-owned event fields`
 
 - Canvas hostname.
 - Connected Canvas user.
-- Token status.
+- Session status.
 - Last validated.
 - Last successful sync.
 - Next expected sync.
@@ -183,7 +183,7 @@ Changing conflict policy away from `Google wins for Organato-owned event fields`
 - Import no-due upcoming items: on.
 - Read submission status: on.
 - Course list and detected assignment counts.
-- Replace token.
+- Replace session.
 - Disconnect.
 - Recent sync history.
 - Download sanitized diagnostic report.
@@ -367,9 +367,9 @@ The last option requires recent reauthentication, typed workspace name, backup o
 - Security events.
 - Reauthenticate now.
 - Revoke all sessions.
-- Revoke Canvas token metadata from Organato.
+- Revoke Canvas session metadata from Organato.
 - Revoke Google integration.
-- Token encryption key version status.
+- Credential encryption key version status.
 - Copy privacy-policy URL.
 - View requested Google scopes in plain language.
 - View deployment origin and allowed redirect origins.

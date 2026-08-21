@@ -63,15 +63,17 @@ Official references:
 ## Canvas setup
 
 1. Open Settings → Canvas / Reshet.
-2. Enter a personal access token. The Emanuel School origin is configured and
-   enforced server-side.
-3. Organato validates the token against the current-user endpoint before encrypting it.
+2. Paste the session cookie of a signed-in Reshet browser tab (see
+   [Reshet session import](12-reshet-session-import.md)). The Emanuel School
+   origin is configured and enforced server-side.
+3. Organato validates the session against the current-user endpoint before encrypting it.
 4. Confirm the detected user and school.
 5. Organato runs the first sync; compare the redacted diagnostics with the school's actual upcoming/personalized-date behavior.
 
 Organato pins the exact origin, rejects alternate ports and credential-bearing
 cross-origin redirects, follows pagination with loop detection, uses bounded
-course concurrency, and never calls a Canvas mutation endpoint.
+course concurrency, and never calls a Canvas mutation endpoint. When Reshet
+expires the session, repeat step 2 with a fresh cookie value.
 
 ## Scheduler decision
 
@@ -151,7 +153,7 @@ apply it to production.
 
 ## Recovery
 
-- Canvas token: revoke in Canvas, disconnect, replace, review sanitized sync runs.
+- Canvas session: sign out everywhere in Reshet, disconnect, reconnect with a fresh cookie, review sanitized sync runs.
 - Google authorization: revoke in Google Account permissions, revoke Organato sessions, reconnect, reconcile the dedicated calendar.
 - Database compromise: revoke provider credentials, rotate session/encryption keys, revoke sessions, restore a known-good secret-free export.
 - Backup restore: Settings validates the complete schema, previews counts, requires `RESTORE ORGANATO`, downloads the current workspace first, then performs an idempotent merge. Keep the downloaded pre-restore file until the merged workspace has been checked.

@@ -44,7 +44,7 @@ export type CanvasConnectionErrorCode =
   | "invalid_base_url"
   | "unexpected_origin"
   | "unexpected_redirect"
-  | "token_rejected"
+  | "session_rejected"
   | "api_access_denied"
   | "rate_limited"
   | "request_failed"
@@ -64,25 +64,28 @@ export class CanvasConnectionError extends Error {
 }
 
 /**
- * Canvas shows the token value as plain text, but clipboard managers and
- * password tools commonly include a Bearer prefix, quotes, or line breaks.
- * Normalize those harmless presentation details once at the integration
- * boundary so every request uses the exact credential value Canvas expects.
+ * Organato authenticates as the signed-in Canvas user by replaying the
+ * browser session cookie, so no personal access token is required. The
+ * cookie value is normally copied from the browser's developer tools and
+ * clipboard tools commonly include a "Cookie:" header label, quotes, or
+ * line breaks. Normalize those harmless presentation details once at the
+ * integration boundary so every request uses the exact value Canvas
+ * expects.
  */
-export function normalizeCanvasToken(value: string): string {
-  let token = value.replace(/^\uFEFF/, "").trim();
+export function normalizeCanvasCookie(value: string): string {
+  let cookie = value.replace(/^\uFEFF/, "").trim();
   for (let pass = 0; pass < 2; pass += 1) {
     if (
-      (token.startsWith('"') && token.endsWith('"')) ||
-      (token.startsWith("'") && token.endsWith("'"))
+      (cookie.startsWith('"') && cookie.endsWith('"')) ||
+      (cookie.startsWith("'") && cookie.endsWith("'"))
     ) {
-      token = token.slice(1, -1).trim();
+      cookie = cookie.slice(1, -1).trim();
     }
-    if (/^bearer\s+/i.test(token)) {
-      token = token.replace(/^bearer\s+/i, "").trim();
+    if (/^cookie\s*:/i.test(cookie)) {
+      cookie = cookie.replace(/^cookie\s*:/i, "").trim();
     }
   }
-  return token.replace(/(?:\s|\u200B|\u200C|\u200D|\u2060|\uFEFF)/gu, "");
+  return cookie;
 }
 
 function identityFromResponse(
@@ -179,16 +182,16 @@ export class CanvasRestProvider implements CanvasProvider {
 
   constructor(
     baseUrl: string,
-    token: string,
+    cookie: string,
     private readonly fetcher: typeof fetch = fetch,
     private readonly sleep: Sleep = (milliseconds) =>
       new Promise((resolve) => setTimeout(resolve, milliseconds)),
   ) {
     this.baseUrl = validateBaseUrl(baseUrl);
-    this.token = normalizeCanvasToken(token);
+    this.cookie = normalizeCanvasCookie(cookie);
   }
 
-  private readonly token: string;
+  private readonly cookie: string;
 
   private async request(
     pathOrUrl: string,
@@ -206,7 +209,7 @@ export class CanvasRestProvider implements CanvasProvider {
       try {
         response = await this.fetcher.call(globalThis, url.toString(), {
           headers: {
-            Authorization: `Bearer ${this.token}`,
+            Cookie: this.cookie,
             Accept: "application/json",
           },
           redirect: "manual",
@@ -233,10 +236,10 @@ export class CanvasRestProvider implements CanvasProvider {
         throw new CanvasConnectionError(
           isInsufficientScope(response)
             ? "api_access_denied"
-            : "token_rejected",
+            : "session_rejected",
           isInsufficientScope(response)
             ? "Canvas denied access to this API endpoint."
-            : "Canvas rejected the token.",
+            : "Canvas rejected the browser session.",
           response.status,
         );
       }
@@ -367,9 +370,9 @@ export class CanvasRestProvider implements CanvasProvider {
     }
 
     // Some Canvas installations scope the self/profile endpoints separately
-    // from course access. Prove the credential can perform Organato's actual
-    // read-only import before accepting it, while still failing closed for a
-    // bad token or an inaccessible course API.
+    // from course access. Prove the session can perform Organato's actual
+    // read-only import before accepting it, while still failing closed for
+    // an expired session or an inaccessible course API.
     let courseProbeError: CanvasConnectionError | null = null;
     try {
       const response = await this.request(

@@ -17,20 +17,26 @@
 ### Setup
 
 The Emanuel School installation is pinned server-side to
-`https://emanuel.instructure.com`. The ordinary owner flow asks only for a
-personal Canvas API access token. A different installation is an advanced,
+`https://emanuel.instructure.com`. The ordinary owner flow asks only for the
+browser session cookie of an already signed-in Reshet tab — no personal API
+token is created or required, which matters because Emanuel School blocks
+student API token creation. A different installation is an advanced,
 operator-configured deployment concern rather than a normal setting.
 
 The setup flow:
 
 1. Resolve and enforce the configured HTTPS installation origin.
-2. Call a harmless identity endpoint to validate the token.
+2. Call a harmless identity endpoint to validate the session cookie.
 3. Show the detected Canvas user and `Emanuel School`.
-4. Encrypt the token server-side.
+4. Encrypt the cookie server-side.
 5. Run an initial upcoming-assignment sync.
 6. Show the number of active courses and upcoming assignments found.
 
-The token must never appear again in full. Settings shows only token creation date if known, last validation time, and a Replace/Revoke control.
+The cookie must never appear again in full. Settings shows only the connected
+Canvas user, last validation time, and a Replace/Revoke control. When Reshet
+expires the session (typically after days or weeks), sync marks the connection
+`action needed` and the owner pastes a fresh cookie value — see
+[Reshet session import](12-reshet-session-import.md).
 
 ### Read scope
 
@@ -134,7 +140,7 @@ If confirmed:
 
 | Failure                      | Behaviour                                                      |
 | ---------------------------- | -------------------------------------------------------------- |
-| Token rejected               | Disable Canvas automation, preserve data, request reconnection |
+| Session expired or rejected  | Disable Canvas automation, preserve data, request reconnection |
 | Canvas unavailable           | Keep existing data, retry next hour                            |
 | One course fails             | Process other courses; mark run partial                        |
 | Rate limited                 | Respect `Retry-After`, use exponential backoff                 |

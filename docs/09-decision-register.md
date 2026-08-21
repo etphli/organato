@@ -15,7 +15,7 @@ This document separates confirmed product decisions from design interpretations 
 | Offline                 | Not included                                                                                                                      |
 | Authentication          | Google sign-in only                                                                                                               |
 | Identities              | More than one Google email may be allowed, but there is one actual owner/workspace                                                |
-| Canvas token            | Owner can generate a personal Canvas API token                                                                                    |
+| Canvas credential       | Browser session cookie of a signed-in Reshet tab; no API token (school blocks student token creation)                             |
 | Canvas scope            | Import just upcoming assignments                                                                                                  |
 | Canvas schedule         | Check hourly and provide Sync now                                                                                                 |
 | Classification          | Ask on Home; no learned or keyword-based auto-classification                                                                      |
@@ -130,7 +130,7 @@ The Canvas/Reshet origin is confirmed as
 `https://emanuel.instructure.com`. The final Organato mark is the code-native
 incomplete orbital O with one organizing point.
 
-Secrets such as the Canvas token must be entered during protected setup and must not be written in this file.
+Secrets such as the Canvas session cookie must be entered during protected setup and must not be written in this file.
 
 ## 5. Technical validations still required
 

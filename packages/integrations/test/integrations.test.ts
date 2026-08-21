@@ -5,6 +5,7 @@ import {
   CanvasRestProvider,
   GoogleCalendarRestProvider,
   nextLink,
+  normalizeCanvasCookie,
   projectCalendarEvent,
   validateBaseUrl,
 } from "../src";
@@ -63,8 +64,8 @@ describe("Canvas network boundaries", () => {
     ) {
       expect(this).toBe(globalThis);
       expect(typeof input).toBe("string");
-      expect(new Headers(init?.headers).get("Authorization")).toBe(
-        "Bearer private-token",
+      expect(new Headers(init?.headers).get("Cookie")).toBe(
+        "canvas_session=private-session",
       );
       if (String(input).endsWith("/api/v1/users/self")) {
         expect(input).toBe("https://emanuel.instructure.com/api/v1/users/self");
@@ -80,7 +81,7 @@ describe("Canvas network boundaries", () => {
     }) as unknown as typeof fetch;
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "private-token",
+      "canvas_session=private-session",
       fetcher,
     );
 
@@ -90,11 +91,11 @@ describe("Canvas network boundaries", () => {
     });
   });
 
-  it("normalizes a pasted Bearer token before sending it", async () => {
+  it("normalizes a pasted Cookie header before sending it", async () => {
     const fetcher = vi.fn(
       async (_input: RequestInfo | URL, init?: RequestInit) => {
-        expect(new Headers(init?.headers).get("Authorization")).toBe(
-          "Bearer private-token",
+        expect(new Headers(init?.headers).get("Cookie")).toBe(
+          "canvas_session=private-session",
         );
         if (String(_input).endsWith("/api/v1/users/self")) {
           return new Response(JSON.stringify({ id: 1, name: "Ethan Likht" }), {
@@ -110,7 +111,7 @@ describe("Canvas network boundaries", () => {
     ) as unknown as typeof fetch;
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      '  Bearer "private-\ntoken"  ',
+      '  cookie: "canvas_session=private-session"  ',
       fetcher,
     );
 
@@ -120,10 +121,19 @@ describe("Canvas network boundaries", () => {
     });
   });
 
-  it("distinguishes an invalid token from denied API access", async () => {
-    const invalidTokenProvider = new CanvasRestProvider(
+  it("keeps every cookie pair intact while normalizing", () => {
+    expect(normalizeCanvasCookie("_csrf_token=a; canvas_session=b")).toBe(
+      "_csrf_token=a; canvas_session=b",
+    );
+    expect(normalizeCanvasCookie("Cookie:\n_canvas_session=x")).toBe(
+      "_canvas_session=x",
+    );
+  });
+
+  it("distinguishes an expired session from denied API access", async () => {
+    const expiredSessionProvider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "invalid-token",
+      "canvas_session=expired",
       (async () =>
         new Response(null, {
           status: 401,
@@ -132,26 +142,26 @@ describe("Canvas network boundaries", () => {
     );
     const deniedProvider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "restricted-token",
+      "canvas_session=restricted",
       (async () => new Response(null, { status: 403 })) as typeof fetch,
     );
 
     await expect(
-      invalidTokenProvider.validateConnection(),
-    ).rejects.toMatchObject({ code: "token_rejected", status: 401 });
+      expiredSessionProvider.validateConnection(),
+    ).rejects.toMatchObject({ code: "session_rejected", status: 401 });
     await expect(deniedProvider.validateConnection()).rejects.toMatchObject({
       code: "api_access_denied",
       status: 403,
     });
 
-    const invalidWithoutChallengeProvider = new CanvasRestProvider(
+    const expiredWithoutChallengeProvider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "invalid-token",
+      "canvas_session=expired",
       (async () => new Response(null, { status: 401 })) as typeof fetch,
     );
     await expect(
-      invalidWithoutChallengeProvider.validateConnection(),
-    ).rejects.toMatchObject({ code: "token_rejected", status: 401 });
+      expiredWithoutChallengeProvider.validateConnection(),
+    ).rejects.toMatchObject({ code: "session_rejected", status: 401 });
   });
 
   it("falls back to the profile endpoint when the standard identity route is denied", async () => {
@@ -176,7 +186,7 @@ describe("Canvas network boundaries", () => {
     }) as typeof fetch;
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "private-token",
+      "canvas_session=private-session",
       fetcher,
     );
 
@@ -202,7 +212,7 @@ describe("Canvas network boundaries", () => {
     }) as typeof fetch;
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "private-token",
+      "canvas_session=private-session",
       fetcher,
     );
 
@@ -310,7 +320,7 @@ describe("Canvas network boundaries", () => {
       )) as typeof fetch;
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "private-token",
+      "canvas_session=private-session",
       fetcher,
     );
 
@@ -336,7 +346,7 @@ describe("Canvas network boundaries", () => {
       )) as typeof fetch;
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "private-token",
+      "canvas_session=private-session",
       fetcher,
     );
 

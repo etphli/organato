@@ -1314,7 +1314,7 @@ apiRoutes.get("/integrations/canvas/reachability", async (context) => {
     const category = canvasConnectionErrorCategory(error);
     return context.json({
       reachable:
-        category.startsWith("token_rejected_") ||
+        category.startsWith("session_rejected_") ||
         category.startsWith("api_access_denied_"),
       result: category,
     });
@@ -1341,7 +1341,7 @@ apiRoutes.post(
     }
     const provider = new CanvasRestProvider(
       installation.baseUrl.origin,
-      input.token,
+      input.cookie,
     );
     let identity: Awaited<ReturnType<typeof provider.validateConnection>>;
     try {
@@ -1352,7 +1352,7 @@ apiRoutes.post(
         context.env.DB,
         "canvas_connect_failed",
         context.get("user").email,
-        `Reshet token validation stopped safely (${category}).`,
+        `Reshet session validation stopped safely (${category}).`,
       );
       return context.json(
         {
@@ -1370,7 +1370,7 @@ apiRoutes.post(
       now,
     });
     const encrypted = await encryptSecret(
-      input.token,
+      input.cookie,
       context.env.DATA_ENCRYPTION_KEY,
       metadata.credentialAad,
     );

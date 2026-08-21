@@ -1,6 +1,6 @@
 import {
   CanvasConnectionError,
-  normalizeCanvasToken,
+  normalizeCanvasCookie,
   validateBaseUrl,
 } from "@organato/integrations";
 import { z } from "zod";
@@ -8,10 +8,23 @@ import type { Env } from "./types";
 
 export const canvasConnectSchema = z
   .object({
-    token: z
+    cookie: z
       .string()
-      .transform(normalizeCanvasToken)
-      .pipe(z.string().min(10).max(500)),
+      .transform(normalizeCanvasCookie)
+      .pipe(
+        z
+          .string()
+          .min(10)
+          .max(4000)
+          .refine(
+            (value) =>
+              ![...value].some((character) => {
+                const code = character.charCodeAt(0);
+                return code < 32 || code === 127;
+              }),
+            { message: "Cookie must be a single header value." },
+          ),
+      ),
   })
   .strict();
 
@@ -106,11 +119,11 @@ export function nextHourlySyncAt(now = new Date()): string {
 
 export function safeCanvasConnectionError(error: unknown): string {
   if (error instanceof CanvasConnectionError) {
-    if (error.code === "token_rejected") {
-      return "Reshet says this token is invalid or expired. Copy the full token value shown when it is created (not the token ID), then try once.";
+    if (error.code === "session_rejected") {
+      return "Reshet ended this browser session. Sign in to Reshet in your browser, copy the fresh Cookie value from the network tab, and reconnect.";
     }
     if (error.code === "api_access_denied") {
-      return "Emanuel Canvas denied the read-only API access Organato needs. The token must allow GET /api/v1/courses and GET /api/v1/courses/:course_id/assignments. If those scopes are unavailable, ask the school's Canvas administrator to allow them; another token with the same restrictions will fail too.";
+      return "Emanuel Canvas denied the read-only API access Organato needs while signed in as you. Confirm you can open Courses and an assignment list in a private browser window, then try again. If it still fails, ask the school's Canvas administrator to allow student access to GET /api/v1/courses and GET /api/v1/courses/:course_id/assignments.";
     }
     if (
       error.code === "unexpected_origin" ||

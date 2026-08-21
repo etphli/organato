@@ -48,8 +48,8 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
   const [step, setStep] = useState<SetupStep>(1);
   const [canvas, setCanvas] = useState<CanvasConnectionStatus | null>(null);
   const [google, setGoogle] = useState<GoogleDeliverySettings | null>(null);
-  const [token, setToken] = useState("");
-  const [showToken, setShowToken] = useState(false);
+  const [cookie, setCookie] = useState("");
+  const [showCookie, setShowCookie] = useState(false);
   const [busy, setBusy] = useState<
     "load" | "canvas" | "canvas-probe" | "google" | "reauthenticate" | null
   >("load");
@@ -115,8 +115,8 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
     setNeedsReauthentication(reauthenticationRequired);
     if (reauthenticationRequired) {
       setRecentAuthentication(false);
-      setToken("");
-      setShowToken(false);
+      setCookie("");
+      setShowCookie(false);
     }
     setError(
       requestError instanceof Error
@@ -128,10 +128,12 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
   const connectCanvas = async () => {
     if (!recentAuthentication) {
       setNeedsReauthentication(true);
-      setError("Confirm your Google sign-in before entering a Reshet token.");
+      setError(
+        "Confirm your Google sign-in before entering a Reshet session cookie.",
+      );
       return;
     }
-    const trimmed = token.trim();
+    const trimmed = cookie.trim();
     if (trimmed.length < 10) return;
     setBusy("canvas");
     setError(null);
@@ -141,15 +143,15 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
         "/api/integrations/canvas/connect",
         {
           method: "POST",
-          body: JSON.stringify({ token: trimmed }),
+          body: JSON.stringify({ cookie: trimmed }),
         },
       );
       const nextStatus = await integrationRequest<CanvasConnectionStatus>(
         "/api/integrations/canvas/status",
       );
       setCanvas(nextStatus);
-      setToken("");
-      setShowToken(false);
+      setCookie("");
+      setShowCookie(false);
       setCanvasMessage(
         result.initialSync.status === "failed"
           ? result.initialSync.message
@@ -186,7 +188,7 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
       }>("/api/integrations/canvas/reachability");
       setCanvasMessage(
         result.reachable
-          ? "Reshet is reachable from Organato. If validation still fails, create a fresh personal access token."
+          ? "Reshet is reachable from Organato. If validation still fails, copy a fresh session cookie from your browser."
           : `Organato’s server could not reach Reshet (${result.result.replaceAll("_", " ")}).`,
       );
     } catch (requestError) {
@@ -199,8 +201,8 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
   const confirmAgain = async () => {
     setBusy("reauthenticate");
     setError(null);
-    setToken("");
-    setShowToken(false);
+    setCookie("");
+    setShowCookie(false);
     try {
       await reauthenticate("/");
     } catch (requestError) {
@@ -322,8 +324,8 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                 ) : (
                   <>
                     <div className="setup-token">
-                      <label htmlFor="setup-canvas-token">
-                        Personal access token
+                      <label htmlFor="setup-canvas-cookie">
+                        Reshet session cookie
                       </label>
                       <span className="setup-token__input">
                         <LockKeyhole size={16} aria-hidden="true" />
@@ -331,31 +333,46 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                           autoComplete="off"
                           data-1p-ignore="true"
                           data-lpignore="true"
-                          id="setup-canvas-token"
-                          placeholder="Paste your Canvas token"
+                          id="setup-canvas-cookie"
+                          placeholder="Paste your Reshet Cookie value"
                           spellCheck={false}
-                          type={showToken ? "text" : "password"}
-                          value={token}
-                          onChange={(event) => setToken(event.target.value)}
+                          type={showCookie ? "text" : "password"}
+                          value={cookie}
+                          onChange={(event) => setCookie(event.target.value)}
                         />
                         <button
-                          aria-label={showToken ? "Hide token" : "Show token"}
-                          onClick={() => setShowToken((current) => !current)}
+                          aria-label={
+                            showCookie ? "Hide cookie" : "Show cookie"
+                          }
+                          onClick={() => setShowCookie((current) => !current)}
                           type="button"
                         >
-                          {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                          {showCookie ? (
+                            <EyeOff size={16} />
+                          ) : (
+                            <Eye size={16} />
+                          )}
                         </button>
                       </span>
                     </div>
-                    <a
-                      className="setup-step__external"
-                      href="https://emanuel.instructure.com/profile/settings"
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Create a token in Reshet
-                      <ChevronRight size={13} />
-                    </a>
+                    <details className="setup-step__howto">
+                      <summary>
+                        How to copy the cookie
+                        <ChevronRight size={13} />
+                      </summary>
+                      <ol>
+                        <li>Sign in to Reshet in your normal browser.</li>
+                        <li>
+                          Press F12, open the Network tab, and refresh the page.
+                        </li>
+                        <li>Click the very first request in the list.</li>
+                        <li>
+                          Under Request Headers, copy the whole value of the{" "}
+                          <code>cookie:</code> line.
+                        </li>
+                        <li>Paste it above. No API key is needed.</li>
+                      </ol>
+                    </details>
                     <button
                       className="setup-step__probe"
                       disabled={busy === "canvas-probe"}
@@ -394,7 +411,7 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                   ) : recentAuthentication ? (
                     <button
                       className="setup-step__primary"
-                      disabled={busy === "canvas" || token.trim().length < 10}
+                      disabled={busy === "canvas" || cookie.trim().length < 10}
                       onClick={() => void connectCanvas()}
                       type="button"
                     >
@@ -411,7 +428,8 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                   <span>
                     <strong>Verify your account</strong>
                     <small>
-                      Organato checks the token against Emanuel School.
+                      Organato checks your Reshet session against Emanuel
+                      School.
                     </small>
                   </span>
                 </div>

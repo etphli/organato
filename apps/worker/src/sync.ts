@@ -170,7 +170,7 @@ export async function runCanvasSync(
     connection.account_label,
   );
   if (!metadata) throw new Error("Canvas connection metadata is invalid.");
-  const token = await decryptSecret(
+  const credential = await decryptSecret(
     connection.encrypted_credential,
     env.DATA_ENCRYPTION_KEY,
     metadata.credentialAad,
@@ -192,7 +192,7 @@ export async function runCanvasSync(
     };
   }
   try {
-    const provider = new CanvasRestProvider(metadata.baseUrl, token);
+    const provider = new CanvasRestProvider(metadata.baseUrl, credential);
     const result = await provider.fetchUpcomingAssignments(
       AbortSignal.timeout(45_000),
     );
@@ -546,12 +546,13 @@ export async function runCanvasSync(
   } catch (error) {
     const failedAt = new Date().toISOString();
     const authenticationFailure =
-      error instanceof CanvasConnectionError && error.code === "token_rejected";
+      error instanceof CanvasConnectionError &&
+      error.code === "session_rejected";
     const transientFailure =
       error instanceof CanvasConnectionError &&
       (error.code === "request_failed" || error.code === "rate_limited");
     const failureCategory = authenticationFailure
-      ? "canvas_token_rejected"
+      ? "canvas_session_rejected"
       : transientFailure
         ? "canvas_temporarily_unavailable"
         : error instanceof CanvasConnectionError

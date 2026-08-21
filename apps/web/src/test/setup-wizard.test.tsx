@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 describe("first-run setup", () => {
-  it("confirms a stale session before showing the Reshet token field", async () => {
+  it("confirms a stale session before showing the Reshet cookie field", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       const body = path.startsWith("/api/items")
@@ -70,7 +70,7 @@ describe("first-run setup", () => {
       }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByLabelText("Personal access token"),
+      screen.queryByLabelText("Reshet session cookie"),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Connect and import" }),

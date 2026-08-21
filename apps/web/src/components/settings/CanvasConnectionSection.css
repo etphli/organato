@@ -113,7 +113,7 @@
   margin-bottom: 8px;
 }
 
-.canvas-connection__token-field {
+.canvas-connection__cookie-field {
   align-items: center;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
@@ -125,39 +125,62 @@
     box-shadow var(--motion);
 }
 
-.canvas-connection__token-field:focus-within {
+.canvas-connection__cookie-field:focus-within {
   border-color: color-mix(in srgb, var(--focus) 70%, var(--border-strong));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 12%, transparent);
 }
 
-.canvas-connection__token-field > svg {
+.canvas-connection__cookie-field > svg {
   color: var(--muted);
   flex: 0 0 auto;
 }
 
-.canvas-connection__token-field input {
+.canvas-connection__cookie-field input {
   background: transparent;
   border: 0;
   flex: 1;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
   min-width: 0;
   outline: none;
   padding: 0 12px;
 }
 
-.canvas-connection__token-field button {
+.canvas-connection__cookie-field button {
   color: var(--secondary);
   display: inline-flex;
   padding: 5px;
 }
 
-.canvas-connection__credential > a {
+.canvas-connection__howto {
+  margin-top: 10px;
+}
+
+.canvas-connection__howto summary {
   align-items: center;
   color: var(--focus);
+  cursor: pointer;
   display: inline-flex;
   font-size: 0.75rem;
   gap: 4px;
-  margin-top: 10px;
-  text-decoration: none;
+  user-select: none;
+}
+
+.canvas-connection__howto ol {
+  color: var(--secondary);
+  display: grid;
+  font-size: 0.75rem;
+  gap: 6px;
+  line-height: 1.45;
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.canvas-connection__howto code {
+  background: var(--surface-raised, rgba(128, 128, 128, 0.14));
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  padding: 1px 4px;
 }
 
 .canvas-connection__credential > p {
