@@ -77,12 +77,15 @@ export default function WorkPage({
   const [showColumns, setShowColumns] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState("");
   const [viewName, setViewName] = useState("");
-  const pageViews = views.filter((view) => view.page === page);
   const [activeView, setActiveView] = useState("active");
   const [deleteCandidate, setDeleteCandidate] = useState<OrganatoItem | null>(
     null,
   );
   const itemNoun = page === "assignments" ? "assignment" : "checkpoint";
+  const pageViews = useMemo(
+    () => views.filter((view) => view.page === page),
+    [page, views],
+  );
   const createWork = useCallback(
     (item: NewWorkItem) => {
       dispatch({ type: "addWork", ...item });
@@ -104,9 +107,11 @@ export default function WorkPage({
         value: "all",
         label: page === "assignments" ? "All assignments" : "All checkpoints",
       },
-      ...pageViews.map((view) => ({ value: view.id, label: view.name })),
+      ...views
+        .filter((view) => view.page === page)
+        .map((view) => ({ value: view.id, label: view.name })),
     ],
-    [page, pageViews],
+    [page, views],
   );
   const data = useMemo(
     () =>
@@ -350,16 +355,21 @@ export default function WorkPage({
       setDeleteCandidate,
     ],
   );
+  const tableState = useMemo(
+    () => ({ sorting, globalFilter: query, rowSelection, pagination }),
+    [sorting, query, rowSelection, pagination],
+  );
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, globalFilter: query, rowSelection, pagination },
+    state: tableState,
     onSortingChange: setSorting,
     onGlobalFilterChange: setQuery,
     onRowSelectionChange: setRowSelection,
     onPaginationChange: setPagination,
     enableRowSelection: true,
     columnResizeMode: "onChange",
+    autoResetPageIndex: false,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),

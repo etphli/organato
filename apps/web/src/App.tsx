@@ -149,11 +149,11 @@ export function App() {
               <Route path="/" element={<HomePage />} />
               <Route
                 path="/assignments"
-                element={<WorkPage page="assignments" />}
+                element={<WorkPage key="assignments" page="assignments" />}
               />
               <Route
                 path="/checkpoints"
-                element={<WorkPage page="checkpoints" />}
+                element={<WorkPage key="checkpoints" page="checkpoints" />}
               />
               <Route path="/calendar" element={<CalendarPage />} />
               <Route path="/todo" element={<TodoPage />} />
