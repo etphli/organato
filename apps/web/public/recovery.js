@@ -4,9 +4,29 @@
   "use strict";
 
   var RETRY_KEY = "organato_asset_retry";
-  var RETRY_WINDOW_MS = 30_000;
+  var RETRY_WINDOW_MS = 30000;
+  var MAX_RELOADS_PER_SESSION = 3;
+
+  function reloadBudgetExhausted() {
+    try {
+      var count = Number(sessionStorage.getItem(RETRY_KEY + ":count") || "0");
+      return count >= MAX_RELOADS_PER_SESSION;
+    } catch {
+      return true;
+    }
+  }
+
+  function spendReloadBudget() {
+    try {
+      var count = Number(sessionStorage.getItem(RETRY_KEY + ":count") || "0");
+      sessionStorage.setItem(RETRY_KEY + ":count", String(count + 1));
+    } catch {
+      /* Best effort only. */
+    }
+  }
 
   function shouldRetry(path) {
+    if (reloadBudgetExhausted()) return false;
     try {
       var previous = JSON.parse(sessionStorage.getItem(RETRY_KEY) || "null");
       var now = Date.now();
@@ -31,6 +51,7 @@
     var path =
       window.location.pathname + window.location.search + window.location.hash;
     if (!shouldRetry(path)) return false;
+    spendReloadBudget();
     console.warn("Organato recovered from a stale asset (" + message + ").");
     window.location.reload();
     return true;

@@ -1,9 +1,17 @@
-type DiagnosticKind = "interaction" | "runtime_error" | "react_error";
+type DiagnosticKind =
+  | "interaction"
+  | "runtime_error"
+  | "react_error"
+  | "freeze"
+  | "crash_recovery"
+  | "long_task";
 
 const sessionKey = "organato_diagnostic_session";
 const verboseDiagnosticsKey = "organato_verbose_diagnostics";
+const lastAliveKey = "organato_last_alive";
 let installed = false;
 let clickIndex = 0;
+let longTasksReported = 0;
 
 export function interactionDiagnosticsEnabled(): boolean {
   return sessionStorage.getItem(verboseDiagnosticsKey) === "true";
@@ -26,9 +34,7 @@ function currentBuild(): string {
 
 function memoryMegabytes(): number | null {
   const memory = (
-    performance as Performance & {
-      memory?: { usedJSHeapSize?: number };
-    }
+    performance as Performance & { memory?: { usedJSHeapSize?: number } }
   ).memory;
   return typeof memory?.usedJSHeapSize === "number"
     ? Math.round((memory.usedJSHeapSize / 1_048_576) * 10) / 10
@@ -62,9 +68,100 @@ export function reportClientDiagnostic(
   }).catch(() => undefined);
 }
 
+/**
+ * A hard crash kills the tab before any in-page reporter can fire, so the
+ * only evidence that survives is written while everything still works.
+ * Every few seconds a tiny marker lands in localStorage (synchronous,
+ * crash-proof). The next successful load compares timestamps: a gap proves
+ * the previous session stopped responding or died, and the stored route
+ * plus memory reading say where and how bloated it was when it happened.
+ */
+function reportPreviousSessionGap() {
+  let marker: { ts: number; route: string; memoryMb: number | null } | null =
+    null;
+  try {
+    marker = JSON.parse(localStorage.getItem(lastAliveKey) ?? "null") as {
+      ts: number;
+      route: string;
+      memoryMb: number | null;
+    } | null;
+  } catch {
+    return;
+  }
+  if (!marker) return;
+  const gapSeconds = Math.round((Date.now() - marker.ts) / 1000);
+  localStorage.removeItem(lastAliveKey);
+  if (gapSeconds >= 4 && gapSeconds <= 600) {
+    // Defer until the workspace CSRF token exists so the report is accepted.
+    window.setTimeout(
+      () =>
+        reportClientDiagnostic("crash_recovery", {
+          gapSeconds,
+          crashedRoute: marker.route,
+          crashedMemoryMb: marker.memoryMb,
+        }),
+      4000,
+    );
+  }
+}
+
+function installAliveMarker() {
+  const write = () => {
+    try {
+      localStorage.setItem(
+        lastAliveKey,
+        JSON.stringify({
+          ts: Date.now(),
+          route: window.location.pathname,
+          memoryMb: memoryMegabytes(),
+        }),
+      );
+    } catch {
+      /* Storage limits must never break the app. */
+    }
+  };
+  write();
+  window.setInterval(write, 2000);
+  window.addEventListener("beforeunload", write);
+}
+
+const maximumReportedLongTasks = 10;
+
+function installFreezeWatchdog() {
+  try {
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (entry.duration < 200) continue;
+        longTasksReported += 1;
+        if (longTasksReported > maximumReportedLongTasks) return;
+        reportClientDiagnostic("long_task", {
+          durationMs: Math.round(entry.duration),
+        });
+      }
+    });
+    observer.observe({ entryTypes: ["longtask"] });
+  } catch {
+    return;
+  }
+  let previous = Date.now();
+  window.setInterval(() => {
+    const nowMs = Date.now();
+    const drift = nowMs - previous - 2000;
+    previous = nowMs;
+    if (drift > 3000) {
+      reportClientDiagnostic("freeze", { driftMs: Math.round(drift) });
+      installAliveMarker();
+    }
+  }, 2000);
+}
+
 export function installClientDiagnostics() {
   if (installed) return;
   installed = true;
+
+  reportPreviousSessionGap();
+  installAliveMarker();
+  installFreezeWatchdog();
 
   // Keep the normal click path completely free of diagnostic work. Detailed
   // interaction capture is installed only for an explicitly enabled session.
@@ -95,6 +192,7 @@ export function installClientDiagnostics() {
   }
 
   window.addEventListener("error", (event) => {
+    if (event.target instanceof HTMLScriptElement) return;
     reportClientDiagnostic("runtime_error", {
       message: event.message.slice(0, 240),
       source: event.filename.split("/").at(-1) ?? null,

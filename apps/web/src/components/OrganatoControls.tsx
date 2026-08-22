@@ -75,7 +75,14 @@ function useFloatingMenu(
       Math.max(viewportPadding, bounds.left),
       Math.max(viewportPadding, window.innerWidth - width - viewportPadding),
     );
-    setPosition({ top, left, width });
+    setPosition((current) =>
+      current &&
+      current.top === top &&
+      current.left === left &&
+      current.width === width
+        ? current
+        : { top, left, width },
+    );
   }, [anchorRef, maxHeight, minWidth]);
 
   useLayoutEffect(() => {
@@ -90,7 +97,7 @@ function useFloatingMenu(
     if (!open) return;
     let frame: number | null = null;
     const handleViewportChange = () => {
-      if (frame !== null) return;
+      if (frame !== null || document.hidden) return;
       frame = window.requestAnimationFrame(() => {
         frame = null;
         updatePosition();
@@ -101,9 +108,11 @@ function useFloatingMenu(
       capture: true,
       passive: true,
     });
+    document.addEventListener("visibilitychange", handleViewportChange);
     return () => {
       window.removeEventListener("resize", handleViewportChange);
       window.removeEventListener("scroll", handleViewportChange, true);
+      document.removeEventListener("visibilitychange", handleViewportChange);
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
   }, [open, updatePosition]);

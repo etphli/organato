@@ -158,7 +158,14 @@ app.post("/api/client-diagnostics", async (context) => {
     kind?: unknown;
     [key: string]: unknown;
   } | null;
-  const allowedKinds = new Set(["interaction", "runtime_error", "react_error"]);
+  const allowedKinds = new Set([
+    "interaction",
+    "runtime_error",
+    "react_error",
+    "freeze",
+    "crash_recovery",
+    "long_task",
+  ]);
   if (!body || typeof body.kind !== "string" || !allowedKinds.has(body.kind)) {
     return context.json({ error: "Invalid diagnostic event." }, 400);
   }
