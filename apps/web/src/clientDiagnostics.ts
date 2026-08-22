@@ -143,14 +143,67 @@ function installFreezeWatchdog() {
   } catch {
     return;
   }
+
+  // Distinguishes a slow machine from an app problem: the Compute Pressure
+  // API reports whole-system CPU state. If pressure reads critical during a
+  // freeze, the browser was starved by something outside this tab.
+  try {
+    type PressureRecord = { state: string };
+    type PressureSource = "cpu";
+    const ObserverCtor = (
+      window as unknown as {
+        PressureObserver?: new (
+          callback: (records: PressureRecord[]) => void,
+        ) => {
+          observe: (source: PressureSource) => Promise<void>;
+          disconnect(): void;
+        };
+      }
+    ).PressureObserver;
+    if (ObserverCtor) {
+      let lastState = "";
+      const cpuObserver = new ObserverCtor((records) => {
+        const latest = records.at(-1)?.state ?? "";
+        if (!latest || latest === lastState) return;
+        lastState = latest;
+        if (latest !== "nominal") {
+          reportClientDiagnostic("freeze", { systemPressure: latest });
+        }
+      });
+      void cpuObserver.observe("cpu");
+    }
+  } catch {
+    /* Compute Pressure is optional instrumentation. */
+  }
+
+  // Click-to-response latency above half a second means the interface
+  // stopped answering input even though no long task was recorded - the
+  // signature of renderer starvation rather than JavaScript work.
+  try {
+    const eventObserver = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (entry.duration < 500) continue;
+        reportClientDiagnostic("long_task", {
+          interactionMs: Math.round(entry.duration),
+          interactionName: entry.name,
+        });
+      }
+    });
+    eventObserver.observe({
+      type: "event",
+      durationThreshold: 500,
+    } as PerformanceObserverInit);
+  } catch {
+    /* Event timing is optional instrumentation. */
+  }
+
   let previous = Date.now();
   window.setInterval(() => {
     const nowMs = Date.now();
     const drift = nowMs - previous - 2000;
     previous = nowMs;
-    if (drift > 3000) {
+    if (drift > 3000 && document.visibilityState === "visible") {
       reportClientDiagnostic("freeze", { driftMs: Math.round(drift) });
-      installAliveMarker();
     }
   }, 2000);
 }
