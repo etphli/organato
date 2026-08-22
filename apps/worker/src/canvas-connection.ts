@@ -125,6 +125,9 @@ export function safeCanvasConnectionError(error: unknown): string {
     if (error.code === "api_access_denied") {
       return "Emanuel Canvas denied the read-only API access Organato needs while signed in as you. Confirm you can open Courses and an assignment list in a private browser window, then try again. If it still fails, ask the school's Canvas administrator to allow student access to GET /api/v1/courses and GET /api/v1/courses/:course_id/assignments.";
     }
+    if (error.code === "edge_blocked") {
+      return "The school's Canvas firewall blocked this request before it reached Canvas. Try again in a minute; if it keeps happening, send the sanitized diagnostic to the owner.";
+    }
     if (
       error.code === "unexpected_origin" ||
       error.code === "unexpected_redirect"

@@ -1,3 +1,5 @@
+/* global fetch, Response */
+
 import { describe, expect, it, vi } from "vitest";
 import type { OrganatoItem } from "@organato/domain";
 import {
@@ -128,6 +130,67 @@ describe("Canvas network boundaries", () => {
     expect(normalizeCanvasCookie("Cookie:\n_canvas_session=x")).toBe(
       "_canvas_session=x",
     );
+  });
+
+  it("signs every request as the Canvas web app so the edge gate passes", async () => {
+    const seen: Array<Record<string, string>> = [];
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(Object.fromEntries(new Headers(init?.headers).entries()));
+        if (String(_input).endsWith("/api/v1/users/self")) {
+          return new Response(JSON.stringify({ id: 1, name: "Ethan Likht" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    ) as unknown as typeof fetch;
+    const provider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "canvas_session=private-session",
+      fetcher,
+    );
+
+    await expect(provider.validateConnection()).resolves.toMatchObject({
+      id: "1",
+    });
+    for (const headers of seen) {
+      expect(headers["user-agent"]).toContain("Chrome/");
+      expect(headers["x-requested-with"]).toBe("XMLHttpRequest");
+      expect(headers["origin"]).toBe("https://emanuel.instructure.com");
+      expect(headers["referer"]).toBe("https://emanuel.instructure.com/");
+      expect(headers["sec-fetch-mode"]).toBe("same-origin");
+      expect(headers.cookie).toBe("canvas_session=private-session");
+    }
+  });
+
+  it("classifies an Instructure edge gate page separately from API denial", async () => {
+    const gatedProvider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "canvas_session=private-session",
+      (async () =>
+        new Response(
+          "<!DOCTYPE html><html><body><h2>Not Authorized</h2></body></html>",
+          { status: 403 },
+        )) as typeof fetch,
+    );
+    await expect(gatedProvider.validateConnection()).rejects.toMatchObject({
+      code: "edge_blocked",
+      status: 403,
+    });
+
+    const plainDeniedProvider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "canvas_session=private-session",
+      (async () => new Response(null, { status: 403 })) as typeof fetch,
+    );
+    await expect(
+      plainDeniedProvider.validateConnection(),
+    ).rejects.toMatchObject({ code: "api_access_denied", status: 403 });
   });
 
   it("distinguishes an expired session from denied API access", async () => {

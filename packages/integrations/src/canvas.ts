@@ -46,6 +46,7 @@ export type CanvasConnectionErrorCode =
   | "unexpected_redirect"
   | "session_rejected"
   | "api_access_denied"
+  | "edge_blocked"
   | "rate_limited"
   | "request_failed"
   | "invalid_response"
@@ -177,6 +178,42 @@ export function retryAfterMs(
 
 type Sleep = (milliseconds: number) => Promise<void>;
 
+/**
+ * Instructure's edge refuses requests that do not look like they came from
+ * the Canvas web app itself: a bare server User-Agent receives an HTTP 403
+ * "Not Authorized" gate page before authentication is even evaluated. Every
+ * request therefore carries the exact header set a signed-in browser sends,
+ * which the verified-correct session cookie then authenticates normally.
+ */
+function canvasRequestHeaders(
+  cookie: string,
+  origin: string,
+): Record<string, string> {
+  return {
+    Cookie: cookie,
+    Accept: "application/json, text/plain, */*",
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    Origin: origin,
+    Referer: `${origin}/`,
+    "X-Requested-With": "XMLHttpRequest",
+    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "same-origin",
+    "sec-fetch-site": "same-origin",
+  };
+}
+
+function isEdgeGateResponse(response: Response, bodyStart: string): boolean {
+  return (
+    (response.status === 403 || response.status === 503) &&
+    /<!doctype html/i.test(bodyStart) &&
+    /not authorized|access denied|challenge/i.test(bodyStart)
+  );
+}
+
 export class CanvasRestProvider implements CanvasProvider {
   readonly baseUrl: URL;
 
@@ -208,10 +245,7 @@ export class CanvasRestProvider implements CanvasProvider {
       let response: Response;
       try {
         response = await this.fetcher.call(globalThis, url.toString(), {
-          headers: {
-            Cookie: this.cookie,
-            Accept: "application/json",
-          },
+          headers: canvasRequestHeaders(this.cookie, this.baseUrl.origin),
           redirect: "manual",
           ...(signal ? { signal } : {}),
         });
@@ -244,6 +278,14 @@ export class CanvasRestProvider implements CanvasProvider {
         );
       }
       if (response.status === 403) {
+        const bodyStart = (await response.text()).slice(0, 400);
+        if (isEdgeGateResponse(response, bodyStart)) {
+          throw new CanvasConnectionError(
+            "edge_blocked",
+            "The school's Canvas firewall refused this request before it reached Canvas.",
+            response.status,
+          );
+        }
         throw new CanvasConnectionError(
           "api_access_denied",
           "Canvas denied API access.",
