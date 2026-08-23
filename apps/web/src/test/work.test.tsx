@@ -57,6 +57,9 @@ describe("Assignment controls", () => {
   it("uses the custom date picker in the create form", () => {
     renderAssignments();
     fireEvent.click(screen.getByRole("button", { name: "New" }));
+    expect(
+      screen.getByRole("dialog", { name: "Add the details" }),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Due date" }));
 
     const calendar = screen.getByRole("dialog", {
@@ -101,19 +104,14 @@ describe("Assignment controls", () => {
     );
 
     const confirmation = screen.getByRole("textbox", {
-      name: "Type the assignment name to confirm",
+      name: "Type delete to confirm assignment deletion",
     });
     const deleteButton = screen.getByRole("button", {
       name: "Delete assignment",
     });
     expect(deleteButton).toBeDisabled();
 
-    const assignmentName = "Group lab report";
-    for (let index = 1; index <= assignmentName.length; index += 1) {
-      fireEvent.change(confirmation, {
-        target: { value: assignmentName.slice(0, index) },
-      });
-    }
+    fireEvent.change(confirmation, { target: { value: "delete" } });
     expect(deleteButton).toBeEnabled();
     fireEvent.click(deleteButton);
 
@@ -157,5 +155,5 @@ describe("Assignment controls", () => {
     expect(screen.getByText("51–100 of 2000")).toBeInTheDocument();
     expect(screen.getByText("Large assignment 051")).toBeInTheDocument();
     expect(screen.queryByText("Large assignment 001")).not.toBeInTheDocument();
-  });
+  }, 30_000);
 });

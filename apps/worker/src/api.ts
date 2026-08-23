@@ -773,7 +773,7 @@ apiRoutes.post(
 );
 
 // Item-level deletion is already protected by the authenticated session, CSRF,
-// optimistic version, and exact-name confirmation. Recent authentication remains
+// optimistic version, and explicit delete confirmation. Recent authentication remains
 // required for workspace deletion and credential or identity changes.
 apiRoutes.post(
   "/items/:id/permanent-delete",
@@ -790,11 +790,8 @@ apiRoutes.post(
     if (item.version !== input.version) {
       return context.json({ error: "Item changed elsewhere." }, 409);
     }
-    if (input.confirmation !== item.displayName) {
-      return context.json(
-        { error: "Type the exact item name to confirm deletion." },
-        400,
-      );
+    if (input.confirmation.trim().toLowerCase() !== "delete") {
+      return context.json({ error: 'Type "delete" to confirm deletion.' }, 400);
     }
     const linkedEvent = await context.env.DB.prepare(
       `SELECT google_event_id FROM calendar_link

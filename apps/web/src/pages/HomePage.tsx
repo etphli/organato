@@ -374,16 +374,27 @@ function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
   const upcoming = useMemo(
     () =>
       items
-        .filter(
-          (item) =>
+        .filter((item) => {
+          const due = itemDueDate(item, settings.timezone);
+          const dueLocalDate = due
+            ? localDateKey(due, settings.timezone)
+            : null;
+          return (
             item.kind === "work" &&
             !item.archivedAt &&
+            item.workingStatus !== "completed" &&
+            item.workingStatus !== "submitted" &&
+            Boolean(
+              dueLocalDate &&
+              dueLocalDate >= localDateKey(today, settings.timezone),
+            ) &&
             isInView(item.classification, page) &&
-            (settings.includeBothInPanels || item.classification !== "both"),
-        )
+            (settings.includeBothInPanels || item.classification !== "both")
+          );
+        })
         .toSorted((a, b) => compareItems(a, b, today))
         .slice(0, limit),
-    [items, limit, page, settings.includeBothInPanels],
+    [items, limit, page, settings.includeBothInPanels, settings.timezone],
   );
   return (
     <section className="upcoming-list">

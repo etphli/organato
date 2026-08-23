@@ -217,8 +217,8 @@ export function EmailDeliverySection({
           onChange={(event) => setRecipient(event.target.value)}
         />
         <small id="email-delivery-recipient-help">
-          Your approved school address can receive reminders even if its
-          administrator blocks Organato sign-in.
+          Use any valid email address, including a school address that cannot
+          sign in to Organato.
         </small>
       </div>
       {error ? (

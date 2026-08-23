@@ -374,7 +374,7 @@ describe("per-account workspace isolation", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           version: created.item.version,
-          confirmation: created.item.displayName,
+          confirmation: "delete",
         }),
       },
       env,

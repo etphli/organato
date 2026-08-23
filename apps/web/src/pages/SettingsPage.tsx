@@ -842,7 +842,7 @@ export default function SettingsPage() {
   const permanentlyDeleteItem = async () => {
     if (
       !archivePreview ||
-      itemDeleteConfirmation !== archivePreview.displayName
+      itemDeleteConfirmation.trim().toLowerCase() !== "delete"
     ) {
       return;
     }
@@ -1431,8 +1431,8 @@ export default function SettingsPage() {
                     ) : null}
                     <div className="archive-delete-control">
                       <label>
-                        Type <strong>{archivePreview.displayName}</strong> to
-                        permanently delete this item
+                        Type <strong>delete</strong> to permanently delete this
+                        item
                         <input
                           value={itemDeleteConfirmation}
                           onChange={(event) =>
@@ -1443,8 +1443,8 @@ export default function SettingsPage() {
                       <button
                         className="danger-button"
                         disabled={
-                          itemDeleteConfirmation !==
-                            archivePreview.displayName ||
+                          itemDeleteConfirmation.trim().toLowerCase() !==
+                            "delete" ||
                           connectionBusy === `delete-item:${archivePreview.id}`
                         }
                         onClick={() => void permanentlyDeleteItem()}

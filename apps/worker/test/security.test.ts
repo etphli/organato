@@ -66,6 +66,7 @@ describe("session cookies", () => {
     const setCookie = response.headers.get("Set-Cookie") ?? "";
 
     expect(setCookie).toContain("organato_session=");
+    expect(setCookie).toContain("Max-Age=15552000");
     expect(setCookie).not.toContain("organato_csrf=");
   });
 

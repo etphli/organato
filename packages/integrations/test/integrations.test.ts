@@ -6,6 +6,7 @@ import {
   CanvasConnectionError,
   CanvasRestProvider,
   GoogleCalendarRestProvider,
+  encodeMimeHeader,
   nextLink,
   normalizeCanvasCookie,
   projectCalendarEvent,
@@ -56,6 +57,17 @@ function item(overrides: Partial<OrganatoItem> = {}): OrganatoItem {
     ...overrides,
   };
 }
+
+describe("Gmail MIME headers", () => {
+  it("RFC-2047 encodes non-ASCII subjects without mojibake", () => {
+    const encoded = encodeMimeHeader("Organato · 3 coming up this week");
+    expect(encoded).toMatch(/^=\?UTF-8\?B\?.+\?=$/);
+    expect(encoded).not.toContain("·");
+    expect(encodeMimeHeader("Organato: 3 coming up this week")).toBe(
+      "Organato: 3 coming up this week",
+    );
+  });
+});
 
 describe("Canvas network boundaries", () => {
   it("passes a plain URL string to the runtime fetch implementation", async () => {

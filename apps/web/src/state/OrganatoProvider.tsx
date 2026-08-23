@@ -565,7 +565,8 @@ function reducer(state: State, action: Action): State {
   }
   if (action.type === "deleteItem") {
     const current = state.items.find((item) => item.id === action.id);
-    if (!current || action.confirmation !== current.displayName) return state;
+    if (!current || action.confirmation.trim().toLowerCase() !== "delete")
+      return state;
     const itemLabel =
       current.kind === "todo"
         ? "Todo"

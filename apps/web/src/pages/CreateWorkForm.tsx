@@ -1,5 +1,5 @@
-import { Plus } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { Plus, X } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { OrganatoItem, Subject } from "@organato/domain";
 import {
@@ -7,6 +7,7 @@ import {
   OrganatoSelect,
   quarterHourOptions,
 } from "../components/OrganatoControls";
+import { useDialogFocus } from "../components/useDialogFocus";
 import { localDateTimeToIso } from "./calendar/model";
 
 export interface NewWorkItem {
@@ -48,6 +49,9 @@ function CreateWorkFormComponent({
   const [classification, setClassification] = useState<
     "assignment" | "checkpoint" | "both"
   >(page === "assignments" ? "assignment" : "checkpoint");
+  const dialogRef = useRef<HTMLElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  useDialogFocus(true, dialogRef, nameRef, page);
   const classificationOptions = useMemo(
     () => [
       {
@@ -71,78 +75,139 @@ function CreateWorkFormComponent({
     [subjects],
   );
 
+  const itemNoun = page === "assignments" ? "assignment" : "checkpoint";
+
   return (
-    <form
-      className="create-work-line"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const trimmedName = name.trim();
-        if (!trimmedName) return;
-        onCreate({
-          name: trimmedName,
-          classification,
-          dueAt:
-            dueDate && dueTime
-              ? localDateTimeToIso(dueDate, dueTime, timezone)
-              : null,
-          dueDateLocal: dueDate && !dueTime ? dueDate : null,
-          dueHasExplicitTime: Boolean(dueDate && dueTime),
-          subjectId: subject || null,
-          priority: priority || null,
-        });
+    <div
+      className="create-work-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onCancel();
       }}
     >
-      <input
-        aria-label="Work item name"
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        placeholder="Work item name"
-        required
-      />
-      <div className="create-work-due">
-        <OrganatoDatePicker
-          ariaLabel="Due date"
-          value={dueDate}
-          onChange={setDueDate}
-          placeholder="No date"
-        />
-        <OrganatoSelect
-          ariaLabel="Due time"
-          disabled={!dueDate}
-          options={quarterHourOptions}
-          value={dueTime}
-          onChange={setDueTime}
-        />
-      </div>
-      <OrganatoSelect
-        ariaLabel="Classification"
-        options={classificationOptions}
-        value={classification}
-        onChange={(value) => setClassification(value as typeof classification)}
-      />
-      <OrganatoSelect
-        ariaLabel="Subject"
-        options={subjectOptions}
-        value={subject}
-        onChange={setSubject}
-      />
-      <OrganatoSelect
-        ariaLabel="Priority"
-        options={[
-          { value: "", label: "Blank priority" },
-          { value: "low", label: "Low" },
-          { value: "medium", label: "Medium" },
-          { value: "high", label: "High" },
-          { value: "urgent", label: "Urgent" },
-        ]}
-        value={priority}
-        onChange={(value) => setPriority(value as typeof priority)}
-      />
-      <button type="submit">Create</button>
-      <button className="create-work-cancel" type="button" onClick={onCancel}>
-        Cancel
-      </button>
-    </form>
+      <section
+        ref={dialogRef}
+        className="create-work-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-work-title"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onCancel();
+        }}
+      >
+        <header>
+          <div>
+            <span>New {itemNoun}</span>
+            <h2 id="create-work-title">Add the details</h2>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Close create dialog"
+            onClick={onCancel}
+          >
+            <X size={18} />
+          </button>
+        </header>
+        <form
+          className="create-work-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const trimmedName = name.trim();
+            if (!trimmedName) return;
+            onCreate({
+              name: trimmedName,
+              classification,
+              dueAt:
+                dueDate && dueTime
+                  ? localDateTimeToIso(dueDate, dueTime, timezone)
+                  : null,
+              dueDateLocal: dueDate && !dueTime ? dueDate : null,
+              dueHasExplicitTime: Boolean(dueDate && dueTime),
+              subjectId: subject || null,
+              priority: priority || null,
+            });
+          }}
+        >
+          <label className="create-work-field create-work-field--wide">
+            <span>Name</span>
+            <input
+              ref={nameRef}
+              aria-label="Work item name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={`e.g. ${page === "assignments" ? "English essay" : "Science practical"}`}
+              required
+            />
+          </label>
+          <div className="create-work-field create-work-field--wide">
+            <span>Due</span>
+            <div className="create-work-due">
+              <OrganatoDatePicker
+                ariaLabel="Due date"
+                value={dueDate}
+                onChange={setDueDate}
+                placeholder="No date"
+              />
+              <OrganatoSelect
+                ariaLabel="Due time"
+                disabled={!dueDate}
+                options={quarterHourOptions}
+                value={dueTime}
+                onChange={setDueTime}
+              />
+            </div>
+          </div>
+          <div className="create-work-field">
+            <span>Type</span>
+            <OrganatoSelect
+              ariaLabel="Classification"
+              options={classificationOptions}
+              value={classification}
+              onChange={(value) =>
+                setClassification(value as typeof classification)
+              }
+            />
+          </div>
+          <div className="create-work-field">
+            <span>Subject</span>
+            <OrganatoSelect
+              ariaLabel="Subject"
+              options={subjectOptions}
+              value={subject}
+              onChange={setSubject}
+            />
+          </div>
+          <div className="create-work-field create-work-field--wide">
+            <span>Priority</span>
+            <OrganatoSelect
+              ariaLabel="Priority"
+              options={[
+                { value: "", label: "No priority" },
+                { value: "low", label: "Low" },
+                { value: "medium", label: "Medium" },
+                { value: "high", label: "High" },
+                { value: "urgent", label: "Urgent" },
+              ]}
+              value={priority}
+              onChange={(value) => setPriority(value as typeof priority)}
+            />
+          </div>
+          <footer>
+            <button
+              type="button"
+              className="create-work-cancel"
+              onClick={onCancel}
+            >
+              Cancel
+            </button>
+            <button type="submit" className="create-work-submit">
+              Create {itemNoun}
+            </button>
+          </footer>
+        </form>
+      </section>
+    </div>
   );
 }
 
@@ -170,7 +235,6 @@ export const CreateWorkControl = memo(function CreateWorkControl({
     () => new URLSearchParams(window.location.search).get("new") === "1",
   );
   const [mounted, setMounted] = useState(false);
-  const formHostId = `create-${page}-host`;
 
   useEffect(() => {
     setMounted(true);
@@ -192,8 +256,6 @@ export const CreateWorkControl = memo(function CreateWorkControl({
     },
     [close, onCreate],
   );
-  const host = mounted ? document.getElementById(formHostId) : null;
-
   return (
     <>
       <button
@@ -206,7 +268,7 @@ export const CreateWorkControl = memo(function CreateWorkControl({
       >
         <Plus size={16} /> New
       </button>
-      {open && host
+      {open && mounted
         ? createPortal(
             <CreateWorkForm
               page={page}
@@ -215,7 +277,7 @@ export const CreateWorkControl = memo(function CreateWorkControl({
               onCancel={close}
               onCreate={create}
             />,
-            host,
+            document.body,
           )
         : null}
     </>

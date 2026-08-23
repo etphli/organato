@@ -16,7 +16,7 @@ export const DeleteWorkDialog = memo(function DeleteWorkDialog({
   onCancel,
   onDelete,
 }: DeleteWorkDialogProps) {
-  const [matchesCandidate, setMatchesCandidate] = useState(false);
+  const [matchesDelete, setMatchesDelete] = useState(false);
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const confirmationRef = useRef<HTMLInputElement>(null);
@@ -54,12 +54,17 @@ export const DeleteWorkDialog = memo(function DeleteWorkDialog({
           Organato. This cannot be undone.
         </p>
         <label>
-          Type the {itemNoun} name to confirm
+          <span>
+            Type <strong>delete</strong> to confirm
+          </span>
           <input
             ref={confirmationRef}
+            aria-label={`Type delete to confirm ${itemNoun} deletion`}
+            autoComplete="off"
             onChange={(event) => {
-              const matches = event.target.value === candidate.displayName;
-              setMatchesCandidate((current) =>
+              const matches =
+                event.target.value.trim().toLowerCase() === "delete";
+              setMatchesDelete((current) =>
                 current === matches ? current : matches,
               );
             }}
@@ -72,8 +77,8 @@ export const DeleteWorkDialog = memo(function DeleteWorkDialog({
           <button
             type="button"
             className="danger-button"
-            disabled={!matchesCandidate}
-            onClick={() => onDelete(confirmationRef.current?.value ?? "")}
+            disabled={!matchesDelete}
+            onClick={() => onDelete("delete")}
           >
             Delete {itemNoun}
           </button>

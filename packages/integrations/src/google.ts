@@ -257,6 +257,14 @@ function base64Url(value: string): string {
     .replace(/=+$/, "");
 }
 
+export function encodeMimeHeader(value: string): string {
+  if (/^[\x20-\x7E]*$/.test(value)) return value;
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `=?UTF-8?B?${btoa(binary)}?=`;
+}
+
 export class GmailSendProvider implements EmailProvider {
   constructor(
     private readonly tokenSource: TokenSource,
@@ -269,7 +277,7 @@ export class GmailSendProvider implements EmailProvider {
     const mime = [
       `From: ${this.sender}`,
       `To: ${message.to.join(", ")}`,
-      `Subject: ${message.subject}`,
+      `Subject: ${encodeMimeHeader(message.subject)}`,
       `X-Organato-Delivery-Key: ${message.deliveryKey.replaceAll(/[\r\n]/g, "")}`,
       "MIME-Version: 1.0",
       `Content-Type: multipart/alternative; boundary="${boundary}"`,

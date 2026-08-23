@@ -114,7 +114,7 @@ describe("server-backed item mutations", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Work item name" }), {
       target: { value: assignment.displayName },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create assignment" }));
 
     expect(await screen.findByText(assignment.displayName)).toBeInTheDocument();
     expect(
@@ -133,9 +133,9 @@ describe("server-backed item mutations", () => {
     );
     fireEvent.change(
       screen.getByRole("textbox", {
-        name: "Type the assignment name to confirm",
+        name: "Type delete to confirm assignment deletion",
       }),
-      { target: { value: assignment.displayName } },
+      { target: { value: "delete" } },
     );
     fireEvent.click(screen.getByRole("button", { name: "Delete assignment" }));
 
@@ -155,12 +155,12 @@ describe("server-backed item mutations", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Work item name" }), {
       target: { value: "Held assignment" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create assignment" }));
     fireEvent.click(screen.getByRole("button", { name: "New" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Work item name" }), {
       target: { value: "Concurrent assignment" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create assignment" }));
 
     await waitFor(() =>
       expect(
@@ -188,7 +188,7 @@ describe("server-backed item mutations", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Work item name" }), {
       target: { value: "Failed assignment" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create assignment" }));
 
     await waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent(

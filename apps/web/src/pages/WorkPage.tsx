@@ -486,7 +486,6 @@ export default function WorkPage({
           </>
         }
       />
-      <div id={`create-${page}-host`} />
       {Object.keys(rowSelection).length ? (
         <div className="bulk-bar" role="toolbar" aria-label="Bulk actions">
           <strong>{Object.keys(rowSelection).length} selected</strong>

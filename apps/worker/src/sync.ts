@@ -1204,7 +1204,7 @@ async function sendDigestForItems(
       to: recipients,
       subject:
         deliveryType === "urgent_import"
-          ? `New short-notice Canvas work · ${rendered.subject}`
+          ? `New short-notice Canvas work: ${rendered.subject}`
           : rendered.subject,
       html: rendered.html,
       text: rendered.text,
@@ -1302,7 +1302,7 @@ export async function sendTestEmail(
   );
   const sent = await gmail.send({
     to: recipients,
-    subject: "Organato · test delivery",
+    subject: "Organato: test delivery",
     html: `<!doctype html><html><body style="margin:0;background:#0b0b0c;color:#f2f2f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"><div style="max-width:560px;margin:0 auto;padding:40px 20px"><h1 style="margin:0 0 12px;font-size:22px">Organato email is ready</h1><p style="margin:0;color:#a3a3aa;line-height:1.6">This private test was sent at ${sentAtLabel}. Future digests use the same Gmail connection and include no tracking pixels.</p></div></body></html>`,
     text: `ORGANATO EMAIL IS READY\n\nThis private test was sent at ${sentAtLabel}. Future digests use the same Gmail connection and include no tracking pixels.`,
     deliveryKey: `test:${sentAt.toISOString()}:${crypto.randomUUID()}`,
