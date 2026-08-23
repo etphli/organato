@@ -2318,7 +2318,7 @@ textarea::placeholder {
   overflow: auto;
   padding: 6px;
   position: fixed;
-  z-index: 120;
+  z-index: 160;
 }
 
 .organato-select__option {

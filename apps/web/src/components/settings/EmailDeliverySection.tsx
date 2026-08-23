@@ -93,13 +93,17 @@ export function EmailDeliverySection({
     setError(null);
     setMessage(null);
     try {
-      const next = await integrationRequest<GoogleDeliverySettings>(
-        "/api/integrations/google/recipients",
-        {
-          method: "PUT",
-          body: JSON.stringify({ recipients: [normalized] }),
-        },
-      );
+      const savedRecipient = settings?.recipients[0]?.trim().toLowerCase();
+      const next =
+        savedRecipient === normalized
+          ? settings
+          : await integrationRequest<GoogleDeliverySettings>(
+              "/api/integrations/google/recipients",
+              {
+                method: "PUT",
+                body: JSON.stringify({ recipients: [normalized] }),
+              },
+            );
       await integrationRequest<{ ok: true; messageId: string }>(
         "/api/integrations/google/test-email",
         {
@@ -107,7 +111,7 @@ export function EmailDeliverySection({
           body: JSON.stringify({}),
         },
       );
-      setSettings(next);
+      if (next) setSettings(next);
       setMessage(`Test email sent to ${normalized}.`);
       await onWorkspaceRefresh?.().catch(() => undefined);
       onReady?.();

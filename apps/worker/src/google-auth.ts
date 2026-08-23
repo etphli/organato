@@ -139,7 +139,7 @@ googleIntegrationRoutes.post(
 
 googleIntegrationRoutes.put(
   "/recipients",
-  requireRecentSession(),
+  requireRecentSession(7 * 24 * 60),
   zValidator("json", recipientSchema),
   async (context) => {
     const recipients = [...new Set(context.req.valid("json").recipients)];

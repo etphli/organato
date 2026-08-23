@@ -1,11 +1,27 @@
 import type { OrganatoItem } from "@organato/domain";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   calendarPatchFromEvent,
   extractCalendarNote,
   nextDeliveryAttemptAt,
+  sendTestEmail,
   shouldAdvanceCanvasMissing,
 } from "../src/sync";
+import { encryptSecret } from "../src/security";
+import type { Env } from "../src/types";
+
+function base64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const item = (overrides: Partial<OrganatoItem> = {}): OrganatoItem => ({
   id: "item-1",
@@ -113,5 +129,65 @@ describe("synchronization decisions", () => {
     expect(nextDeliveryAttemptAt(8, now).toISOString()).toBe(
       "2026-07-27T01:00:00.000Z",
     );
+  });
+});
+
+describe("test email delivery", () => {
+  it("refreshes Google authorization and sends to the configured recipient", async () => {
+    const key = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+    const encryptedCredential = await encryptSecret(
+      "refresh-token",
+      key,
+      "integration:google:owner@gmail.com",
+    );
+    const db = {
+      prepare(query: string) {
+        return {
+          bind() {
+            return {
+              first: async () =>
+                query.includes("FROM integration_connection")
+                  ? {
+                      encrypted_credential: encryptedCredential,
+                      metadata_json: JSON.stringify({
+                        email: "owner@gmail.com",
+                        recipients: ["student@school.edu.au"],
+                      }),
+                      status: "healthy",
+                    }
+                  : null,
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    const fetcher = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "https://oauth2.googleapis.com/token") {
+          return Response.json({
+            access_token: "access-token",
+            expires_in: 3600,
+          });
+        }
+        if (url.includes("gmail.googleapis.com")) {
+          const request = JSON.parse(String(init?.body)) as { raw?: string };
+          expect(request.raw).toBeTruthy();
+          return Response.json({ id: "gmail-message-id" });
+        }
+        return new Response(null, { status: 500 });
+      });
+    const env = {
+      DB: db,
+      DATA_ENCRYPTION_KEY: key,
+      GOOGLE_CLIENT_ID: "client-id",
+      GOOGLE_CLIENT_SECRET: "client-secret",
+    } as Env;
+
+    await expect(sendTestEmail(env, "workspace-1")).resolves.toEqual({
+      messageId: "gmail-message-id",
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });

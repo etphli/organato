@@ -241,10 +241,15 @@ app.post("/api/integrations/google/reconcile", async (context) => {
 app.post("/api/integrations/google/test-email", async (context) => {
   const user = context.get("user");
   if (
-    !(await rateLimit(context, `gmail-test:${user.email.toLowerCase()}`, 3, 60))
+    !(await rateLimit(
+      context,
+      `gmail-test:${user.email.toLowerCase()}`,
+      10,
+      10,
+    ))
   ) {
     return context.json(
-      { error: "Test email limit reached. Try again in an hour." },
+      { error: "Test email limit reached. Try again in 10 minutes." },
       429,
     );
   }
