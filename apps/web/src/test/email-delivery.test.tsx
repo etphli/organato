@@ -53,10 +53,12 @@ describe("Email delivery settings", () => {
 
     const input = await screen.findByLabelText("Send reminders to");
     fireEvent.change(input, { target: { value: schoolRecipient } });
-    fireEvent.click(screen.getByRole("button", { name: "Send test email" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Send reminder preview" }),
+    );
 
     expect(
-      await screen.findByText(`Test email sent to ${schoolRecipient}.`),
+      await screen.findByText(`Reminder preview sent to ${schoolRecipient}.`),
     ).toBeInTheDocument();
     await waitFor(() => expect(ready).toHaveBeenCalledOnce());
     expect(fetcher).toHaveBeenCalledTimes(3);
@@ -87,10 +89,12 @@ describe("Email delivery settings", () => {
 
     render(<EmailDeliverySection />);
     await screen.findByDisplayValue(recipient);
-    fireEvent.click(screen.getByRole("button", { name: "Send test email" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Send reminder preview" }),
+    );
 
     expect(
-      await screen.findByText(`Test email sent to ${recipient}.`),
+      await screen.findByText(`Reminder preview sent to ${recipient}.`),
     ).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(

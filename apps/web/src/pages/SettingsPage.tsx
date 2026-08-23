@@ -1740,8 +1740,8 @@ export default function SettingsPage() {
           message:
             provider === "gmail"
               ? import.meta.env.VITE_DEMO_MODE === "true"
-                ? "Test delivery simulated · production sends through Gmail"
-                : "Test email sent"
+                ? "Reminder preview simulated · production sends through Gmail"
+                : "Reminder preview sent"
               : "Integration is up to date",
         });
       } catch (error) {
@@ -1833,7 +1833,7 @@ export default function SettingsPage() {
             disabled={connectionBusy === provider || !connected}
             onClick={() => void runAction()}
           >
-            {provider === "gmail" ? "Send test" : "Reconcile now"}
+            {provider === "gmail" ? "Send preview" : "Reconcile now"}
           </button>
           <button
             disabled={Boolean(connectionBusy) || !connected}

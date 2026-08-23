@@ -49,7 +49,11 @@ export interface RenderedDigest {
 }
 
 export function renderDigest(input: DigestInput): RenderedDigest | null {
-  const groups = groupDigestItems(input.items, input.now);
+  const groups = groupDigestItems(
+    input.items,
+    input.now,
+    input.timezone ?? "Australia/Sydney",
+  );
   if (!groups.length) return null;
   const subjects = new Map(
     input.subjects.map((subject) => [subject.id, subject]),

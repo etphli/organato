@@ -1062,6 +1062,36 @@ function syncHealthLabel(value: string | null | undefined, timezone: string) {
   });
 }
 
+async function renderWorkspaceDigest(
+  env: Env,
+  workspaceId: string,
+  items: OrganatoItem[],
+  now: Date,
+  timezone: string,
+) {
+  const [subjects, healthRows] = await Promise.all([
+    listSubjects(env.DB, workspaceId),
+    env.DB.prepare(
+      `SELECT provider, last_success_at FROM integration_connection
+       WHERE workspace_id = ? AND provider IN ('canvas', 'google')`,
+    )
+      .bind(workspaceId)
+      .all<{ provider: string; last_success_at: string | null }>(),
+  ]);
+  const health = new Map(
+    healthRows.results.map((row) => [row.provider, row.last_success_at]),
+  );
+  return renderDigest({
+    items,
+    subjects,
+    now,
+    appOrigin: env.APP_ORIGIN,
+    lastCanvasSync: syncHealthLabel(health.get("canvas"), timezone),
+    lastCalendarSync: syncHealthLabel(health.get("google"), timezone),
+    timezone,
+  });
+}
+
 async function sendDigestForItems(
   env: Env,
   workspaceId: string,
@@ -1076,27 +1106,13 @@ async function sendDigestForItems(
 ): Promise<void> {
   const connection = await loadGoogleConnection(env, workspaceId);
   if (!connection) return;
-  const [subjects, healthRows] = await Promise.all([
-    listSubjects(env.DB, workspaceId),
-    env.DB.prepare(
-      `SELECT provider, last_success_at FROM integration_connection
-       WHERE workspace_id = ? AND provider IN ('canvas', 'google')`,
-    )
-      .bind(workspaceId)
-      .all<{ provider: string; last_success_at: string | null }>(),
-  ]);
-  const health = new Map(
-    healthRows.results.map((row) => [row.provider, row.last_success_at]),
-  );
-  const rendered = renderDigest({
+  const rendered = await renderWorkspaceDigest(
+    env,
+    workspaceId,
     items,
-    subjects,
-    now: options.now,
-    appOrigin: env.APP_ORIGIN,
-    lastCanvasSync: syncHealthLabel(health.get("canvas"), options.timezone),
-    lastCalendarSync: syncHealthLabel(health.get("google"), options.timezone),
-    timezone: options.timezone,
-  });
+    options.now,
+    options.timezone,
+  );
   const nowIso = options.now.toISOString();
   const localDate = localDateKey(options.now, options.timezone);
   const scopedDeliveryKey = `${workspaceId}:${deliveryKey}`;
@@ -1279,6 +1295,7 @@ async function sendDigestForItems(
 export async function sendTestEmail(
   env: Env,
   workspaceId: string,
+  now = new Date(),
 ): Promise<{ messageId: string }> {
   const connection = await loadGoogleConnection(env, workspaceId);
   if (!connection) {
@@ -1290,24 +1307,41 @@ export async function sendTestEmail(
   const recipients = connection.metadata.recipients?.length
     ? connection.metadata.recipients
     : [connection.metadata.email];
-  const sentAt = new Date();
-  const sentAtLabel = sentAt.toLocaleString("en-AU", {
-    timeZone: "Australia/Sydney",
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  const [settings, items] = await Promise.all([
+    getSettings(env.DB, workspaceId),
+    listItems(env.DB, workspaceId, { limit: 1_000 }),
+  ]);
+  const rendered = await renderWorkspaceDigest(
+    env,
+    workspaceId,
+    items,
+    now,
+    settings.timezone,
+  );
+  if (!rendered) {
+    throw new DigestPreviewError(
+      "There is no unfinished work due in the next seven days to preview.",
+    );
+  }
   const gmail = new GmailSendProvider(
     connection.tokenSource,
     connection.metadata.email,
   );
   const sent = await gmail.send({
     to: recipients,
-    subject: "Organato: test delivery",
-    html: `<!doctype html><html><body style="margin:0;background:#0b0b0c;color:#f2f2f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"><div style="max-width:560px;margin:0 auto;padding:40px 20px"><h1 style="margin:0 0 12px;font-size:22px">Organato email is ready</h1><p style="margin:0;color:#a3a3aa;line-height:1.6">This private test was sent at ${sentAtLabel}. Future digests use the same Gmail connection and include no tracking pixels.</p></div></body></html>`,
-    text: `ORGANATO EMAIL IS READY\n\nThis private test was sent at ${sentAtLabel}. Future digests use the same Gmail connection and include no tracking pixels.`,
-    deliveryKey: `test:${sentAt.toISOString()}:${crypto.randomUUID()}`,
+    subject: rendered.subject,
+    html: rendered.html,
+    text: rendered.text,
+    deliveryKey: `preview:${now.toISOString()}:${crypto.randomUUID()}`,
   });
   return sent;
+}
+
+export class DigestPreviewError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DigestPreviewError";
+  }
 }
 
 export async function runDailyDigest(

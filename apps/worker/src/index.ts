@@ -18,6 +18,7 @@ import {
   securityHeaders,
 } from "./security";
 import {
+  DigestPreviewError,
   runCalendarReconciliation,
   runCanvasSync,
   runDailyDigest,
@@ -271,10 +272,13 @@ app.post("/api/integrations/google/test-email", async (context) => {
       context.env.DB,
       "test_email_sent",
       user.email,
-      "A private Organato test email was accepted by Gmail.",
+      "A production-format reminder preview was accepted by Gmail.",
     );
     return context.json({ ok: true, messageId: sent.messageId });
   } catch (error) {
+    if (error instanceof DigestPreviewError) {
+      return context.json({ error: error.message }, 409);
+    }
     const notConnected =
       error instanceof GoogleConnectionError && error.code === "not_connected";
     const authorizationFailure =
@@ -303,10 +307,10 @@ app.post("/api/integrations/google/test-email", async (context) => {
     return context.json(
       {
         error: notConnected
-          ? "Connect Calendar and Gmail before sending a test email."
+          ? "Connect Calendar and Gmail before sending an email preview."
           : authorizationFailure
             ? "Google needs to be reconnected before email can be sent."
-            : "Gmail could not accept the test message. Your recipient setting is saved; try again shortly.",
+            : "Gmail could not accept the reminder preview. Your recipient setting is saved; try again shortly.",
       },
       notConnected ? 409 : 502,
     );

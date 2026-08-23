@@ -618,7 +618,7 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                   <Check size={14} /> Calendar & Gmail connected
                 </li>
                 <li>
-                  <Check size={14} /> Test email accepted by Gmail
+                  <Check size={14} /> Reminder preview accepted by Gmail
                 </li>
               </ul>
               <button

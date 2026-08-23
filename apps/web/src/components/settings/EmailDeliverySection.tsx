@@ -112,7 +112,7 @@ export function EmailDeliverySection({
         },
       );
       if (next) setSettings(next);
-      setMessage(`Test email sent to ${normalized}.`);
+      setMessage(`Reminder preview sent to ${normalized}.`);
       await onWorkspaceRefresh?.().catch(() => undefined);
       onReady?.();
     } catch (requestError) {
@@ -251,7 +251,7 @@ export function EmailDeliverySection({
           type="button"
         >
           <Send size={14} />
-          {busy === "test" ? "Sending…" : "Send test email"}
+          {busy === "test" ? "Sending…" : "Send reminder preview"}
         </button>
         {needsReauthentication ? (
           <button

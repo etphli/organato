@@ -133,7 +133,8 @@ describe("synchronization decisions", () => {
 });
 
 describe("test email delivery", () => {
-  it("refreshes Google authorization and sends to the configured recipient", async () => {
+  it("sends the real reminder digest to the configured recipient", async () => {
+    const now = new Date("2026-07-27T00:00:00.000Z");
     const key = base64Url(crypto.getRandomValues(new Uint8Array(32)));
     const encryptedCredential = await encryptSecret(
       "refresh-token",
@@ -145,22 +146,112 @@ describe("test email delivery", () => {
         return {
           bind() {
             return {
-              first: async () =>
-                query.includes("FROM integration_connection")
-                  ? {
-                      encrypted_credential: encryptedCredential,
-                      metadata_json: JSON.stringify({
-                        email: "owner@gmail.com",
-                        recipients: ["student@school.edu.au"],
-                      }),
-                      status: "healthy",
-                    }
-                  : null,
+              first: async () => {
+                if (
+                  query.includes("FROM integration_connection") &&
+                  !query.includes("provider IN")
+                ) {
+                  return {
+                    encrypted_credential: encryptedCredential,
+                    metadata_json: JSON.stringify({
+                      email: "owner@gmail.com",
+                      recipients: ["student@school.edu.au"],
+                    }),
+                    status: "healthy",
+                  };
+                }
+                if (query.includes("FROM workspace")) {
+                  return {
+                    settings_json: JSON.stringify({
+                      timezone: "Australia/Sydney",
+                    }),
+                  };
+                }
+                return null;
+              },
+              all: async () => ({
+                results: query.includes("FROM subject")
+                  ? [
+                      {
+                        id: "subject-1",
+                        workspace_id: "workspace-1",
+                        canvas_course_id: null,
+                        source_name: null,
+                        display_name: "English",
+                        short_name: null,
+                        colour: "#a78bfa",
+                        active: 1,
+                      },
+                    ]
+                  : [
+                      {
+                        provider: "canvas",
+                        last_success_at: "2026-07-26T23:00:00.000Z",
+                      },
+                      {
+                        provider: "google",
+                        last_success_at: "2026-07-26T23:30:00.000Z",
+                      },
+                    ],
+                success: true,
+                meta: { changes: 0 },
+              }),
             };
           },
         };
       },
+      async batch() {
+        return [
+          {
+            results: [
+              {
+                id: "item-1",
+                workspace_id: "workspace-1",
+                version: 1,
+                kind: "work",
+                classification: "assignment",
+                source_type: "manual",
+                canvas_assignment_id: null,
+                canvas_course_id: null,
+                canvas_html_url: null,
+                source_name: null,
+                source_due_at: null,
+                source_updated_at: null,
+                source_payload_hash: null,
+                display_name: "English essay",
+                due_at: "2026-07-28T06:00:00.000Z",
+                due_date_local: null,
+                due_has_explicit_time: 1,
+                subject_id: "subject-1",
+                priority: "high",
+                working_status: "not_started",
+                completed_at: null,
+                submitted_at: null,
+                notes_markdown: "",
+                recurrence_rule_json: null,
+                recurrence_series_id: null,
+                calendar_enabled: 1,
+                reminders_enabled: 1,
+                calendar_sync_state: "synced",
+                calendar_note: "",
+                pinned: 0,
+                sort_rank: 0,
+                archived_at: null,
+                archive_reason: null,
+                source_missing_since: null,
+                missing_sync_count: 0,
+                created_at: "2026-07-20T00:00:00.000Z",
+                updated_at: "2026-07-20T00:00:00.000Z",
+              },
+            ],
+            success: true,
+            meta: { changes: 0 },
+          },
+          { results: [], success: true, meta: { changes: 0 } },
+        ];
+      },
     } as unknown as D1Database;
+    let sentMime = "";
     const fetcher = vi
       .spyOn(globalThis, "fetch")
       .mockImplementation(async (input, init) => {
@@ -174,6 +265,14 @@ describe("test email delivery", () => {
         if (url.includes("gmail.googleapis.com")) {
           const request = JSON.parse(String(init?.body)) as { raw?: string };
           expect(request.raw).toBeTruthy();
+          const encoded = request
+            .raw!.replaceAll("-", "+")
+            .replaceAll("_", "/");
+          const padded = encoded.padEnd(Math.ceil(encoded.length / 4) * 4, "=");
+          const binary = atob(padded);
+          sentMime = new TextDecoder().decode(
+            Uint8Array.from(binary, (character) => character.charCodeAt(0)),
+          );
           return Response.json({ id: "gmail-message-id" });
         }
         return new Response(null, { status: 500 });
@@ -183,11 +282,18 @@ describe("test email delivery", () => {
       DATA_ENCRYPTION_KEY: key,
       GOOGLE_CLIENT_ID: "client-id",
       GOOGLE_CLIENT_SECRET: "client-secret",
+      APP_ORIGIN: "https://organato.example",
     } as Env;
 
-    await expect(sendTestEmail(env, "workspace-1")).resolves.toEqual({
+    await expect(sendTestEmail(env, "workspace-1", now)).resolves.toEqual({
       messageId: "gmail-message-id",
     });
     expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(sentMime).toContain("Subject: Organato: 1 coming up this week");
+    expect(sentMime).toContain("Weekly plan");
+    expect(sentMime).toContain("English essay");
+    expect(sentMime).toContain("English");
+    expect(sentMime).not.toContain("Organato email is ready");
+    expect(sentMime).not.toContain("Subject: Organato: test delivery");
   });
 });
