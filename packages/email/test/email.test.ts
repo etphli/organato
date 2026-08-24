@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OrganatoItem } from "@organato/domain";
-import { escapeHtml, renderDigest } from "../src";
+import { EMAIL_TEMPLATE_VERSION, escapeHtml, renderDigest } from "../src";
 
 describe("email rendering", () => {
   it("escapes imported text", () => {
@@ -63,6 +63,9 @@ describe("email rendering", () => {
     expect(digest?.subject).toBe("Organato: 1 coming up this week");
     expect(digest?.subject).not.toContain("Ã");
     expect(digest?.html).toContain('<meta charset="UTF-8">');
+    expect(digest?.html).toContain(
+      `data-organato-template="${EMAIL_TEMPLATE_VERSION}"`,
+    );
     expect(digest?.html).toContain("Weekly plan");
     expect(digest?.html).toContain("Open Organato");
   });

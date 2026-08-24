@@ -5,6 +5,9 @@ import {
   type OrganatoItem,
   type Subject,
 } from "@organato/domain";
+import templateMetadata from "./template.json";
+
+export const EMAIL_TEMPLATE_VERSION = templateMetadata.version;
 
 const labels: Record<GroupedReminder["key"], string> = {
   overdue: "Overdue",
@@ -112,7 +115,7 @@ export function renderDigest(input: DigestInput): RenderedDigest | null {
     .join("");
 
   const html = `<!doctype html>
-<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#f4f2f8;color:#17151d;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body data-organato-template="${EMAIL_TEMPLATE_VERSION}" style="margin:0;background:#f4f2f8;color:#17151d;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
   <div style="display:none;max-height:0;overflow:hidden">${escapeHtml(subject)}</div>
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" bgcolor="#f4f2f8" style="background:#f4f2f8">
     <tr><td align="center" style="padding:32px 14px">

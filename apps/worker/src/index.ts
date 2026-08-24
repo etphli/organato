@@ -1,4 +1,5 @@
 import { GoogleApiError } from "@organato/integrations";
+import { EMAIL_TEMPLATE_VERSION } from "@organato/email";
 import { Hono } from "hono";
 import { apiRoutes } from "./api";
 import { authRoutes } from "./auth";
@@ -85,6 +86,7 @@ app.get("/health", (context) =>
     ok: true,
     service: "organato",
     version: "0.1.0",
+    emailTemplateVersion: EMAIL_TEMPLATE_VERSION,
     privateData: false,
   }),
 );
