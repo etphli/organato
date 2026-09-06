@@ -26,18 +26,35 @@ const courseSchema = z.object({
   workflow_state: z.string().default("available"),
 });
 
-const assignmentSchema = z.object({
-  id: z.union([z.string(), z.number()]).transform(String),
-  course_id: z.union([z.string(), z.number()]).transform(String),
-  name: z.string(),
-  due_at: z.string().nullable().optional(),
-  html_url: z.string().url(),
-  updated_at: z.string(),
-  published: z.boolean().default(true),
-  submission: z
-    .object({ workflow_state: z.string().optional() })
+const plannerItemSchema = z.object({
+  course_id: z
+    .union([z.string(), z.number()])
+    .transform(String)
     .nullable()
     .optional(),
+  plannable_id: z.union([z.string(), z.number()]).transform(String),
+  plannable_type: z.string(),
+  plannable_date: z.string().nullable().optional(),
+  plannable: z.unknown(),
+  submissions: z
+    .union([
+      z.literal(false),
+      z.object({
+        submitted: z.boolean().default(false),
+        graded: z.boolean().default(false),
+        excused: z.boolean().default(false),
+      }),
+    ])
+    .nullable()
+    .optional(),
+  html_url: z.string(),
+});
+
+const plannerAssignmentSchema = z.object({
+  id: z.union([z.string(), z.number()]).transform(String),
+  title: z.string(),
+  due_at: z.string().nullable().optional(),
+  updated_at: z.string(),
 });
 
 export type CanvasConnectionErrorCode =
@@ -485,7 +502,6 @@ export class CanvasRestProvider implements CanvasProvider {
     }));
     const assignments: CanvasAssignment[] = [];
     const partialFailures: CanvasSyncResult["partialFailures"] = [];
-    const successfulCourseIds: string[] = [];
     let skippedMalformedItems = malformedCourseCount;
     if (malformedCourseCount) {
       partialFailures.push({
@@ -494,70 +510,78 @@ export class CanvasRestProvider implements CanvasProvider {
       });
     }
 
-    const chunks = Array.from(
-      { length: Math.ceil(courses.length / 4) },
-      (_, index) => courses.slice(index * 4, index * 4 + 4),
+    const start = new Date(Date.now() - 86_400_000);
+    const end = new Date(start);
+    end.setUTCFullYear(end.getUTCFullYear() + 1);
+    const plannerParams = new URLSearchParams({
+      start_date: start.toISOString(),
+      end_date: end.toISOString(),
+      filter: "incomplete_items",
+      per_page: "100",
+    });
+    let malformedPlannerCount = 0;
+    const plannerRows = await this.paginated(
+      `/api/v1/planner/items?${plannerParams.toString()}`,
+      plannerItemSchema,
+      signal,
+      () => {
+        malformedPlannerCount += 1;
+      },
     );
-    for (const chunk of chunks) {
-      const results = await Promise.allSettled(
-        chunk.map(async (course) => {
-          let malformedForCourse = 0;
-          const rows = await this.paginated(
-            `/api/v1/courses/${encodeURIComponent(course.id)}/assignments?bucket=upcoming&override_assignment_dates=true&include[]=submission&per_page=100`,
-            assignmentSchema,
-            signal,
-            () => {
-              malformedForCourse += 1;
-            },
-          );
-          const normalized: CanvasAssignment[] = [];
-          for (const row of rows) {
-            const assignmentUrl = new URL(row.html_url);
-            if (assignmentUrl.origin !== this.baseUrl.origin) {
-              malformedForCourse += 1;
-              continue;
-            }
-            normalized.push({
-              id: String(row.id),
-              courseId: String(row.course_id),
-              name: row.name,
-              dueAt: row.due_at ?? null,
-              htmlUrl: assignmentUrl.href,
-              updatedAt: row.updated_at,
-              published: row.published ?? true,
-              submitted: ["submitted", "graded", "pending_review"].includes(
-                row.submission?.workflow_state ?? "",
-              ),
-            });
-          }
-          return { course, assignments: normalized, malformedForCourse };
-        }),
-      );
-      results.forEach((result, index) => {
-        if (result.status === "fulfilled") {
-          assignments.push(...result.value.assignments);
-          skippedMalformedItems += result.value.malformedForCourse;
-          if (result.value.malformedForCourse) {
-            partialFailures.push({
-              courseId: result.value.course.id,
-              category: "malformed_item",
-            });
-          } else {
-            successfulCourseIds.push(result.value.course.id);
-          }
-        } else {
-          partialFailures.push({
-            courseId: chunk[index]?.id ?? "unknown",
-            category: "course_fetch_failed",
-          });
-        }
+    const courseIds = new Set(courses.map((course) => course.id));
+    const malformedCourseIds = new Set<string>();
+    for (const row of plannerRows) {
+      if (row.plannable_type !== "assignment") continue;
+      const assignment = plannerAssignmentSchema.safeParse(row.plannable);
+      const courseId =
+        row.course_id === null || row.course_id === undefined
+          ? null
+          : String(row.course_id);
+      let assignmentUrl: URL | null = null;
+      try {
+        assignmentUrl = new URL(row.html_url, this.baseUrl);
+      } catch {
+        // Count this below with the other malformed planner cases.
+      }
+      if (
+        !assignment.success ||
+        !courseId ||
+        !courseIds.has(courseId) ||
+        assignment.data.id !== row.plannable_id ||
+        assignmentUrl?.origin !== this.baseUrl.origin
+      ) {
+        malformedPlannerCount += 1;
+        if (courseId) malformedCourseIds.add(courseId);
+        continue;
+      }
+      const submission = row.submissions === false ? null : row.submissions;
+      assignments.push({
+        id: assignment.data.id,
+        courseId,
+        name: assignment.data.title,
+        dueAt: assignment.data.due_at ?? row.plannable_date ?? null,
+        htmlUrl: assignmentUrl.href,
+        updatedAt: assignment.data.updated_at,
+        published: true,
+        submitted: Boolean(
+          submission?.submitted || submission?.graded || submission?.excused,
+        ),
+      });
+    }
+    skippedMalformedItems += malformedPlannerCount;
+    if (malformedPlannerCount) {
+      partialFailures.push({
+        courseId: [...malformedCourseIds].join(",") || "planner_feed",
+        category: "malformed_item",
       });
     }
     return {
       courses,
       assignments,
       partialFailures,
-      successfulCourseIds,
+      successfulCourseIds: courses
+        .filter((course) => !malformedCourseIds.has(course.id))
+        .map((course) => course.id),
       catalogueComplete: malformedCourseCount === 0,
       skippedMalformedItems,
     };

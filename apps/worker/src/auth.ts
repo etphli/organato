@@ -1,3 +1,4 @@
+import { closeCanvasViewer } from "./canvas-connector-routes";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { Hono } from "hono";
 import type { Context } from "hono";
@@ -446,6 +447,7 @@ authRoutes.post("/logout", requireSession(), async (context) => {
     )
       .bind(new Date().toISOString(), user.sessionIdHash)
       .run();
+    await closeCanvasViewer(context.env, user.workspaceId);
     await recordSecurityEvent(
       context.env.DB,
       "session_revoked",

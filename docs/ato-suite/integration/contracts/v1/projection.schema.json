@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ato.local/contracts/v1/projection.schema.json",
+  "title": "Ato Centre resource projection v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "ownerApp",
+    "resourceType",
+    "version",
+    "title",
+    "state",
+    "updatedAt",
+    "deepLink",
+    "dataClassification",
+    "capabilities"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^ato:[a-z][a-z0-9-]{1,31}:[a-z][a-z0-9-]{1,47}:[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$"
+    },
+    "ownerApp": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}$" },
+    "resourceType": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,47}$" },
+    "version": { "type": "integer", "minimum": 1 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "subtitle": { "type": ["string", "null"], "maxLength": 500 },
+    "state": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "occurredAt": { "type": ["string", "null"], "format": "date-time" },
+    "dueAt": { "type": ["string", "null"], "format": "date-time" },
+    "dateLocal": {
+      "type": ["string", "null"],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "deepLink": { "type": "string", "minLength": 1, "maxLength": 2048 },
+    "badges": {
+      "type": "array",
+      "maxItems": 12,
+      "items": { "type": "string", "maxLength": 64 }
+    },
+    "dataClassification": { "enum": ["metadata", "personal", "sensitive"] },
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "open",
+          "complete",
+          "archive",
+          "restore",
+          "mark-read",
+          "snooze"
+        ]
+      }
+    },
+    "appData": {
+      "type": "object",
+      "description": "Small, versioned, app-owned extension. Never put secrets or message bodies here."
+    }
+  }
+}

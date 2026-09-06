@@ -1,0 +1,25 @@
+{
+  "name": "@ato/integration-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Dependency-free reference contracts and helpers for Ato app integration.",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs"
+    }
+  },
+  "files": [
+    "contracts",
+    "openapi",
+    "sql",
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

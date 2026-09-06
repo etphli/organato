@@ -429,6 +429,80 @@ describe("Canvas network boundaries", () => {
       code: "unexpected_origin",
     });
   });
+
+  it("imports the personalized incomplete assignments shown in Canvas Planner", async () => {
+    const requestedPaths: string[] = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      requestedPaths.push(`${url.pathname}${url.search}`);
+      if (url.pathname === "/api/v1/courses") {
+        return new Response(
+          JSON.stringify([
+            { id: 12, name: "English", workflow_state: "available" },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      expect(url.pathname).toBe("/api/v1/planner/items");
+      expect(url.searchParams.get("filter")).toBe("incomplete_items");
+      expect(url.searchParams.get("start_date")).toBeTruthy();
+      expect(url.searchParams.get("end_date")).toBeTruthy();
+      return new Response(
+        JSON.stringify([
+          {
+            course_id: 12,
+            plannable_id: 101,
+            plannable_type: "assignment",
+            plannable_date: "2026-08-15T06:00:00Z",
+            plannable: {
+              id: 101,
+              title: "Comparative essay draft",
+              due_at: "2026-08-15T06:00:00Z",
+              updated_at: "2026-07-30T00:10:00Z",
+            },
+            submissions: { submitted: false, graded: false, excused: false },
+            html_url: "/courses/12/assignments/101",
+          },
+          {
+            course_id: 12,
+            plannable_id: 202,
+            plannable_type: "calendar_event",
+            plannable_date: "2026-08-16T06:00:00Z",
+            plannable: {},
+            submissions: false,
+            html_url: "/calendar?event_id=202",
+          },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    const provider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "private-token",
+      fetcher,
+    );
+
+    await expect(provider.fetchUpcomingAssignments()).resolves.toMatchObject({
+      assignments: [
+        {
+          id: "101",
+          courseId: "12",
+          name: "Comparative essay draft",
+          dueAt: "2026-08-15T06:00:00Z",
+          htmlUrl: "https://emanuel.instructure.com/courses/12/assignments/101",
+          updatedAt: "2026-07-30T00:10:00Z",
+          published: true,
+          submitted: false,
+        },
+      ],
+      successfulCourseIds: ["12"],
+      skippedMalformedItems: 0,
+    });
+    expect(requestedPaths).toHaveLength(2);
+    expect(
+      requestedPaths.some((path) => path.includes("bucket=upcoming")),
+    ).toBe(false);
+  });
 });
 
 describe("Google Calendar projections", () => {

@@ -1,3 +1,8 @@
+import { closeCanvasViewer } from "./canvas-connector-routes";
+import {
+  browserConnectorActive,
+  connectorStub,
+} from "./canvas-connector-routes";
 import { zValidator } from "@hono/zod-validator";
 import {
   assertSecretFreeBackup,
@@ -1329,6 +1334,16 @@ apiRoutes.post(
       5,
     );
     if (!allowed) return context.json({ error: "Try again later." }, 429);
+    if (
+      await browserConnectorActive(context.env, context.get("user").workspaceId)
+    )
+      return context.json(
+        {
+          error:
+            "Disconnect the Pi connector before switching to a copied cookie.",
+        },
+        409,
+      );
     const input = context.req.valid("json");
     let installation: ReturnType<typeof configuredCanvasInstallation>;
     try {
@@ -1371,12 +1386,13 @@ apiRoutes.post(
       context.env.DATA_ENCRYPTION_KEY,
       metadata.credentialAad,
     );
-    await context.env.DB.prepare(
+    const saved = await context.env.DB.prepare(
       `INSERT INTO integration_connection
           (workspace_id, provider, account_label, status, scopes_json, encrypted_credential,
            credential_key_version, last_success_at, last_attempt_at, reconnect_needed,
            metadata_json, updated_at)
-         VALUES (?, 'canvas', ?, 'healthy', '["read-only"]', ?, 1, NULL, ?, 0, ?, ?)
+         SELECT ?, 'canvas', ?, 'healthy', '["read-only"]', ?, 1, NULL, ?, 0, ?, ?
+         WHERE NOT EXISTS (SELECT 1 FROM canvas_connector_device WHERE workspace_id = ? AND revoked_at IS NULL)
          ON CONFLICT(workspace_id, provider) DO UPDATE SET
            account_label = excluded.account_label,
            status = excluded.status,
@@ -1394,8 +1410,17 @@ apiRoutes.post(
         now,
         JSON.stringify(metadata),
         now,
+        context.get("user").workspaceId,
       )
       .run();
+    if (!saved.meta.changes)
+      return context.json(
+        {
+          error:
+            "Disconnect the Pi connector before switching to a copied cookie.",
+        },
+        409,
+      );
     let initialSync: CanvasConnectResponse["initialSync"];
     try {
       const sync = await runCanvasSync(
@@ -1436,6 +1461,15 @@ apiRoutes.post(
   "/integrations/canvas/disconnect",
   requireRecentSession(),
   async (context) => {
+    if (
+      await browserConnectorActive(context.env, context.get("user").workspaceId)
+    ) {
+      const result = await connectorStub(
+        context.env,
+        context.get("user").workspaceId,
+      ).fetch(new Request("https://connector/disconnect", { method: "POST" }));
+      if (!result.ok) return result;
+    }
     const now = new Date().toISOString();
     await context.env.DB.prepare(
       `UPDATE integration_connection
@@ -2054,6 +2088,7 @@ apiRoutes.post("/sessions/revoke-others", async (context) => {
       context.get("user").sessionIdHash,
     )
     .run();
+  await closeCanvasViewer(context.env, context.get("user").workspaceId);
   await recordSecurityEvent(
     context.env.DB,
     "sessions_revoked",
@@ -2069,6 +2104,7 @@ apiRoutes.post("/sessions/revoke-all", async (context) => {
   )
     .bind(new Date().toISOString(), context.get("user").email)
     .run();
+  await closeCanvasViewer(context.env, context.get("user").workspaceId);
   await recordSecurityEvent(
     context.env.DB,
     "sessions_revoked",
@@ -2134,6 +2170,27 @@ apiRoutes.post(
       );
     }
     const input = context.req.valid("json");
+    if (context.env.CANVAS_CONNECTOR) {
+      const device = await context.env.DB.prepare(
+        "SELECT 1 FROM canvas_connector_device WHERE workspace_id = ? AND revoked_at IS NULL",
+      )
+        .bind(user.workspaceId)
+        .first();
+      if (device) {
+        const disconnected = await connectorStub(
+          context.env,
+          user.workspaceId,
+        ).fetch(
+          new Request("https://connector/disconnect", { method: "POST" }),
+        );
+        if (!disconnected.ok) return disconnected;
+      }
+      await context.env.DB.prepare(
+        "DELETE FROM canvas_connector_pairing WHERE workspace_id = ?",
+      )
+        .bind(user.workspaceId)
+        .run();
+    }
     const now = new Date().toISOString();
     await context.env.DB.batch([
       context.env.DB.prepare("DELETE FROM item WHERE workspace_id = ?").bind(

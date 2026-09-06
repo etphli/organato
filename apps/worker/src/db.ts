@@ -160,14 +160,15 @@ export async function listItems(
   workspaceId: string,
   options: {
     archived?: boolean;
+    ids?: readonly string[];
     limit?: number;
     all?: boolean;
     includeDetails?: boolean;
   } = {},
 ): Promise<OrganatoItem[]> {
-  const archivedClause = options.archived
-    ? "archived_at IS NOT NULL"
-    : "archived_at IS NULL";
+  const archivedClause =
+    (options.archived ? "archived_at IS NOT NULL" : "archived_at IS NULL") +
+    (options.ids ? " AND id IN (SELECT value FROM json_each(?))" : "");
   const limit = Math.min(options.limit ?? 500, 2_000);
   const itemScope = options.all
     ? `SELECT id FROM item WHERE workspace_id = ? AND ${archivedClause}`
@@ -179,9 +180,12 @@ export async function listItems(
       { length: workspaceBindings },
       () => workspaceId,
     );
+    const scopeBindings = options.ids
+      ? [...bindings, JSON.stringify(options.ids)]
+      : bindings;
     return options.all
-      ? statement.bind(...bindings)
-      : statement.bind(...bindings, limit);
+      ? statement.bind(...scopeBindings)
+      : statement.bind(...scopeBindings, limit);
   };
   const includeDetails = options.all || options.includeDetails;
   const statements = [

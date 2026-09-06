@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ato.local/contracts/v1/event-envelope.schema.json",
+  "title": "Ato event envelope v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "specVersion",
+    "id",
+    "source",
+    "type",
+    "occurredAt",
+    "sequence",
+    "subject",
+    "resourceVersion",
+    "traceId",
+    "dataClassification",
+    "data"
+  ],
+  "properties": {
+    "specVersion": { "const": "1.0" },
+    "id": { "type": "string", "format": "uuid" },
+    "source": { "$ref": "#/$defs/app" },
+    "type": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,31}\\.[a-z][a-z0-9-]{1,47}\\.(created|updated|deleted|archived|restored)$"
+    },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "subject": { "$ref": "#/$defs/canonicalId" },
+    "resourceVersion": { "type": "integer", "minimum": 1 },
+    "traceId": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "correlationId": { "type": "string", "format": "uuid" },
+    "dataClassification": {
+      "enum": ["metadata", "personal", "sensitive"]
+    },
+    "data": { "type": "object" }
+  },
+  "$defs": {
+    "app": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,31}$"
+    },
+    "canonicalId": {
+      "type": "string",
+      "pattern": "^ato:[a-z][a-z0-9-]{1,31}:[a-z][a-z0-9-]{1,47}:[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$"
+    }
+  }
+}
