@@ -21,6 +21,7 @@ import {
   reauthenticate,
   type SessionSecurityState,
 } from "../../lib/integrationApi";
+import { CanvasConnectorSection } from "./CanvasConnectorSection";
 import "./CanvasConnectionSection.css";
 
 type RequestJson = (path: string, init?: RequestInit) => Promise<unknown>;
@@ -90,7 +91,7 @@ function statusLabel(status: CanvasConnectionStatus): string {
   return "Action needed";
 }
 
-export function CanvasConnectionSection({
+function LegacyCanvasConnectionSection({
   initialStatus,
   request,
   onWorkspaceRefresh,
@@ -585,5 +586,27 @@ export function CanvasConnectionSection({
         ) : null}
       </div>
     </section>
+  );
+}
+
+export function CanvasConnectionSection(props: CanvasConnectionSectionProps) {
+  const [manualOpen, setManualOpen] = useState(false);
+
+  return (
+    <div className="canvas-connection-page">
+      <CanvasConnectorSection
+        {...(props.request ? { request: props.request } : {})}
+        {...(props.onWorkspaceRefresh
+          ? { onWorkspaceRefresh: props.onWorkspaceRefresh }
+          : {})}
+      />
+      <details
+        className="canvas-connection__manual-fallback"
+        onToggle={(event) => setManualOpen(event.currentTarget.open)}
+      >
+        <summary>Use a session cookie instead</summary>
+        {manualOpen ? <LegacyCanvasConnectionSection {...props} /> : null}
+      </details>
+    </div>
   );
 }

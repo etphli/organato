@@ -1,28 +1,31 @@
-import type { CanvasConnectionStatus } from "@organato/domain";
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SetupWizard } from "../components/setup/SetupWizard";
 import { seedSettings, seedSubjects } from "../data/seed";
 import { OrganatoProvider } from "../state/OrganatoProvider";
 
-const disconnectedCanvas: CanvasConnectionStatus = {
-  installation: {
-    name: "Emanuel School Canvas",
-    hostname: "emanuel.instructure.com",
-    readOnly: true,
-  },
-  state: "disconnected",
-  connection: null,
-  counts: { activeCourses: 0, upcomingItems: 0 },
-  latestSync: null,
+const unpairedConnector = {
+  enabled: true,
+  paired: false,
+  erasurePending: false,
+  deviceName: null,
+  lastSeenAt: null,
+  state: "unpaired",
+  identity: null,
+  candidateIdentity: null,
+  lastSyncAt: null,
+  error: null,
+  loginExpiresAt: null,
 };
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("first-run setup", () => {
-  it("confirms a stale session before showing the Reshet cookie field", async () => {
+  it("confirms a stale session before allowing Canvas connector changes", async () => {
+    vi.stubEnv("VITE_DEMO_MODE", "false");
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       const body = path.startsWith("/api/items")
@@ -35,8 +38,8 @@ describe("first-run setup", () => {
               ? { integrations: [] }
               : path === "/api/views"
                 ? { views: [] }
-                : path === "/api/integrations/canvas/status"
-                  ? disconnectedCanvas
+                : path === "/api/integrations/canvas/connector"
+                  ? unpairedConnector
                   : path === "/api/integrations/google/settings"
                     ? {
                         connected: true,
@@ -65,9 +68,7 @@ describe("first-run setup", () => {
     );
 
     expect(
-      await screen.findByRole("button", {
-        name: /Confirm your Google sign-in/,
-      }),
+      await screen.findByRole("button", { name: "Confirm sign-in" }),
     ).toBeInTheDocument();
     expect(
       screen.queryByLabelText("Reshet session cookie"),

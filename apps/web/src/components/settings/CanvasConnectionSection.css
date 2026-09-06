@@ -1,3 +1,41 @@
+.canvas-connection-page {
+  max-width: 760px;
+}
+
+.canvas-connection__manual-fallback {
+  border-top: 1px solid var(--border);
+  margin-top: 28px;
+  padding-top: 16px;
+}
+
+.canvas-connection__manual-fallback > summary {
+  align-items: center;
+  color: var(--secondary);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.76rem;
+  gap: 7px;
+  list-style: none;
+  user-select: none;
+}
+
+.canvas-connection__manual-fallback > summary::before {
+  content: "▸";
+  color: var(--muted);
+}
+
+.canvas-connection__manual-fallback[open] > summary::before {
+  content: "▾";
+}
+
+.canvas-connection__manual-fallback > summary::-webkit-details-marker {
+  display: none;
+}
+
+.canvas-connection__manual-fallback > .canvas-connection {
+  margin-top: 21px;
+}
+
 .canvas-connection {
   color: var(--text);
   max-width: 760px;
