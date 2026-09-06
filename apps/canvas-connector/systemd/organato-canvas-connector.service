@@ -1,0 +1,32 @@
+[Unit]
+Description=Organato Canvas browser connector
+Requires=organato-canvas-x11vnc.service
+After=network-online.target organato-canvas-x11vnc.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=organato-canvas
+Group=organato-canvas
+WorkingDirectory=/opt/organato-canvas-connector
+EnvironmentFile=/etc/organato-canvas-connector.env
+ExecStart=/usr/local/bin/node /opt/organato-canvas-connector/src/index.mjs run
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/organato-canvas-connector
+BindReadOnlyPaths=/opt/organato-canvas-connector/policies/managed:/etc/chromium/policies/managed
+BindReadOnlyPaths=/opt/organato-canvas-connector/policies/managed:/etc/chromium-browser/policies/managed
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=yes
+RestrictSUIDSGID=yes
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
