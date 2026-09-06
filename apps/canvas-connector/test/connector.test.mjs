@@ -1,4 +1,4 @@
-/* global Response, Buffer */
+/* global Response, Buffer, URL */
 
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -712,5 +712,53 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
       [["abort", "blockedbyclient"]],
     );
     await adapter.close();
+  });
+});
+
+test("CanvasBrowserAdapter returns to Canvas before reading a session completed on SSO", async () => {
+  await withTempDirectory(async (directory) => {
+    const executable = path.join(directory, "chromium");
+    await fs.writeFile(executable, "browser");
+    let currentUrl = "https://login.example.org/account";
+    const navigations = [];
+    const fakePage = {
+      on() {},
+      url() {
+        return currentUrl;
+      },
+      async goto(url) {
+        navigations.push(url);
+        currentUrl = url;
+      },
+      async evaluate(_callback, origin) {
+        if (new URL(currentUrl).origin !== origin) {
+          return { ok: false, category: "network_error" };
+        }
+        return { ok: true, value: { id: "user-1", name: "Canvas user" } };
+      },
+    };
+    const context = {
+      async addInitScript() {},
+      async route() {},
+      pages() {
+        return [fakePage];
+      },
+      on() {},
+      async close() {},
+    };
+    const adapter = new CanvasBrowserAdapter({
+      canvasBaseUrl: CANVAS_BASE,
+      profileDir: path.join(directory, "profile"),
+      executablePath: executable,
+      lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+      browserLauncher: async () => context,
+    });
+
+    assert.deepEqual(await adapter.readIdentity(), {
+      id: "user-1",
+      name: "Canvas user",
+      hostname: "canvas.example.org",
+    });
+    assert.deepEqual(navigations, [`${CANVAS_BASE}/`]);
   });
 });

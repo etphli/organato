@@ -856,8 +856,35 @@ export class CanvasBrowserAdapter {
     }
   }
 
-  async readIdentity() {
+  async ensureCanvasOrigin() {
     await this.ensureContext();
+    let currentOrigin;
+    try {
+      currentOrigin = new URL(this.page.url()).origin;
+    } catch {
+      currentOrigin = null;
+    }
+    if (currentOrigin === this.baseUrl.origin) return;
+    try {
+      await this.page.goto(`${this.baseUrl.origin}/`, {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      });
+    } catch {
+      throw new CanvasBrowserError("network_error");
+    }
+    try {
+      if (new URL(this.page.url()).origin !== this.baseUrl.origin) {
+        throw new CanvasBrowserError("login_required");
+      }
+    } catch (error) {
+      if (error instanceof CanvasBrowserError) throw error;
+      throw new CanvasBrowserError("read_failed");
+    }
+  }
+
+  async readIdentity() {
+    await this.ensureCanvasOrigin();
     let result;
     try {
       result = await this.page.evaluate(identityInPage, this.baseUrl.origin);
@@ -869,7 +896,7 @@ export class CanvasBrowserAdapter {
   }
 
   async fetchUpcomingAssignments() {
-    await this.ensureContext();
+    await this.ensureCanvasOrigin();
     let result;
     try {
       result = await this.page.evaluate(syncInPage, this.baseUrl.origin);
