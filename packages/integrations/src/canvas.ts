@@ -176,7 +176,6 @@ function nextLink(header: string | null): string | null {
 
 const maximumResponseBytes = 5_000_000;
 const maximumAttempts = 3;
-const canvasUserAgent = "Organato/0.1 (+https://organato.vercel.app)";
 
 export function retryAfterMs(
   value: string | null,
