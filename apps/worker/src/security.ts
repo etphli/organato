@@ -120,7 +120,7 @@ export function securityHeaders(): MiddlewareHandler<{ Bindings: Env }> {
     }
     context.header(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://lh3.googleusercontent.com; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://gmail.googleapis.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com",
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://lh3.googleusercontent.com; connect-src 'self' wss://organato.etphli.workers.dev https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://gmail.googleapis.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com",
     );
     context.header("X-Content-Type-Options", "nosniff");
     context.header("Referrer-Policy", "strict-origin-when-cross-origin");
@@ -391,7 +391,7 @@ export function requireRecentSession(
 }
 
 export async function rateLimit(
-  context: Context<{ Bindings: Env; Variables: Variables }>,
+  context: { env: Env },
   key: string,
   limit: number,
   windowMinutes = 60,

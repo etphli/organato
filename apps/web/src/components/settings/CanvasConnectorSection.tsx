@@ -245,9 +245,13 @@ export function CanvasConnectorSection({
         setPairingCode(null);
         setPairingExpiresAt(null);
       }
+      const imported =
+        next.lastSyncAt && next.lastSyncAt !== statusRef.current?.lastSyncAt;
+      if (imported) setActivityMessage(null);
       applyStatus(next);
+      if (imported) await onWorkspaceRefresh?.().catch(() => undefined);
       return next;
-    }, [applyStatus, demoMode, requestJson]);
+    }, [applyStatus, demoMode, onWorkspaceRefresh, requestJson]);
 
   const handleRequestError = useCallback(
     (requestError: unknown, fallback: string) => {
@@ -327,6 +331,7 @@ export function CanvasConnectorSection({
   }, [pairingCode, viewExpiresAt]);
 
   const pollingDelay =
+    status?.state === "syncing" ||
     status?.state === "signing_in" ||
     status?.state === "awaiting_confirmation" ||
     viewerOpen ||
@@ -625,7 +630,6 @@ export function CanvasConnectorSection({
       clearLocalView(true);
       setActivityMessage("Canvas account confirmed. Sync has started.");
       await loadStatus();
-      await onWorkspaceRefresh?.().catch(() => undefined);
     } catch (confirmError) {
       handleRequestError(
         confirmError,
@@ -673,7 +677,6 @@ export function CanvasConnectorSection({
           "Canvas sync",
         );
         await loadStatus();
-        await onWorkspaceRefresh?.().catch(() => undefined);
       }
       setActivityMessage("Canvas sync has started.");
     } catch (syncError) {
@@ -870,7 +873,7 @@ export function CanvasConnectorSection({
                 </span>
                 <strong>{pairingCode}</strong>
                 <small>
-                  Enter this code in the Canvas Pi CLI. Codes expire after 10
+                  Enter this code in the Pi terminal. Codes expire after 10
                   minutes.
                 </small>
               </div>

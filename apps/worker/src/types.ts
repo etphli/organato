@@ -1,5 +1,7 @@
 export interface Env {
   DB: D1Database;
+  CANVAS_CONNECTOR?: DurableObjectNamespace;
+  CONNECTOR_PUBLIC_ORIGIN?: string;
   ASSETS: Fetcher;
   APP_ORIGIN: string;
   ALLOWED_GOOGLE_EMAILS: string;

@@ -1,3 +1,11 @@
+import {
+  canvasConnectorRoutes,
+  canvasDeviceRoutes,
+  canvasViewer,
+  browserConnectorActive,
+  connectorStub,
+} from "./canvas-connector-routes";
+export { CanvasConnector } from "./canvas-connector-object";
 import { GoogleApiError } from "@organato/integrations";
 import { EMAIL_TEMPLATE_VERSION } from "@organato/email";
 import { Hono } from "hono";
@@ -47,7 +55,10 @@ async function runHourlyForAllWorkspaces(env: Env) {
   let canvasSynced = 0;
   let canvasFailed = 0;
   for (const [workspaceId, connected] of providers) {
-    if (connected.has("canvas")) {
+    if (
+      connected.has("canvas") &&
+      !(await browserConnectorActive(env, workspaceId))
+    ) {
       try {
         const result = await runCanvasSync(env, workspaceId, "scheduled");
         await sendUrgentImport(
@@ -128,6 +139,9 @@ app.post("/api/internal/schedule", async (context) => {
   return context.json({ error: "Unknown job." }, 400);
 });
 
+app.route("/api/canvas-device", canvasDeviceRoutes);
+app.get("/api/canvas-view", (c) => canvasViewer(c.req.raw, c.env));
+
 app.use("/api/*", requireSession());
 app.use("/api/*", async (context, next) => {
   if (
@@ -195,10 +209,15 @@ app.get("/api/client-diagnostics", async (context) => {
 });
 
 app.route("/api/integrations/google", googleIntegrationRoutes);
+app.route("/api/integrations/canvas/connector", canvasConnectorRoutes);
 
 app.post("/api/integrations/canvas/sync", async (context) => {
   try {
     const workspaceId = context.get("user").workspaceId;
+    if (await browserConnectorActive(context.env, workspaceId))
+      return connectorStub(context.env, workspaceId).fetch(
+        new Request("https://connector/sync", { method: "POST" }),
+      );
     const result = await runCanvasSync(context.env, workspaceId, "manual");
     context.executionCtx.waitUntil(
       Promise.all([

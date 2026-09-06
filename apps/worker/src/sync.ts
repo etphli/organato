@@ -13,6 +13,7 @@ import {
   projectCalendarEvent,
   type CalendarEventRecord,
   type CanvasAssignment,
+  type CanvasSyncResult,
 } from "@organato/integrations";
 import {
   canvasConnectionErrorCategory,
@@ -25,6 +26,26 @@ import {
 } from "./google-connection";
 import { decryptSecret, sha256 } from "./security";
 import type { Env } from "./types";
+
+function jsonBatches(rows: readonly unknown[]): string[] {
+  const batches: string[] = [];
+  let parts: string[] = [];
+  let bytes = 2;
+  const encoder = new TextEncoder();
+  for (const row of rows) {
+    const part = JSON.stringify(row);
+    const size = encoder.encode(part).length + 1;
+    if (bytes + size > 1_000_000 && parts.length) {
+      batches.push(`[${parts.join(",")}]`);
+      parts = [];
+      bytes = 2;
+    }
+    parts.push(part);
+    bytes += size;
+  }
+  if (parts.length) batches.push(`[${parts.join(",")}]`);
+  return batches;
+}
 
 function subjectColour(index: number): string {
   return ["#c084fc", "#3b9df8", "#7bd66a", "#f59e0b", "#a78bfa", "#55d6d6"][
@@ -86,34 +107,38 @@ async function acquireCanvasRun(
   workspaceId: string,
   trigger: "scheduled" | "manual",
   now: Date,
+  deliveryId?: string,
 ): Promise<{
   acquired: boolean;
   runId: string;
   finalKey: string;
 }> {
   const runId = crypto.randomUUID();
-  const finalKey =
-    trigger === "scheduled"
+  const finalKey = deliveryId
+    ? `${workspaceId}:connector:${deliveryId}`
+    : trigger === "scheduled"
       ? `${workspaceId}:canvas:${now.toISOString().slice(0, 13)}`
       : `${workspaceId}:manual:${runId}`;
   const activeKey = `${workspaceId}:canvas:active`;
-  if (trigger === "scheduled") {
+  if (trigger === "scheduled" || deliveryId) {
     const existing = await env.DB.prepare(
       "SELECT id, result FROM sync_run WHERE scheduled_key = ?",
     )
       .bind(finalKey)
       .first<{ id: string; result: string }>();
-    if (existing?.result !== "failed") {
+    if (existing && existing.result !== "failed") {
       return { acquired: false, runId: existing?.id ?? runId, finalKey };
     }
-    const released = await env.DB.prepare(
-      `UPDATE sync_run SET scheduled_key = 'retry:' || id
+    const released = existing
+      ? await env.DB.prepare(
+          `UPDATE sync_run SET scheduled_key = 'retry:' || id
        WHERE id = ? AND workspace_id = ? AND provider = 'canvas'
          AND scheduled_key = ? AND result = 'failed'`,
-    )
-      .bind(existing.id, workspaceId, finalKey)
-      .run();
-    if (!released.meta.changes) {
+        )
+          .bind(existing.id, workspaceId, finalKey)
+          .run()
+      : null;
+    if (existing && released && !released.meta.changes) {
       return { acquired: false, runId: existing.id, finalKey };
     }
   }
@@ -152,6 +177,7 @@ export async function runCanvasSync(
   env: Env,
   workspaceId: string,
   trigger: "scheduled" | "manual",
+  browserSource?: { result: CanvasSyncResult; deliveryId: string },
 ): Promise<CanvasSyncOutcome> {
   const connection = await env.DB.prepare(
     `SELECT encrypted_credential, metadata_json, account_label
@@ -160,7 +186,7 @@ export async function runCanvasSync(
   )
     .bind(workspaceId)
     .first<{
-      encrypted_credential: string;
+      encrypted_credential: string | null;
       metadata_json: string;
       account_label: string;
     }>();
@@ -170,13 +196,29 @@ export async function runCanvasSync(
     connection.account_label,
   );
   if (!metadata) throw new Error("Canvas connection metadata is invalid.");
-  const credential = await decryptSecret(
-    connection.encrypted_credential,
-    env.DATA_ENCRYPTION_KEY,
-    metadata.credentialAad,
-  );
+  if (metadata.transport === "browser" && !browserSource) {
+    throw new Error("Use the Canvas connector to synchronize this account.");
+  }
+  if (browserSource && metadata.transport !== "browser") {
+    throw new Error("The Canvas browser connection has changed.");
+  }
+  if (!browserSource && !connection.encrypted_credential)
+    throw new Error("Canvas credential is missing.");
+  const credential = browserSource
+    ? ""
+    : await decryptSecret(
+        connection.encrypted_credential ?? "",
+        env.DATA_ENCRYPTION_KEY,
+        metadata.credentialAad,
+      );
   const started = new Date();
-  const lock = await acquireCanvasRun(env, workspaceId, trigger, started);
+  const lock = await acquireCanvasRun(
+    env,
+    workspaceId,
+    trigger,
+    started,
+    browserSource?.deliveryId,
+  );
   const { runId, finalKey } = lock;
   if (!lock.acquired) {
     return {
@@ -193,9 +235,9 @@ export async function runCanvasSync(
   }
   try {
     const provider = new CanvasRestProvider(metadata.baseUrl, credential);
-    const result = await provider.fetchUpcomingAssignments(
-      AbortSignal.timeout(45_000),
-    );
+    const result =
+      browserSource?.result ??
+      (await provider.fetchUpcomingAssignments(AbortSignal.timeout(45_000)));
     const now = new Date().toISOString();
     const createdIds: string[] = [];
     let updated = 0;
@@ -208,242 +250,122 @@ export async function runCanvasSync(
     );
     const baseHash = `${workspaceId}:${await sha256(provider.baseUrl.origin)}`;
 
-    const subjectIds = new Map<string, string>();
-    for (const [index, course] of result.courses.entries()) {
-      const scopedCourseId = `${workspaceId}:${course.id}`;
-      await env.DB.prepare(
-        `INSERT INTO subject
-        (id, workspace_id, canvas_course_id, source_name, display_name, colour, active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
-       ON CONFLICT(canvas_course_id) DO UPDATE SET
-         display_name = CASE
-           WHEN subject.display_name = subject.source_name
-           THEN excluded.source_name
-           ELSE subject.display_name END,
-         source_name = excluded.source_name,
-         active = 1,
-         updated_at = excluded.updated_at`,
-      )
-        .bind(
-          `${workspaceId}:canvas-course-${course.id}`,
-          workspaceId,
-          scopedCourseId,
-          course.name,
-          course.name,
-          subjectColour(index),
-          now,
-          now,
-        )
-        .run();
-      const stored = await env.DB.prepare(
-        `SELECT id FROM subject
-         WHERE workspace_id = ? AND canvas_course_id = ?`,
-      )
-        .bind(workspaceId, scopedCourseId)
-        .first<{ id: string }>();
-      if (stored) subjectIds.set(course.id, stored.id);
-    }
-
-    for (const assignment of result.assignments) {
-      const existing = await env.DB.prepare(
-        `SELECT id, working_status, source_payload_hash, archived_at,
-                archive_reason, manual_archive, missing_sync_count,
-                source_name, source_due_at, source_updated_at
-         FROM item
-         WHERE workspace_id = ? AND canvas_base_url_hash = ? AND canvas_assignment_id = ?`,
-      )
-        .bind(workspaceId, baseHash, assignment.id)
-        .first<{
-          id: string;
-          working_status: string;
-          source_payload_hash: string | null;
-          archived_at: string | null;
-          archive_reason: string | null;
-          manual_archive: number;
-          missing_sync_count: number;
-          source_name: string | null;
-          source_due_at: string | null;
-          source_updated_at: string | null;
-        }>();
-      const payloadHash = await sha256(canvasPayload(assignment));
-      if (!existing) {
-        if (!isCanvasImportCandidate(assignment, started)) {
-          skipped += 1;
-          continue;
-        }
-        const id = crypto.randomUUID();
-        await env.DB.batch([
-          env.DB.prepare(
-            `INSERT INTO item
-              (id, workspace_id, kind, classification, source_type, canvas_base_url_hash,
-               canvas_assignment_id, canvas_course_id, canvas_html_url,
-               source_name, source_due_at, source_updated_at, source_payload_hash,
-               display_name, due_at, due_has_explicit_time, subject_id,
-               working_status, submitted_at, calendar_enabled, reminders_enabled,
-               calendar_sync_state, created_at, updated_at)
-             VALUES (?, ?, 'work', 'unclassified', 'canvas', ?, ?, ?, ?, ?, ?, ?, ?,
-                     ?, ?, ?, ?, 'not_started', NULL, 1, 1, 'pending', ?, ?)`,
-          ).bind(
-            id,
-            workspaceId,
-            baseHash,
-            assignment.id,
-            `${workspaceId}:${assignment.courseId}`,
-            assignment.htmlUrl,
-            assignment.name,
-            assignment.dueAt,
-            assignment.updatedAt,
-            payloadHash,
-            assignment.name,
-            assignment.dueAt,
-            assignment.dueAt ? 1 : 0,
-            subjectIds.get(assignment.courseId) ?? null,
-            now,
-            now,
-          ),
-          env.DB.prepare(
-            `INSERT INTO item_history
-              (id, item_id, actor_type, actor_identity, action, summary,
-               after_json, created_at)
-             VALUES (?, ?, 'canvas', 'Canvas', 'canvas_imported',
-                     'Imported from Canvas', ?, ?)`,
-          ).bind(
-            crypto.randomUUID(),
-            id,
-            JSON.stringify({
-              sourceName: assignment.name,
-              sourceDueAt: assignment.dueAt,
-              canvasCourseId: assignment.courseId,
-            }),
-            now,
-          ),
-        ]);
-        createdIds.push(id);
-      } else {
-        if (!assignment.published) {
-          skipped += 1;
-          continue;
-        }
-        const payloadChanged = existing.source_payload_hash !== payloadHash;
-        const shouldRestore =
-          Boolean(existing.archived_at) && !existing.manual_archive;
-        if (!payloadChanged && !shouldRestore) {
-          if (existing.missing_sync_count) {
-            await env.DB.prepare(
-              `UPDATE item
-               SET missing_sync_count = 0, source_missing_since = NULL,
-                   updated_at = ?
-               WHERE id = ? AND workspace_id = ?`,
-            )
-              .bind(now, existing.id, workspaceId)
-              .run();
-          }
-          continue;
-        }
-        await env.DB.batch([
-          env.DB.prepare(
-            `UPDATE item SET
-               source_name = ?, source_due_at = ?, source_updated_at = ?,
-               source_payload_hash = ?, canvas_html_url = ?,
-               missing_sync_count = 0, source_missing_since = NULL,
-               display_name = CASE WHEN NOT EXISTS (
-                 SELECT 1 FROM field_override
-                 WHERE item_id = item.id AND field_name = 'name'
-               ) THEN ? ELSE display_name END,
-               due_at = CASE WHEN NOT EXISTS (
-                 SELECT 1 FROM field_override
-                 WHERE item_id = item.id AND field_name = 'due'
-               ) THEN ? ELSE due_at END,
-               due_date_local = CASE WHEN NOT EXISTS (
-                 SELECT 1 FROM field_override
-                 WHERE item_id = item.id AND field_name = 'due'
-               ) THEN NULL ELSE due_date_local END,
-               due_has_explicit_time = CASE WHEN NOT EXISTS (
-                 SELECT 1 FROM field_override
-                 WHERE item_id = item.id AND field_name = 'due'
-               ) THEN ? ELSE due_has_explicit_time END,
-               working_status = CASE
-                 WHEN ? = 1 AND working_status <> 'completed' THEN 'submitted'
-                 ELSE working_status END,
-               submitted_at = CASE
-                 WHEN ? = 1 THEN COALESCE(submitted_at, ?)
-                 ELSE submitted_at END,
-               archived_at = CASE WHEN ? = 1 THEN NULL ELSE archived_at END,
-               archive_reason = CASE WHEN ? = 1 THEN NULL ELSE archive_reason END,
-               reminders_enabled = CASE
-                 WHEN ? = 1 AND archive_reason = 'Removed from Canvas'
-                 THEN 1 ELSE reminders_enabled END,
-               calendar_sync_state = CASE
-                 WHEN calendar_enabled = 1 THEN 'pending'
-                 ELSE calendar_sync_state END,
-               version = version + 1, updated_at = ?
-             WHERE id = ? AND workspace_id = ?`,
-          ).bind(
-            assignment.name,
-            assignment.dueAt,
-            assignment.updatedAt,
-            payloadHash,
-            assignment.htmlUrl,
-            assignment.name,
-            assignment.dueAt,
-            assignment.dueAt ? 1 : 0,
-            assignment.submitted ? 1 : 0,
-            assignment.submitted ? 1 : 0,
-            now,
-            shouldRestore ? 1 : 0,
-            shouldRestore ? 1 : 0,
-            shouldRestore ? 1 : 0,
-            now,
-            existing.id,
-            workspaceId,
-          ),
-          env.DB.prepare(
-            `INSERT INTO item_history
-              (id, item_id, actor_type, actor_identity, action, summary,
-               before_json, after_json, created_at)
-             VALUES (?, ?, 'canvas', 'Canvas', ?, ?, ?, ?, ?)`,
-          ).bind(
-            crypto.randomUUID(),
-            existing.id,
-            shouldRestore ? "canvas_restored" : "canvas_source_updated",
-            shouldRestore
-              ? "Restored after returning to Canvas"
-              : "Canvas source fields changed",
-            JSON.stringify({
-              sourceName: existing.source_name,
-              sourceDueAt: existing.source_due_at,
-              sourceUpdatedAt: existing.source_updated_at,
-            }),
-            JSON.stringify({
-              sourceName: assignment.name,
-              sourceDueAt: assignment.dueAt,
-              sourceUpdatedAt: assignment.updatedAt,
-            }),
-            now,
-          ),
-        ]);
-        updated += 1;
-      }
-    }
-
-    const existingCanvas = await env.DB.prepare(
-      `SELECT id, canvas_assignment_id, canvas_course_id, source_due_at,
-              missing_sync_count
-       FROM item
-       WHERE workspace_id = ? AND source_type = 'canvas' AND canvas_base_url_hash = ?
-         AND archived_at IS NULL`,
+    const existingRows = await env.DB.prepare(
+      `SELECT id, canvas_assignment_id, canvas_course_id, source_payload_hash,
+              archived_at, manual_archive, missing_sync_count, canvas_missing_run_id,
+              source_name, source_due_at, source_updated_at
+       FROM item WHERE workspace_id = ? AND canvas_base_url_hash = ?`,
     )
       .bind(workspaceId, baseHash)
       .all<{
         id: string;
         canvas_assignment_id: string;
         canvas_course_id: string | null;
-        source_due_at: string | null;
+        source_payload_hash: string | null;
+        archived_at: string | null;
+        manual_archive: number;
         missing_sync_count: number;
+        canvas_missing_run_id: string | null;
+        source_name: string | null;
+        source_due_at: string | null;
+        source_updated_at: string | null;
       }>();
+    const existingById = new Map(
+      existingRows.results.map((item) => [item.canvas_assignment_id, item]),
+    );
+    const courses = result.courses.map((course, index) => ({
+      id: `${workspaceId}:canvas-course-${course.id}`,
+      courseId: `${workspaceId}:${course.id}`,
+      name: course.name,
+      colour: subjectColour(index),
+    }));
+    const inserts = [];
+    const updates = [];
+    const resets: string[] = [];
+    const histories = [];
+    for (const assignment of result.assignments) {
+      const existing = existingById.get(assignment.id);
+      const payloadHash = await sha256(canvasPayload(assignment));
+      const source = {
+        name: assignment.name,
+        due: assignment.dueAt,
+        updated: assignment.updatedAt,
+        hash: payloadHash,
+        url: assignment.htmlUrl,
+      };
+      if (!existing) {
+        if (!isCanvasImportCandidate(assignment, started)) {
+          skipped += 1;
+          continue;
+        }
+        const id = crypto.randomUUID();
+        inserts.push({
+          id,
+          assignmentId: assignment.id,
+          courseId: `${workspaceId}:${assignment.courseId}`,
+          ...source,
+        });
+        createdIds.push(id);
+        histories.push({
+          id: crypto.randomUUID(),
+          itemId: id,
+          action: "canvas_imported",
+          summary: "Imported from Canvas",
+          before: null,
+          after: JSON.stringify({
+            sourceName: assignment.name,
+            sourceDueAt: assignment.dueAt,
+            canvasCourseId: assignment.courseId,
+          }),
+        });
+      } else {
+        if (!assignment.published) {
+          skipped += 1;
+          continue;
+        }
+        const restore =
+          Boolean(existing.archived_at) && !existing.manual_archive;
+        if (existing.source_payload_hash === payloadHash && !restore) {
+          if (existing.missing_sync_count) resets.push(existing.id);
+          continue;
+        }
+        updates.push({
+          id: existing.id,
+          ...source,
+          submitted: assignment.submitted ? 1 : 0,
+          restore: restore ? 1 : 0,
+        });
+        histories.push({
+          id: crypto.randomUUID(),
+          itemId: existing.id,
+          action: restore ? "canvas_restored" : "canvas_source_updated",
+          summary: restore
+            ? "Restored after returning to Canvas"
+            : "Canvas source fields changed",
+          before: JSON.stringify({
+            sourceName: existing.source_name,
+            sourceDueAt: existing.source_due_at,
+            sourceUpdatedAt: existing.source_updated_at,
+          }),
+          after: JSON.stringify({
+            sourceName: assignment.name,
+            sourceDueAt: assignment.dueAt,
+            sourceUpdatedAt: assignment.updatedAt,
+          }),
+        });
+        updated += 1;
+      }
+    }
     const successfulCourseIds = new Set(result.successfulCourseIds);
-    for (const item of existingCanvas.results) {
-      if (seenAssignmentIds.has(item.canvas_assignment_id)) continue;
+    const missingRunId = browserSource?.deliveryId ?? runId;
+    const omissions = [];
+    for (const item of existingRows.results) {
+      if (
+        item.archived_at ||
+        item.canvas_missing_run_id === missingRunId ||
+        seenAssignmentIds.has(item.canvas_assignment_id)
+      )
+        continue;
       if (
         !shouldAdvanceCanvasMissing(
           {
@@ -460,54 +382,107 @@ export async function runCanvasSync(
         continue;
       }
       const count = item.missing_sync_count + 1;
-      const confirmed = count >= 2;
-      const statements: D1PreparedStatement[] = [
+      omissions.push({ id: item.id, count, confirmed: count >= 2 ? 1 : 0 });
+      if (count >= 2) {
+        archived += 1;
+        histories.push({
+          id: crypto.randomUUID(),
+          itemId: item.id,
+          action: "canvas_removed",
+          summary: "Archived after two confirmed Canvas omissions",
+          before: null,
+          after: null,
+        });
+      }
+    }
+    // The batch commits the whole snapshot atomically. Every write checks the same
+    // connection generation, so a disconnect or account switch fences stale fetches.
+    const guard = `EXISTS (SELECT 1 FROM integration_connection WHERE workspace_id = ?
+      AND provider = 'canvas' AND status <> 'disconnected' AND metadata_json = ?
+      AND encrypted_credential IS ?)`;
+    const fence = [
+      workspaceId,
+      connection.metadata_json,
+      connection.encrypted_credential,
+    ];
+    const statements = [
+      ...jsonBatches(courses).map((json) =>
+        env.DB.prepare(
+          `INSERT INTO subject
+        (id, workspace_id, canvas_course_id, source_name, display_name, colour, active, created_at, updated_at)
+        SELECT value ->> '$.id', ?, value ->> '$.courseId', value ->> '$.name', value ->> '$.name', value ->> '$.colour', 1, ?, ?
+        FROM json_each(?) WHERE ${guard}
+        ON CONFLICT(canvas_course_id) DO UPDATE SET
+          display_name = CASE WHEN subject.display_name = subject.source_name THEN excluded.source_name ELSE subject.display_name END,
+          source_name = excluded.source_name, active = 1, updated_at = excluded.updated_at`,
+        ).bind(workspaceId, now, now, json, ...fence),
+      ),
+      ...jsonBatches(inserts).map((json) =>
+        env.DB.prepare(
+          `INSERT INTO item
+        (id, workspace_id, kind, classification, source_type, canvas_base_url_hash,
+         canvas_assignment_id, canvas_course_id, canvas_html_url, source_name, source_due_at,
+         source_updated_at, source_payload_hash, display_name, due_at, due_has_explicit_time,
+         subject_id, working_status, calendar_enabled, reminders_enabled, calendar_sync_state, created_at, updated_at)
+        SELECT value ->> '$.id', ?, 'work', 'unclassified', 'canvas', ?,
+          value ->> '$.assignmentId', value ->> '$.courseId', value ->> '$.url', value ->> '$.name', value ->> '$.due',
+          value ->> '$.updated', value ->> '$.hash', value ->> '$.name', value ->> '$.due', (value ->> '$.due') IS NOT NULL,
+          (SELECT id FROM subject WHERE workspace_id = ? AND canvas_course_id = value ->> '$.courseId'),
+          'not_started', 1, 1, 'pending', ?, ? FROM json_each(?) WHERE ${guard}`,
+        ).bind(workspaceId, baseHash, workspaceId, now, now, json, ...fence),
+      ),
+      ...jsonBatches(updates).map((json) =>
         env.DB.prepare(
           `UPDATE item SET
-             missing_sync_count = ?,
-             source_missing_since = COALESCE(source_missing_since, ?),
-             archived_at = CASE WHEN ? = 1 THEN ? ELSE archived_at END,
-             archive_reason = CASE WHEN ? = 1
-               THEN 'Removed from Canvas' ELSE archive_reason END,
-             reminders_enabled = CASE WHEN ? = 1 THEN 0 ELSE reminders_enabled END,
-             calendar_sync_state = CASE WHEN ? = 1
-               THEN 'pending' ELSE calendar_sync_state END,
-             version = version + 1, updated_at = ?
-           WHERE id = ? AND workspace_id = ?`,
-        ).bind(
-          count,
-          now,
-          confirmed ? 1 : 0,
-          now,
-          confirmed ? 1 : 0,
-          confirmed ? 1 : 0,
-          confirmed ? 1 : 0,
-          now,
-          item.id,
-          workspaceId,
-        ),
-      ];
-      if (confirmed) {
-        statements.push(
-          env.DB.prepare(
-            `INSERT INTO item_history
-              (id, item_id, actor_type, actor_identity, action, summary,
-               created_at)
-             VALUES (?, ?, 'canvas', 'Canvas', 'canvas_removed',
-                     'Archived after two confirmed Canvas omissions', ?)`,
-          ).bind(crypto.randomUUID(), item.id, now),
-        );
-      }
-      await env.DB.batch(statements);
-      if (confirmed) archived += 1;
-    }
-    await env.DB.prepare(
-      `UPDATE sync_run SET finished_at = ?, fetched_count = ?, created_count = ?,
-         updated_count = ?, archived_count = ?, skipped_count = ?, result = ?,
-         scheduled_key = ? WHERE id = ? AND workspace_id = ?`,
-    )
-      .bind(
-        new Date().toISOString(),
+        source_name = value ->> '$.name', source_due_at = value ->> '$.due', source_updated_at = value ->> '$.updated',
+        source_payload_hash = value ->> '$.hash', canvas_html_url = value ->> '$.url',
+        missing_sync_count = 0, source_missing_since = NULL,
+        display_name = CASE WHEN NOT EXISTS (SELECT 1 FROM field_override WHERE item_id = item.id AND field_name = 'name') THEN value ->> '$.name' ELSE display_name END,
+        due_at = CASE WHEN NOT EXISTS (SELECT 1 FROM field_override WHERE item_id = item.id AND field_name = 'due') THEN value ->> '$.due' ELSE due_at END,
+        due_date_local = CASE WHEN NOT EXISTS (SELECT 1 FROM field_override WHERE item_id = item.id AND field_name = 'due') THEN NULL ELSE due_date_local END,
+        due_has_explicit_time = CASE WHEN NOT EXISTS (SELECT 1 FROM field_override WHERE item_id = item.id AND field_name = 'due') THEN (value ->> '$.due') IS NOT NULL ELSE due_has_explicit_time END,
+        working_status = CASE WHEN value ->> '$.submitted' = 1 AND working_status <> 'completed' THEN 'submitted' ELSE working_status END,
+        submitted_at = CASE WHEN value ->> '$.submitted' = 1 THEN COALESCE(submitted_at, ?) ELSE submitted_at END,
+        archived_at = CASE WHEN value ->> '$.restore' = 1 THEN NULL ELSE archived_at END,
+        archive_reason = CASE WHEN value ->> '$.restore' = 1 THEN NULL ELSE archive_reason END,
+        reminders_enabled = CASE WHEN value ->> '$.restore' = 1 AND archive_reason = 'Removed from Canvas' THEN 1 ELSE reminders_enabled END,
+        calendar_sync_state = CASE WHEN calendar_enabled = 1 THEN 'pending' ELSE calendar_sync_state END,
+        version = version + 1, updated_at = ?
+        FROM json_each(?) WHERE item.id = value ->> '$.id' AND workspace_id = ? AND ${guard}`,
+        ).bind(now, now, json, workspaceId, ...fence),
+      ),
+      ...jsonBatches(resets).map((json) =>
+        env.DB.prepare(
+          `UPDATE item SET missing_sync_count = 0, source_missing_since = NULL, updated_at = ?
+        WHERE workspace_id = ? AND id IN (SELECT value FROM json_each(?)) AND ${guard}`,
+        ).bind(now, workspaceId, json, ...fence),
+      ),
+      ...jsonBatches(omissions).map((json) =>
+        env.DB.prepare(
+          `UPDATE item SET missing_sync_count = value ->> '$.count', canvas_missing_run_id = ?,
+        source_missing_since = COALESCE(source_missing_since, ?),
+        archived_at = CASE WHEN value ->> '$.confirmed' = 1 THEN ? ELSE archived_at END,
+        archive_reason = CASE WHEN value ->> '$.confirmed' = 1 THEN 'Removed from Canvas' ELSE archive_reason END,
+        reminders_enabled = CASE WHEN value ->> '$.confirmed' = 1 THEN 0 ELSE reminders_enabled END,
+        calendar_sync_state = CASE WHEN value ->> '$.confirmed' = 1 THEN 'pending' ELSE calendar_sync_state END,
+        version = version + 1, updated_at = ? FROM json_each(?)
+        WHERE item.id = value ->> '$.id' AND workspace_id = ? AND ${guard}`,
+        ).bind(missingRunId, now, now, now, json, workspaceId, ...fence),
+      ),
+      ...jsonBatches(histories).map((json) =>
+        env.DB.prepare(
+          `INSERT INTO item_history
+        (id, item_id, actor_type, actor_identity, action, summary, before_json, after_json, created_at)
+        SELECT value ->> '$.id', value ->> '$.itemId', 'canvas', 'Canvas', value ->> '$.action',
+          value ->> '$.summary', value ->> '$.before', value ->> '$.after', ? FROM json_each(?) WHERE ${guard}`,
+        ).bind(now, json, ...fence),
+      ),
+      env.DB.prepare(
+        `UPDATE sync_run SET finished_at = ?, fetched_count = ?, created_count = ?,
+        updated_count = ?, archived_count = ?, skipped_count = ?, result = ?, scheduled_key = ?
+        WHERE id = ? AND workspace_id = ? AND ${guard}`,
+      ).bind(
+        now,
         result.assignments.length,
         createdIds.length,
         updated,
@@ -517,21 +492,24 @@ export async function runCanvasSync(
         finalKey,
         runId,
         workspaceId,
-      )
-      .run();
-    await env.DB.prepare(
-      `UPDATE integration_connection SET status = ?, last_success_at = ?, last_attempt_at = ?,
-         last_error_category = NULL, reconnect_needed = 0, updated_at = ?
-       WHERE workspace_id = ? AND provider = 'canvas'`,
-    )
-      .bind(
+        ...fence,
+      ),
+      env.DB.prepare(
+        `UPDATE integration_connection SET status = ?, last_success_at = ?, last_attempt_at = ?,
+        last_error_category = NULL, reconnect_needed = 0, updated_at = ?
+        WHERE workspace_id = ? AND provider = 'canvas' AND ${guard}`,
+      ).bind(
         result.partialFailures.length ? "partial" : "healthy",
         now,
         now,
         now,
         workspaceId,
-      )
-      .run();
+        ...fence,
+      ),
+    ];
+    const committed = await env.DB.batch(statements);
+    if (!committed.at(-1)?.meta.changes)
+      throw new Error("Canvas connection changed during sync. Try again.");
     return {
       runId,
       createdIds,
@@ -568,7 +546,8 @@ export async function runCanvasSync(
       env.DB.prepare(
         `UPDATE integration_connection SET status = ?,
          last_attempt_at = ?, last_error_category = ?, reconnect_needed = ?,
-         updated_at = ? WHERE workspace_id = ? AND provider = 'canvas'`,
+         updated_at = ? WHERE workspace_id = ? AND provider = 'canvas'
+           AND status <> 'disconnected' AND metadata_json = ? AND encrypted_credential IS ?`,
       )
         .bind(
           authenticationFailure
@@ -581,6 +560,8 @@ export async function runCanvasSync(
           authenticationFailure ? 1 : 0,
           failedAt,
           workspaceId,
+          connection.metadata_json,
+          connection.encrypted_credential,
         )
         .run(),
     ]).catch(() => undefined);
@@ -1385,9 +1366,10 @@ export async function sendUrgentImport(
   if (!createdIds.length) return;
   const settings = await getSettings(env.DB, workspaceId);
   if (!settings.immediateImportAlert) return;
-  const items = (
-    await Promise.all(createdIds.map((id) => getItem(env.DB, workspaceId, id)))
-  ).filter((item): item is OrganatoItem => item !== null);
+  const items = await listItems(env.DB, workspaceId, {
+    ids: createdIds,
+    limit: 2000,
+  });
   await sendDigestForItems(
     env,
     workspaceId,

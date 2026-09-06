@@ -36,6 +36,7 @@ export interface CanvasConnectionMetadata {
   connectedAt: string;
   lastValidatedAt: string;
   credentialAad: string;
+  transport?: "browser";
 }
 
 export function configuredCanvasInstallation(
@@ -95,6 +96,9 @@ export function parseCanvasConnectionMetadata(
     const connectedAt =
       parsed.connectedAt ?? parsed.lastValidatedAt ?? new Date(0).toISOString();
     return {
+      ...(parsed.transport === "browser"
+        ? { transport: parsed.transport }
+        : {}),
       baseUrl: baseUrl.origin,
       hostname: baseUrl.hostname,
       userId: parsed.userId ?? "",
