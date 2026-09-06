@@ -1,0 +1,14 @@
+{
+  "DeveloperToolsAvailability": 2,
+  "DownloadRestrictions": 3,
+  "PasswordManagerEnabled": false,
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "SyncDisabled": true,
+  "URLBlocklist": [
+    "file://*",
+    "devtools://*",
+    "chrome://settings/passwords*",
+    "chrome://password-manager/*"
+  ]
+}
