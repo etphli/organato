@@ -14,6 +14,8 @@ import {
   Archive,
   Columns3,
   Combine,
+  Eye,
+  EyeOff,
   ExternalLink,
   Filter,
   GitCompareArrows,
@@ -56,6 +58,23 @@ const statusOptions = [
   { value: "submitted", label: "Submitted" },
   { value: "completed", label: "Completed" },
 ];
+const assignmentsShowCompletedKey = "organato-assignments-show-completed-v1";
+
+function loadShowCompletedPreference(): boolean {
+  try {
+    return localStorage.getItem(assignmentsShowCompletedKey) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveShowCompletedPreference(value: boolean): void {
+  try {
+    localStorage.setItem(assignmentsShowCompletedKey, String(value));
+  } catch {
+    // The table still works when browser storage is unavailable.
+  }
+}
 
 export default function WorkPage({
   page,
@@ -75,6 +94,9 @@ export default function WorkPage({
   const [query, setQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [showColumns, setShowColumns] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(
+    loadShowCompletedPreference,
+  );
   const [priorityFilter, setPriorityFilter] = useState("");
   const [viewName, setViewName] = useState("");
   const [activeView, setActiveView] = useState("active");
@@ -126,7 +148,11 @@ export default function WorkPage({
         if (priorityFilter && item.priority !== priorityFilter) return false;
         if (activeView === "active") {
           const status = visibleStatus(item, now);
-          if (status === "completed") return false;
+          if (
+            status === "completed" &&
+            (page !== "assignments" || !showCompleted)
+          )
+            return false;
           if (status === "submitted" && !settings.showSubmittedActive)
             return false;
         }
@@ -151,6 +177,7 @@ export default function WorkPage({
       pageViews,
       priorityFilter,
       settings.showSubmittedActive,
+      showCompleted,
     ],
   );
   const columns = useMemo(
@@ -411,11 +438,26 @@ export default function WorkPage({
       });
     }
   };
+  const toggleCompleted = () => {
+    const next = !showCompleted;
+    setShowCompleted(next);
+    setRowSelection({});
+    saveShowCompletedPreference(next);
+  };
+  const completedVisibleCount =
+    page === "assignments"
+      ? data.filter((item) => item.workingStatus === "completed").length
+      : 0;
+  const activeVisibleCount = data.length - completedVisibleCount;
   return (
     <div className="page work-page">
       <PageHeader
         title={page === "assignments" ? "Assignments" : "Checkpoints"}
-        meta={`${data.length} ${activeView === "all" ? page : "active"}`}
+        meta={
+          completedVisibleCount
+            ? `${activeVisibleCount} active · ${completedVisibleCount} completed`
+            : `${activeVisibleCount} active`
+        }
         actions={
           <>
             <OrganatoSelect
@@ -443,6 +485,16 @@ export default function WorkPage({
             >
               <Columns3 size={16} /> Columns
             </button>
+            {page === "assignments" ? (
+              <button
+                aria-pressed={showCompleted}
+                className="text-button icon-labelled work-secondary-action"
+                onClick={toggleCompleted}
+              >
+                {showCompleted ? <EyeOff size={16} /> : <Eye size={16} />}
+                {showCompleted ? "Hide completed" : "Show completed"}
+              </button>
+            ) : null}
             <CreateWorkControl
               page={page}
               subjects={subjects}
@@ -481,6 +533,16 @@ export default function WorkPage({
                 >
                   <Columns3 size={16} /> Columns
                 </button>
+                {page === "assignments" ? (
+                  <button
+                    aria-pressed={showCompleted}
+                    onClick={toggleCompleted}
+                    role="menuitem"
+                  >
+                    {showCompleted ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showCompleted ? "Hide completed" : "Show completed"}
+                  </button>
+                ) : null}
               </div>
             </details>
           </>

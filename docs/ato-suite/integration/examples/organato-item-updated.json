@@ -1,0 +1,35 @@
+{
+  "specVersion": "1.0",
+  "id": "123e4567-e89b-42d3-a456-426614174000",
+  "source": "organato",
+  "type": "organato.item.updated",
+  "occurredAt": "2026-07-31T10:15:30.000Z",
+  "sequence": 27,
+  "subject": "ato:organato:item:6a14d912-42bb-4fc3-b4e2-98f55ef8f901",
+  "resourceVersion": 4,
+  "traceId": "8c760d70-3610-4783-aa5a-130829d8f0ce",
+  "correlationId": "223e4567-e89b-42d3-a456-426614174000",
+  "dataClassification": "personal",
+  "data": {
+    "id": "ato:organato:item:6a14d912-42bb-4fc3-b4e2-98f55ef8f901",
+    "ownerApp": "organato",
+    "resourceType": "item",
+    "version": 4,
+    "title": "English checkpoint",
+    "subtitle": "English",
+    "state": "in_progress",
+    "occurredAt": null,
+    "dueAt": "2026-08-03T05:00:00.000Z",
+    "dateLocal": null,
+    "updatedAt": "2026-07-31T10:15:30.000Z",
+    "deepLink": "/work?item=6a14d912-42bb-4fc3-b4e2-98f55ef8f901",
+    "badges": ["checkpoint", "high"],
+    "dataClassification": "personal",
+    "capabilities": ["open", "complete", "archive"],
+    "appData": {
+      "kind": "work",
+      "classification": "checkpoint",
+      "subjectId": "c401ee6d-5d55-4d96-834b-f54dc4be952e"
+    }
+  }
+}

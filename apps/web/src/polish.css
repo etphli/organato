@@ -483,7 +483,9 @@ textarea::placeholder {
 }
 
 .page-heading {
+  flex-wrap: wrap;
   gap: 12px;
+  row-gap: 0;
 }
 
 .page-heading h1 {
