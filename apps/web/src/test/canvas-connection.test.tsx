@@ -2,10 +2,18 @@ import type {
   CanvasConnectResponse,
   CanvasConnectionStatus,
 } from "@organato/domain";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CanvasConnectionSection } from "../components/settings/CanvasConnectionSection";
 import { IntegrationRequestError } from "../lib/integrationApi";
+
+afterEach(cleanup);
 
 const disconnected: CanvasConnectionStatus = {
   installation: {
@@ -61,6 +69,21 @@ describe("Canvas connection settings", () => {
         if (path === "/api/session") {
           return { recentAuthentication: true };
         }
+        if (path === "/api/integrations/canvas/connector") {
+          return {
+            enabled: true,
+            paired: false,
+            erasurePending: false,
+            deviceName: null,
+            lastSeenAt: null,
+            state: "unpaired",
+            identity: null,
+            candidateIdentity: null,
+            lastSyncAt: null,
+            error: null,
+            loginExpiresAt: null,
+          };
+        }
         if (path.endsWith("/status")) {
           return isConnected ? connected : disconnected;
         }
@@ -87,7 +110,10 @@ describe("Canvas connection settings", () => {
       screen.queryByRole("button", { name: "Sync now" }),
     ).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Reshet session cookie"), {
+    fireEvent.click(
+      screen.getByText("Use a session cookie instead", { selector: "summary" }),
+    );
+    fireEvent.change(await screen.findByLabelText("Reshet session cookie"), {
       target: { value: "canvas_session=private-session" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Connect Reshet" }));
@@ -118,6 +144,21 @@ describe("Canvas connection settings", () => {
       if (path === "/api/session") {
         return { recentAuthentication: false };
       }
+      if (path === "/api/integrations/canvas/connector") {
+        return {
+          enabled: true,
+          paired: false,
+          erasurePending: false,
+          deviceName: null,
+          lastSeenAt: null,
+          state: "unpaired",
+          identity: null,
+          candidateIdentity: null,
+          lastSyncAt: null,
+          error: null,
+          loginExpiresAt: null,
+        };
+      }
       if (path.endsWith("/status")) return disconnected;
       throw new Error(`Unexpected request: ${path}`);
     });
@@ -141,6 +182,21 @@ describe("Canvas connection settings", () => {
         if (path === "/api/session") {
           return { recentAuthentication: true };
         }
+        if (path === "/api/integrations/canvas/connector") {
+          return {
+            enabled: true,
+            paired: false,
+            erasurePending: false,
+            deviceName: null,
+            lastSeenAt: null,
+            state: "unpaired",
+            identity: null,
+            candidateIdentity: null,
+            lastSyncAt: null,
+            error: null,
+            loginExpiresAt: null,
+          };
+        }
         if (path.endsWith("/status")) return disconnected;
         if (path.endsWith("/connect") && init?.method === "POST") {
           throw new IntegrationRequestError(
@@ -153,6 +209,11 @@ describe("Canvas connection settings", () => {
     );
 
     render(<CanvasConnectionSection request={request} />);
+    fireEvent.click(
+      await screen.findByText("Use a session cookie instead", {
+        selector: "summary",
+      }),
+    );
     const input = await screen.findByLabelText("Reshet session cookie");
     const button = screen.getByRole("button", { name: "Connect Reshet" });
 
