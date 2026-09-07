@@ -1,4 +1,5 @@
 type DiagnosticKind =
+  | "canvas_viewer"
   | "interaction"
   | "runtime_error"
   | "react_error"

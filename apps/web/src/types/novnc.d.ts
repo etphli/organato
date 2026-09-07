@@ -4,6 +4,7 @@ declare module "@novnc/novnc" {
     scaleViewport: boolean;
     resizeSession: boolean;
     showDotCursor: boolean;
+    addEventListener(type: string, listener: EventListener): void;
     disconnect(): void;
     focus(): void;
     sendKey(keysym: number, code: string, down?: boolean): void;

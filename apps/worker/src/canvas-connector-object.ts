@@ -5,7 +5,7 @@ import {
   type ConnectorState,
   type ConnectorCommand,
 } from "./canvas-connector-contract";
-import { randomToken, sha256 } from "./security";
+import { randomToken, sha256, recordSecurityEvent } from "./security";
 import {
   runCanvasSync,
   runCalendarReconciliation,
@@ -30,6 +30,7 @@ const ticketSchema = z.object({
 });
 const attachmentSchema = z.object({
   role: z.enum(["device", "viewer"]),
+  receivedData: z.boolean().optional(),
   sessionId: z.string(),
   expiresAt: z.number(),
 });
@@ -61,6 +62,25 @@ export class CanvasConnector {
         );
       }
     });
+  }
+
+  private diagnostic(
+    state: ConnectorState,
+    stage: string,
+    details: Record<string, string | number> = {},
+  ) {
+    this.ctx.waitUntil(
+      recordSecurityEvent(
+        this.env.DB,
+        "canvas_connector",
+        state.workspaceId,
+        JSON.stringify({
+          stage,
+          sessionId: state.loginSession?.id ?? null,
+          ...details,
+        }),
+      ).catch(() => undefined),
+    );
   }
 
   private async save(state: ConnectorState) {
@@ -300,10 +320,12 @@ export class CanvasConnector {
       return json({ ok: true });
     }
     if (url.pathname === "/view") {
-      if (!state.loginSession || !this.ctx.getWebSockets("device").length)
+      if (!state.loginSession || !this.ctx.getWebSockets("device").length) {
+        this.diagnostic(state, "device_not_connected");
         return fail(
           "The Pi is opening the browser. Try viewing again in a few seconds.",
         );
+      }
       if (this.ctx.getWebSockets("viewer").length)
         return fail("Canvas sign-in is already open in another window.");
       const token = randomToken();
@@ -361,6 +383,7 @@ export class CanvasConnector {
       }
       if (this.ctx.getWebSockets(role).length)
         return fail("A connection is already active.");
+      this.diagnostic(state, `${role}_socket_connected`);
       const pair = new WebSocketPair();
       this.ctx.acceptWebSocket(pair[1], [role]);
       pair[1].serializeAttachment({
@@ -386,6 +409,11 @@ export class CanvasConnector {
         (result.status === "sync" && command.kind !== "sync")
       )
         return fail("Unexpected command result.");
+      this.diagnostic(state, "command_result", {
+        command: command.kind,
+        status: result.status,
+        ...(result.status === "error" ? { error: result.error } : {}),
+      });
       if (result.status === "error") {
         state.error =
           result.error === "login_required"
@@ -488,6 +516,12 @@ export class CanvasConnector {
       ws.close(1008, "Invalid or expired sign-in stream");
       return;
     }
+    if (!attachment.data.receivedData) {
+      ws.serializeAttachment({ ...attachment.data, receivedData: true });
+      this.diagnostic(state, `${attachment.data.role}_first_data`, {
+        bytes: message.byteLength,
+      });
+    }
     const peerRole = attachment.data.role === "viewer" ? "device" : "viewer";
     for (const peer of this.ctx.getWebSockets(peerRole)) {
       const peerInfo = attachmentSchema.safeParse(peer.deserializeAttachment());
@@ -499,9 +533,12 @@ export class CanvasConnector {
     }
   }
 
-  async webSocketClose(ws: WebSocket) {
+  async webSocketClose(ws: WebSocket, code = 1006) {
     const info = attachmentSchema.safeParse(ws.deserializeAttachment());
     if (!info.success) return;
+    const state = await this.ctx.storage.get<ConnectorState>("state");
+    if (state)
+      this.diagnostic(state, `${info.data.role}_socket_closed`, { code });
     const peerRole = info.data.role === "viewer" ? "device" : "viewer";
     for (const peer of this.ctx.getWebSockets(peerRole)) {
       const peerInfo = attachmentSchema.safeParse(peer.deserializeAttachment());

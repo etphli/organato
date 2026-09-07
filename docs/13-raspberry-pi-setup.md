@@ -259,6 +259,24 @@ select **Sign in to Canvas** again. This repair preserves pairing and the
 browser profile. If a service still fails, capture its latest journal output
 before changing permissions or deleting X11 lock files.
 
+### Connected viewer stays blank
+
+Older Organato builds gave the viewer a minimum height but no definite height.
+The noVNC display uses `height: 100%`, which resolved to zero and scaled the
+remote screen to 0 × 0 even after a successful connection. The web fix gives
+the viewer a definite responsive height. Reload Organato after deployment;
+this fix does not require a Pi upgrade.
+
+Organato records display handshake, timeout, disconnect, and display dimensions
+in its existing diagnostic store. The server also records socket connections,
+the first data packet in each direction, close codes, and command results.
+These events contain no screen contents, keystrokes, cookies, or view tickets.
+An operator with access to the production Cloudflare account can inspect them:
+
+```sh
+pnpm dlx wrangler@4.114.0 d1 execute organato-production --remote --command "SELECT category, summary, created_at FROM security_event WHERE category IN ('canvas_connector', 'client_canvas_viewer') ORDER BY created_at DESC LIMIT 30"
+```
+
 ### Viewer reconnects every minute
 
 If all three services are stable and x11vnc logs a successful handshake followed

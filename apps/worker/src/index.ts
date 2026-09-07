@@ -182,6 +182,7 @@ app.post("/api/client-diagnostics", async (context) => {
     [key: string]: unknown;
   } | null;
   const allowedKinds = new Set([
+    "canvas_viewer",
     "interaction",
     "runtime_error",
     "react_error",

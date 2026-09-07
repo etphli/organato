@@ -280,6 +280,7 @@
   display: flex;
   justify-content: center;
   margin-top: 15px;
+  height: clamp(320px, 65vh, 900px);
   min-height: 320px;
   overflow: hidden;
   position: relative;

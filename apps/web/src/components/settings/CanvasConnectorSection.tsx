@@ -506,7 +506,17 @@ export function CanvasConnectorSection({
     const target = viewerRef.current;
     const keyboardInput = mobileKeyboardRef.current;
 
-    void createRfb(target, viewUrl)
+    const controller = new AbortController();
+    const disconnected = () => {
+      if (!active) return;
+      setViewUrl(null);
+      setRfbReady(false);
+      setViewError("The Pi display disconnected. Reconnecting…");
+    };
+    void createRfb(target, viewUrl, {
+      signal: controller.signal,
+      onDisconnect: disconnected,
+    })
       .then((nextSession) => {
         if (active) {
           session = nextSession;
@@ -518,6 +528,7 @@ export function CanvasConnectorSection({
       })
       .catch((rfbError) => {
         if (active) {
+          setViewUrl(null);
           setViewError(
             requestErrorMessage(
               rfbError,
@@ -529,6 +540,7 @@ export function CanvasConnectorSection({
 
     return () => {
       active = false;
+      controller.abort();
       session?.disconnect();
       if (viewerSessionRef.current === session) {
         viewerSessionRef.current = null;

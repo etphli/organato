@@ -1,3 +1,5 @@
+import { reportClientDiagnostic } from "../../clientDiagnostics";
+
 export interface CanvasRfbSession {
   disconnect(): void;
   focus?(): void;
@@ -7,6 +9,7 @@ export interface CanvasRfbSession {
 export type CanvasRfbFactory = (
   target: HTMLElement,
   url: string,
+  options?: { signal: AbortSignal; onDisconnect: () => void },
 ) => Promise<CanvasRfbSession>;
 
 const mobileSpecialKeys: Record<string, { code: string; keysym: number }> = {
@@ -70,11 +73,67 @@ export function forwardMobileSpecialKey(
 export async function defaultRfbFactory(
   target: HTMLElement,
   url: string,
+  options?: { signal: AbortSignal; onDisconnect: () => void },
 ): Promise<CanvasRfbSession> {
   const { default: RFB } = await import("@novnc/novnc");
+  options?.signal.throwIfAborted();
   const rfb = new RFB(target, url);
   rfb.scaleViewport = true;
   rfb.resizeSession = false;
   rfb.showDotCursor = true;
-  return rfb;
+  return new Promise((resolve, reject) => {
+    let connected = false;
+    let stopped = false;
+    let layoutTimer: number | undefined;
+    const report = (stage: string) => {
+      const canvas = target.querySelector("canvas");
+      reportClientDiagnostic("canvas_viewer", {
+        stage,
+        width: target.clientWidth,
+        height: target.clientHeight,
+        canvasWidth: canvas?.width ?? 0,
+        canvasHeight: canvas?.height ?? 0,
+        renderedWidth: canvas?.getBoundingClientRect().width ?? 0,
+        renderedHeight: canvas?.getBoundingClientRect().height ?? 0,
+      });
+    };
+    const stop = () => {
+      stopped = true;
+      window.clearTimeout(timer);
+      window.clearTimeout(layoutTimer);
+      options?.signal.removeEventListener("abort", abort);
+      rfb.disconnect();
+    };
+    const fail = (stage: string) => {
+      if (stopped) return;
+      report(stage);
+      stop();
+      if (connected) options?.onDisconnect();
+      else reject(new Error("The Pi display connection failed. Reconnecting…"));
+    };
+    const abort = () => {
+      stop();
+      reject(new DOMException("Viewer closed", "AbortError"));
+    };
+    const timer = window.setTimeout(() => fail("handshake_timeout"), 20_000);
+    options?.signal.addEventListener("abort", abort, { once: true });
+    rfb.addEventListener("connect", () => {
+      if (stopped) return;
+      connected = true;
+      window.clearTimeout(timer);
+      report("connected");
+      layoutTimer = window.setTimeout(() => report("display_layout"), 1_000);
+      resolve({
+        disconnect: stop,
+        focus: () => rfb.focus(),
+        sendKey: (keysym, code, down) => rfb.sendKey(keysym, code, down),
+      });
+    });
+    rfb.addEventListener("disconnect", () => fail("disconnected"));
+    rfb.addEventListener("securityfailure", () => fail("security_failure"));
+    rfb.addEventListener("credentialsrequired", () =>
+      fail("unexpected_credentials"),
+    );
+    report("connecting");
+  });
 }
