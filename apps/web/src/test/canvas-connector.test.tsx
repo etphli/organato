@@ -268,6 +268,52 @@ describe("Canvas connector settings", () => {
     expect(viewAttempts).toBe(2);
   });
 
+  it("retries viewing automatically while the Pi relay starts", async () => {
+    let currentStatus = connectorStatus("ready", { paired: true });
+    let viewAttempts = 0;
+    const loginExpiresAt = futureIso(600_000);
+    const rfbFactory = vi.fn(async () => ({ disconnect: vi.fn() }));
+    const request = requestRecorder(async (path) => {
+      if (path === "/api/session") return { recentAuthentication: true };
+      if (path === "/api/integrations/canvas/connector") return currentStatus;
+      if (path.endsWith("/login")) {
+        currentStatus = connectorStatus("signing_in", {
+          paired: true,
+          loginExpiresAt,
+        });
+        return { ok: true };
+      }
+      if (path.endsWith("/view")) {
+        viewAttempts += 1;
+        if (viewAttempts === 1) {
+          throw new IntegrationRequestError(
+            "The Pi is opening the browser. Try viewing again in a few seconds.",
+            "connector_not_ready",
+          );
+        }
+        return {
+          url: "wss://organato.etphli.workers.dev/api/canvas-view?ticket=automatic-retry",
+          expiresAt: futureIso(60_000),
+        };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(
+      <CanvasConnectorSection request={request} rfbFactory={rfbFactory} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Sign in to Canvas" }),
+    );
+    await screen.findByText(/The Pi is opening the browser/);
+
+    await waitFor(() => expect(rfbFactory).toHaveBeenCalledOnce(), {
+      timeout: 3_000,
+    });
+    expect(viewAttempts).toBe(2);
+  });
+
   it("lets an unconfirmed connector restart sign-in after a read error", async () => {
     let currentStatus = connectorStatus("error", {
       paired: true,

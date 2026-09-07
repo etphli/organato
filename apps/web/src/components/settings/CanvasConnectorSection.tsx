@@ -189,6 +189,7 @@ export function CanvasConnectorSection({
   const viewerSessionRef = useRef<CanvasRfbSession | null>(null);
   const mobileKeyboardRef = useRef<HTMLInputElement>(null);
   const viewRequestedRef = useRef(false);
+  const viewRetryAttemptRef = useRef(0);
   const reportedConnectedRef = useRef(false);
   const createRfb = rfbFactory ?? defaultRfbFactory;
 
@@ -399,7 +400,10 @@ export function CanvasConnectorSection({
     setViewUrl(null);
     setViewExpiresAt(null);
     setViewError(null);
-    if (preventAutoOpen) viewRequestedRef.current = true;
+    if (preventAutoOpen) {
+      viewRequestedRef.current = true;
+      viewRetryAttemptRef.current = 0;
+    }
   }, []);
 
   const requestView = useCallback(
@@ -431,6 +435,7 @@ export function CanvasConnectorSection({
         setViewUrl(response.url);
         setViewExpiresAt(response.expiresAt);
         setViewerOpen(true);
+        viewRetryAttemptRef.current = 0;
       } catch (viewRequestError) {
         if (requiresRecentAuthentication(viewRequestError)) {
           handleRequestError(
@@ -438,6 +443,7 @@ export function CanvasConnectorSection({
             "Canvas sign-in browser failed.",
           );
         } else {
+          viewRetryAttemptRef.current += 1;
           setViewError(
             requestErrorMessage(
               viewRequestError,
@@ -464,6 +470,34 @@ export function CanvasConnectorSection({
     }
     void requestView();
   }, [recentAuthentication, requestView, status?.state, viewUrl]);
+
+  useEffect(() => {
+    if (
+      !["signing_in", "awaiting_confirmation"].includes(status?.state ?? "") ||
+      !viewError ||
+      viewUrl ||
+      busy === "view" ||
+      recentAuthentication !== true
+    ) {
+      return;
+    }
+    const expiresAt = Date.parse(status?.loginExpiresAt ?? "");
+    if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) return;
+    const delay = Math.min(
+      1_000 * 2 ** Math.max(0, viewRetryAttemptRef.current - 1),
+      8_000,
+    );
+    const timer = window.setTimeout(() => void requestView(true), delay);
+    return () => window.clearTimeout(timer);
+  }, [
+    busy,
+    recentAuthentication,
+    requestView,
+    status?.loginExpiresAt,
+    status?.state,
+    viewError,
+    viewUrl,
+  ]);
 
   useEffect(() => {
     if (!viewerOpen || !viewUrl || !viewerRef.current) return;
@@ -566,6 +600,7 @@ export function CanvasConnectorSection({
     setViewError(null);
     clearLocalView(false);
     viewRequestedRef.current = false;
+    viewRetryAttemptRef.current = 0;
     try {
       if (demoMode) {
         throw new Error(
@@ -1002,7 +1037,9 @@ export function CanvasConnectorSection({
               </div>
               {viewError ? (
                 <div className="canvas-connector__viewer-error" role="alert">
-                  <span>{viewError}</span>
+                  <span>
+                    {viewError} Organato will retry while sign-in remains open.
+                  </span>
                   <button
                     type="button"
                     className="canvas-connector__secondary"

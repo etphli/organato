@@ -167,19 +167,66 @@ token. It clears that token immediately and stops; it never restores access
 after revocation. If the acknowledgement cannot reach the Worker, Organato
 shows erasure pending and the local connector remains stopped.
 
-## 7. Upgrade
+## 7. Upgrade an installed connector
 
-Download and extract a newer archive, stop the connector, and rerun the
-installer from the new extracted directory:
+Run the following commands on the Pi. The backup contains the device
+credential and the Canvas browser session. Keep it private.
 
 ```sh
-sudo systemctl stop organato-canvas-connector.service
+set -eu
+mkdir -p "$HOME/organato-downloads"
+backup="$HOME/organato-downloads/organato-canvas-state-$(date +%Y%m%d-%H%M%S).tar.gz"
+
+sudo systemctl stop \
+  organato-canvas-connector.service \
+  organato-canvas-x11vnc.service \
+  organato-canvas-xvfb.service
+sudo tar --create --gzip \
+  --file "$backup" \
+  --directory /var/lib \
+  organato-canvas-connector
+sudo chown "$(id -u):$(id -g)" "$backup"
+chmod 600 "$backup"
+
+upgrade_dir="$(mktemp -d "$HOME/organato-downloads/upgrade.XXXXXX")"
+cd "$upgrade_dir"
+curl --fail --location \
+  https://organato.vercel.app/downloads/organato-canvas-connector.tar.gz \
+  --output organato-canvas-connector.tar.gz
+curl --fail --location \
+  https://organato.vercel.app/downloads/organato-canvas-connector.tar.gz.sha256 \
+  --output organato-canvas-connector.tar.gz.sha256
+sha256sum --check organato-canvas-connector.tar.gz.sha256
+tar --extract --gzip --file organato-canvas-connector.tar.gz
+cd organato-canvas-connector
+
 sudo ./scripts/install-systemd.sh
 sudo systemctl start organato-canvas-connector.service
+sudo systemctl --no-pager --full status \
+  organato-canvas-xvfb.service \
+  organato-canvas-x11vnc.service \
+  organato-canvas-connector.service
 ```
 
-Pairing state and the persistent browser profile remain in
-`/var/lib/organato-canvas-connector` during an upgrade.
+The checksum command must report `OK`. The final command must show all three
+services as `active (running)`. Open Organato, select **Refresh status**, and
+run a Canvas sync to test the upgrade.
+
+The installer replaces only the connector program in
+`/opt/organato-canvas-connector`. It keeps the settings in
+`/etc/organato-canvas-connector.env` and the pairing state and browser profile
+in `/var/lib/organato-canvas-connector`. You do not need to pair or sign in
+again. Run `setup-device.sh` again only when the API origin or the school SSO
+allowlist must change.
+
+After the connector has completed a sync, delete the temporary files. The
+backup contains a live browser session, so do not leave it in the downloads
+directory.
+
+```sh
+rm -rf -- "$upgrade_dir"
+rm -- "$backup"
+```
 
 ## 8. Troubleshooting
 
