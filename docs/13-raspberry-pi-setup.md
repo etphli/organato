@@ -230,6 +230,35 @@ rm -- "$backup"
 
 ## 8. Troubleshooting
 
+### Repair the Xvfb lock-file restart loop
+
+If the journal reports `Could not create lock file in /tmp/.tX99-lock`,
+older service units make `/tmp` read-only. Each Xvfb crash also stops the
+browser connector, even when its WebSocket connected successfully.
+The current release allows Xvfb and Chromium to write temporary files while
+keeping `ProtectSystem=strict`. The services share the X11 socket in `/tmp`.
+
+Upgrade using section 7, or apply this repair directly on the Pi:
+
+```sh
+sudo mkdir -p /etc/systemd/system/organato-canvas-xvfb.service.d \
+  /etc/systemd/system/organato-canvas-connector.service.d
+printf '[Service]\nReadWritePaths=/tmp\n' | sudo tee \
+  /etc/systemd/system/organato-canvas-xvfb.service.d/temporary-files.conf \
+  /etc/systemd/system/organato-canvas-connector.service.d/temporary-files.conf >/dev/null
+sudo systemctl stop organato-canvas-connector.service organato-canvas-x11vnc.service organato-canvas-xvfb.service
+sudo systemctl daemon-reload
+sudo systemctl start organato-canvas-xvfb.service organato-canvas-x11vnc.service organato-canvas-connector.service
+sleep 30
+sudo systemctl show organato-canvas-xvfb.service organato-canvas-x11vnc.service organato-canvas-connector.service -p Id -p ActiveState -p SubState -p NRestarts
+```
+
+All three services must remain `active` and `running`, with restart counts
+that stop increasing. Then close the old sign-in session in Organato and
+select **Sign in to Canvas** again. This repair preserves pairing and the
+browser profile. If a service still fails, capture its latest journal output
+before changing permissions or deleting X11 lock files.
+
 | Symptom                             | Check                                                                                                             |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Installer says arm64 is required    | Install Raspberry Pi OS 64-bit, not a 32-bit image.                                                               |
