@@ -178,8 +178,9 @@ export class CanvasConnector {
         deviceName: state.deviceName,
         lastSeenAt: state.lastSeenAt,
         state:
-          !state.lastSeenAt ||
-          Date.parse(state.lastSeenAt) < Date.now() - 90_000
+          !this.ctx.getWebSockets("device").length &&
+          (!state.lastSeenAt ||
+            Date.parse(state.lastSeenAt) < Date.now() - 90_000)
             ? "offline"
             : state.phase,
         identity: state.identity,
