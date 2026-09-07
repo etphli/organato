@@ -1173,18 +1173,14 @@ export function CanvasConnectorSection({
                 <button
                   type="button"
                   className="canvas-connector__secondary"
-                  disabled={busy !== null}
-                  onClick={() => {
-                    setError(null);
-                    void loadStatus().catch((refreshError) =>
-                      handleRequestError(
-                        refreshError,
-                        "Canvas connector status could not be refreshed.",
-                      ),
-                    );
-                  }}
+                  disabled={
+                    busy !== null ||
+                    (!status.identity && recentAuthentication !== true)
+                  }
+                  onClick={() => void (status.identity ? sync() : login())}
                 >
-                  <RefreshCw size={14} /> Refresh status
+                  <RefreshCw size={14} />
+                  {status.identity ? "Try sync again" : "Try sign-in again"}
                 </button>
               </div>
             </div>
