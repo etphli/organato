@@ -29,6 +29,14 @@ export default tseslint.config(
     },
   },
   {
+    files: ["apps/web/public/ato-connect.js"],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+      },
+    },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
       globals: {

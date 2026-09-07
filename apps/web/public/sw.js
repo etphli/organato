@@ -1,11 +1,5 @@
-const cacheName = "organato-shell-v5";
-const shell = [
-  "/",
-  "/boot.css",
-  "/manifest.webmanifest",
-  "/icons/icon.svg",
-  "/icons/icon-maskable.svg",
-];
+const cacheName = "organato-shell-__ORGANATO_BUILD_ID__";
+const shell = ["__ORGANATO_PRECACHE__"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(cacheName).then((cache) => cache.addAll(shell)));
@@ -16,13 +10,16 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) =>
-        Promise.all(
-          keys
-            .filter((key) => key !== cacheName)
+      .then((keys) => {
+        const olderOrganatoCaches = keys.filter(
+          (key) => key.startsWith("organato-shell-") && key !== cacheName,
+        );
+        return Promise.all(
+          olderOrganatoCaches
+            .slice(0, Math.max(0, olderOrganatoCaches.length - 2))
             .map((key) => caches.delete(key)),
-        ),
-      )
+        );
+      })
       .then(() => self.clients.claim()),
   );
 });
@@ -48,7 +45,7 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         })
-        .catch(() => caches.match("/")),
+        .catch(() => caches.open(cacheName).then((cache) => cache.match("/"))),
     );
     return;
   }

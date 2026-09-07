@@ -10,13 +10,6 @@ export default defineConfig({
   build: {
     target: "es2022",
     sourcemap: true,
-    cssCodeSplit: false,
-    rollupOptions: {
-      output: {
-        entryFileNames: "assets/app.js",
-        assetFileNames: "assets/app[extname]",
-      },
-    },
   },
   test: {
     environment: "jsdom",

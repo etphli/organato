@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "../components/PageHeader";
 import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
 import { AgendaView } from "./calendar/AgendaView";
@@ -34,13 +35,33 @@ interface QuickCreateState {
   minutes: number | null;
 }
 
+const dateKeyPattern = /^\d{4}-\d{2}-\d{2}$/;
+
+function requestedCalendarDate(searchParams: URLSearchParams): string | null {
+  const value = searchParams.get("date");
+  if (!value || !dateKeyPattern.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  if (year === undefined || month === undefined || day === undefined) {
+    return null;
+  }
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+    ? value
+    : null;
+}
+
 export default function CalendarPage() {
   const { items, subjects, subjectsById, settings, integrations } =
     useOrganatoData();
   const { dispatch } = useOrganatoActions();
+  const [searchParams] = useSearchParams();
+  const requestedDateKey = requestedCalendarDate(searchParams);
   const [preferences, setPreferences] = useCalendarPreferences(
     settings.calendarDefaultView,
     settings.timezone,
+    requestedDateKey,
   );
   const [quickCreate, setQuickCreate] = useState<QuickCreateState | null>(null);
   const todayDateKey = todayKey(settings.timezone);
@@ -75,6 +96,20 @@ export default function CalendarPage() {
     [preferences.anchorKey, settings.firstDayOfWeek],
   );
   const filterCount = filtersActiveCount(preferences.filters);
+
+  useEffect(() => {
+    if (!requestedDateKey) return;
+    setPreferences((current) =>
+      current.anchorKey === requestedDateKey &&
+      current.selectedDateKey === requestedDateKey
+        ? current
+        : {
+            ...current,
+            anchorKey: requestedDateKey,
+            selectedDateKey: requestedDateKey,
+          },
+    );
+  }, [requestedDateKey, setPreferences]);
 
   const changeView = useCallback(
     (view: CalendarView) => {

@@ -12,9 +12,9 @@ import {
 } from "../pages/calendar/model";
 import { OrganatoProvider } from "../state/OrganatoProvider";
 
-function renderCalendar() {
+function renderCalendar(initialEntry = "/calendar") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <OrganatoProvider>
         <CalendarPage />
       </OrganatoProvider>
@@ -85,6 +85,17 @@ describe("Calendar", () => {
       "true",
     );
     expect(screen.getByLabelText("August 2026 agenda")).toBeInTheDocument();
+  });
+
+  it("opens the date requested by a Home calendar link", () => {
+    renderCalendar("/calendar?date=2026-08-24");
+
+    expect(screen.getByText("August 2026")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Monday 24 August 2026, add todo",
+      }),
+    ).toHaveAttribute("tabindex", "0");
   });
 });
 

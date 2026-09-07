@@ -69,6 +69,22 @@ describe("Assignment controls", () => {
     ).toBeInTheDocument();
   });
 
+  it("closes the mobile actions menu when it opens filters", () => {
+    renderAssignments();
+
+    const summary = screen.getByLabelText("More page actions");
+    const menu = summary.closest("details");
+    expect(menu).not.toBeNull();
+    menu!.open = true;
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Filter" }));
+
+    expect(menu).not.toHaveAttribute("open");
+    expect(
+      screen.getByRole("textbox", { name: "Filter this view" }),
+    ).toBeInTheDocument();
+  });
+
   it("deletes an assignment through the row action menu", () => {
     renderAssignments();
 

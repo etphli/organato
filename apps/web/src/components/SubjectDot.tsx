@@ -1,7 +1,7 @@
-import { useOrganatoData } from "../state/OrganatoProvider";
+import { useOrganatoWorkspace } from "../state/OrganatoProvider";
 
 export function SubjectDot({ subjectId }: { subjectId: string | null }) {
-  const { subjectsById } = useOrganatoData();
+  const { subjectsById } = useOrganatoWorkspace();
   const subject = subjectId ? subjectsById.get(subjectId) : undefined;
   return (
     <span

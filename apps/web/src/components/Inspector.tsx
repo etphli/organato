@@ -12,8 +12,8 @@ import { visibleStatus, type OrganatoItem } from "@organato/domain";
 import { localDateTimeToIso } from "../pages/calendar/model";
 import {
   useOrganatoActions,
-  useOrganatoData,
   useOrganatoUi,
+  useOrganatoWorkspace,
 } from "../state/OrganatoProvider";
 import {
   OrganatoDatePicker,
@@ -98,7 +98,7 @@ export function duePatchFromInputs(
 }
 
 export function Inspector() {
-  const { subjects, subjectsById, settings } = useOrganatoData();
+  const { subjects, subjectsById, settings } = useOrganatoWorkspace();
   const { selectedItem } = useOrganatoUi();
   const { dispatch } = useOrganatoActions();
   const retainedItemRef = useRef<OrganatoItem | null>(null);

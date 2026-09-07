@@ -28,6 +28,7 @@ import {
 } from "./sync";
 import { sha256 } from "./security";
 import type { Env, Variables } from "./types";
+import { studatoFeedRoutes } from "./studato-feed";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -89,6 +90,11 @@ app.get("/health", (context) =>
 );
 
 app.route("/api/auth", authRoutes);
+
+// A read-only, user-scoped metadata feed for Studato. It validates Studato's
+// signed Supabase session independently and never exposes Organato notes,
+// provider identifiers, attachments, history, or credentials.
+app.route("/ato/v1", studatoFeedRoutes);
 
 app.get("/api/integrations/google/callback", async (context) =>
   googleIntegrationCallback(context.req.raw, context.env, context.executionCtx),

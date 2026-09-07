@@ -85,10 +85,18 @@ function readPreferences(
 export function useCalendarPreferences(
   defaultView: CalendarView,
   timezone: string,
+  initialDateKey: string | null = null,
 ) {
-  const [preferences, setPreferences] = useState<CalendarPreferences>(() =>
-    readPreferences(defaultView, timezone),
-  );
+  const [preferences, setPreferences] = useState<CalendarPreferences>(() => {
+    const saved = readPreferences(defaultView, timezone);
+    return initialDateKey
+      ? {
+          ...saved,
+          anchorKey: initialDateKey,
+          selectedDateKey: initialDateKey,
+        }
+      : saved;
+  });
 
   useEffect(() => {
     try {

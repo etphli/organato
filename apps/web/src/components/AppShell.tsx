@@ -10,9 +10,10 @@ import {
 } from "lucide-react";
 import type { IntegrationHealth } from "@organato/domain";
 import { NavLink, type NavLinkRenderProps } from "react-router-dom";
-import { useOrganatoData, useOrganatoUi } from "../state/OrganatoProvider";
+import { useOrganatoUi, useOrganatoWorkspace } from "../state/OrganatoProvider";
 import { useAuthOwner } from "./AuthGate";
 import { BrandMark } from "./BrandMark";
+import { preloadRoute } from "../pages/routeLoaders";
 
 const navigation = [
   { to: "/", label: "Home", icon: Home },
@@ -75,7 +76,7 @@ export function getShellSyncStatus(
 
 export function AppShell({ children }: { children: ReactNode }) {
   const owner = useAuthOwner();
-  const { integrations } = useOrganatoData();
+  const { integrations } = useOrganatoWorkspace();
   const { syncing } = useOrganatoUi();
   const displayName = owner?.displayName || owner?.email || "Owner";
   const syncStatus = getShellSyncStatus(integrations, syncing);
@@ -114,9 +115,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               key={to}
               to={to}
               end={to === "/"}
+              aria-label={label}
               className={({ isActive }: NavLinkRenderProps) =>
                 `nav-item${isActive ? " active" : ""}`
               }
+              onFocus={() => preloadRoute(to)}
+              onPointerEnter={() => preloadRoute(to)}
+              onTouchStart={() => preloadRoute(to)}
             >
               <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
               <span>{label}</span>
@@ -146,12 +151,18 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span>{syncStatus.label}</span>
             </div>
           )}
-          <NavLink to="/settings" className="account-link">
+          <NavLink
+            to="/settings"
+            className="account-link"
+            aria-label={`${displayName} Settings`}
+            onFocus={() => preloadRoute("/settings")}
+            onPointerEnter={() => preloadRoute("/settings")}
+          >
             <span className="avatar" aria-hidden="true">
               {initials}
             </span>
             <span>{displayName}</span>
-            <Settings size={17} strokeWidth={1.7} aria-label="Settings" />
+            <Settings size={17} strokeWidth={1.7} aria-hidden="true" />
           </NavLink>
         </div>
       </aside>
@@ -164,9 +175,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             key={to}
             to={to}
             end={to === "/"}
+            aria-label={label}
             className={({ isActive }: NavLinkRenderProps) =>
               isActive ? "active" : ""
             }
+            onFocus={() => preloadRoute(to)}
+            onPointerEnter={() => preloadRoute(to)}
+            onTouchStart={() => preloadRoute(to)}
           >
             <Icon size={21} strokeWidth={1.7} aria-hidden="true" />
             <span>{label}</span>

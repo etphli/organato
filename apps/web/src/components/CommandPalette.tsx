@@ -14,8 +14,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   useOrganatoActions,
-  useOrganatoData,
   useOrganatoUi,
+  useOrganatoWorkspace,
 } from "../state/OrganatoProvider";
 import { useDialogFocus } from "./useDialogFocus";
 
@@ -31,7 +31,7 @@ const baseCommands = [
 ];
 
 export function CommandPalette() {
-  const { settings } = useOrganatoData();
+  const { settings } = useOrganatoWorkspace();
   const { commandOpen } = useOrganatoUi();
   const { dispatch, syncNow } = useOrganatoActions();
   const dialogRef = useRef<HTMLElement>(null);

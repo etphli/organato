@@ -658,23 +658,20 @@ interface ActionsContextValue {
   syncNow(): void;
 }
 
-type DataContextValue = Pick<
+type ItemsContextValue = Pick<State, "items" | "archivedReady">;
+type WorkspaceContextValue = Pick<
   State,
-  | "items"
-  | "subjects"
-  | "settings"
-  | "integrations"
-  | "views"
-  | "ready"
-  | "archivedReady"
-  | "bootError"
+  "subjects" | "settings" | "integrations" | "views" | "ready" | "bootError"
 > & { subjectsById: Map<string, Subject> };
 type UiContextValue = Pick<
   State,
   "selectedItemId" | "commandOpen" | "searchOpen" | "syncing" | "toast" | "undo"
 > & { selectedItem: OrganatoItem | null };
 
-const OrganatoDataContext = createContext<DataContextValue | null>(null);
+const OrganatoItemsContext = createContext<ItemsContextValue | null>(null);
+const OrganatoWorkspaceContext = createContext<WorkspaceContextValue | null>(
+  null,
+);
 const OrganatoUiContext = createContext<UiContextValue | null>(null);
 const OrganatoActionsContext = createContext<ActionsContextValue | null>(null);
 
@@ -1281,23 +1278,23 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
     () => new Map(state.subjects.map((subject) => [subject.id, subject])),
     [state.subjects],
   );
-  const dataValue = useMemo<DataContextValue>(
+  const itemsValue = useMemo<ItemsContextValue>(
+    () => ({ items: state.items, archivedReady: state.archivedReady }),
+    [state.archivedReady, state.items],
+  );
+  const workspaceValue = useMemo<WorkspaceContextValue>(
     () => ({
-      items: state.items,
       subjects: state.subjects,
       settings: state.settings,
       integrations: state.integrations,
       views: state.views,
       ready: state.ready,
-      archivedReady: state.archivedReady,
       bootError: state.bootError,
       subjectsById,
     }),
     [
-      state.archivedReady,
       state.bootError,
       state.integrations,
-      state.items,
       state.ready,
       state.settings,
       state.subjects,
@@ -1359,20 +1356,35 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
   }
   return (
     <OrganatoActionsContext.Provider value={actionsValue}>
-      <OrganatoDataContext.Provider value={dataValue}>
-        <OrganatoUiContext.Provider value={uiValue}>
-          {children}
-        </OrganatoUiContext.Provider>
-      </OrganatoDataContext.Provider>
+      <OrganatoWorkspaceContext.Provider value={workspaceValue}>
+        <OrganatoItemsContext.Provider value={itemsValue}>
+          <OrganatoUiContext.Provider value={uiValue}>
+            {children}
+          </OrganatoUiContext.Provider>
+        </OrganatoItemsContext.Provider>
+      </OrganatoWorkspaceContext.Provider>
     </OrganatoActionsContext.Provider>
   );
 }
 
-export function useOrganatoData() {
-  const context = useContext(OrganatoDataContext);
+export function useOrganatoItems() {
+  const context = useContext(OrganatoItemsContext);
   if (!context)
-    throw new Error("useOrganatoData must be used inside OrganatoProvider");
+    throw new Error("useOrganatoItems must be used inside OrganatoProvider");
   return context;
+}
+
+export function useOrganatoWorkspace() {
+  const context = useContext(OrganatoWorkspaceContext);
+  if (!context)
+    throw new Error(
+      "useOrganatoWorkspace must be used inside OrganatoProvider",
+    );
+  return context;
+}
+
+export function useOrganatoData() {
+  return { ...useOrganatoItems(), ...useOrganatoWorkspace() };
 }
 
 export function useOrganatoUi() {

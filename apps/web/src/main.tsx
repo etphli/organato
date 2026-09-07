@@ -14,6 +14,7 @@ const queryClient = new QueryClient({
     mutations: { retry: 0 },
   },
 });
+let serviceWorkerRefreshStarted = false;
 
 async function prepareServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
@@ -39,6 +40,17 @@ async function prepareServiceWorker() {
     updateViaCache: "none",
   });
   await registration.update();
+  if (serviceWorkerRefreshStarted) return;
+  serviceWorkerRefreshStarted = true;
+  const checkForUpdate = () => {
+    if (document.visibilityState === "visible") {
+      void registration.update().catch(() => undefined);
+    }
+  };
+  document.addEventListener("visibilitychange", checkForUpdate, {
+    passive: true,
+  });
+  window.setInterval(checkForUpdate, 15 * 60_000);
 }
 
 function mount() {

@@ -98,6 +98,7 @@ export default function WorkPage({
   );
   const deleteDialogRef = useRef<HTMLElement>(null);
   const deleteCloseRef = useRef<HTMLButtonElement>(null);
+  const mobileActionsRef = useRef<HTMLDetailsElement>(null);
   useDialogFocus(
     deleteCandidate !== null,
     deleteDialogRef,
@@ -106,6 +107,9 @@ export default function WorkPage({
   );
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const itemNoun = page === "assignments" ? "assignment" : "checkpoint";
+  const closeMobileActions = () => {
+    if (mobileActionsRef.current) mobileActionsRef.current.open = false;
+  };
   const viewOptions = useMemo(
     () => [
       { value: "active", label: "All active" },
@@ -451,7 +455,7 @@ export default function WorkPage({
             >
               <Plus size={16} /> New
             </button>
-            <details className="mobile-actions-menu">
+            <details ref={mobileActionsRef} className="mobile-actions-menu">
               <summary aria-label="More page actions">
                 <MoreHorizontal size={19} />
               </summary>
@@ -462,24 +466,36 @@ export default function WorkPage({
                     ariaLabel={`${page === "assignments" ? "Assignment" : "Checkpoint"} view`}
                     options={viewOptions}
                     value={activeView}
-                    onChange={applySavedView}
+                    onChange={(value) => {
+                      applySavedView(value);
+                      closeMobileActions();
+                    }}
                   />
                 </label>
                 <button
                   role="menuitem"
-                  onClick={() => setShowFilters((value) => !value)}
+                  onClick={() => {
+                    setShowFilters((value) => !value);
+                    closeMobileActions();
+                  }}
                 >
                   <Filter size={16} /> Filter
                 </button>
                 <button
                   role="menuitem"
-                  onClick={() => setSorting([{ id: "priority", desc: true }])}
+                  onClick={() => {
+                    setSorting([{ id: "priority", desc: true }]);
+                    closeMobileActions();
+                  }}
                 >
                   <SlidersHorizontal size={16} /> Sort by priority
                 </button>
                 <button
                   role="menuitem"
-                  onClick={() => setShowColumns((value) => !value)}
+                  onClick={() => {
+                    setShowColumns((value) => !value);
+                    closeMobileActions();
+                  }}
                 >
                   <Columns3 size={16} /> Columns
                 </button>
