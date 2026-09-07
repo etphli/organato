@@ -113,10 +113,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
           );
         }
       }
-      const response = await fetch("/api/session", {
-        credentials: "same-origin",
-      });
-      if (!response.ok) throw new Error("signed_out");
+      // Retry the session check once: a single transient blip (sleep/wake,
+      // momentary offline) should not bounce a signed-in user to the starter
+      // page. The OAuth exchange above is single-use and is never retried.
+      let response: Response | null = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        response = await fetch("/api/session", {
+          credentials: "same-origin",
+        });
+        if (response.ok || attempt === 1) break;
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      }
+      if (!response || !response.ok) throw new Error("signed_out");
       const session = (await response.json()) as SessionResponse;
       sessionStorage.setItem("organato_csrf", session.csrfToken);
       setState({ status: "signed_in", owner: session.owner });

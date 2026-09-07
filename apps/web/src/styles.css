@@ -201,7 +201,9 @@ button:disabled {
 }
 
 .auth-mark {
+  background: var(--surface);
   border: 1px solid var(--border-strong);
+  border-radius: 11px;
   display: inline-grid;
   font-size: 1rem;
   height: 38px;
@@ -224,20 +226,28 @@ button:disabled {
 }
 
 .auth-page button {
+  background: var(--surface-hover);
   border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  font-weight: 550;
   margin: 28px 0 18px;
   min-height: 40px;
   padding: 0 18px;
+  transition: background-color var(--motion);
   width: 100%;
 }
 
 .auth-page button:hover {
-  background: var(--surface-hover);
+  background: var(--surface-active);
 }
 
 .auth-page small {
   display: block;
   margin-bottom: 18px;
+}
+
+.auth-page small[role="alert"] {
+  color: var(--danger);
 }
 
 .auth-page footer {

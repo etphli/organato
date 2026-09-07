@@ -71,9 +71,8 @@ export async function reauthenticate(
       body: JSON.stringify({ returnTo }),
     },
   );
-  await integrationRequest("/api/auth/logout", {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
+  // Redirect without logging out first: the callback mints a fresh session
+  // cookie on success, and if the user abandons the Google round-trip the
+  // existing session stays valid instead of dropping them to the starter page.
   window.location.assign(result.authorizationUrl);
 }
