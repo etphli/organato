@@ -325,7 +325,7 @@ export class CanvasConnector {
       target.searchParams.set("ticket", token);
       return json({
         url: target.href,
-        expiresAt: new Date(expiresAt).toISOString(),
+        expiresAt: state.loginSession.expiresAt,
       });
     }
     if (

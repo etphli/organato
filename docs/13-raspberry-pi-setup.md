@@ -259,6 +259,19 @@ select **Sign in to Canvas** again. This repair preserves pairing and the
 browser profile. If a service still fails, capture its latest journal output
 before changing permissions or deleting X11 lock files.
 
+### Viewer reconnects every minute
+
+If all three services are stable and x11vnc logs a successful handshake followed
+by a disconnect after exactly 60 seconds, an older Worker response used the
+connection ticket expiry as the viewer expiry. The corrected Worker keeps the
+viewer open for the remaining ten-minute sign-in session. Its single-use
+connection ticket still expires after one minute.
+
+This fix is deployed on Organato's server; no Pi upgrade is needed. After the
+server update, close the old sign-in session, reload Organato, and start a new
+Canvas sign-in. Successful VNC handshakes confirm the display connection, but
+you must still check that the Canvas page appears and completes sign-in.
+
 | Symptom                             | Check                                                                                                             |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Installer says arm64 is required    | Install Raspberry Pi OS 64-bit, not a 32-bit image.                                                               |

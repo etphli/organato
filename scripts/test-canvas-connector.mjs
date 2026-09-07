@@ -188,6 +188,11 @@ try {
   deviceSocket.accept();
   const view = await ok(userRequest("/view", "alice", {}));
   assert.equal(
+    view.expiresAt,
+    poll.loginSession.expiresAt,
+    "Viewer lifetime must use the login session expiry, not the one-minute ticket expiry",
+  );
+  assert.equal(
     (
       await mf.dispatchFetch(view.url.replace("wss:", "https:"), {
         headers: { Origin: "https://evil.test", Upgrade: "websocket" },
