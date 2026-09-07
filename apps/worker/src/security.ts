@@ -5,6 +5,8 @@ import type { Env, SessionUser, Variables } from "./types";
 const encoder = new TextEncoder();
 const sessionCookie = "organato_session";
 const csrfCookie = "organato_csrf";
+const sessionIdleDays = 30;
+const sessionAbsoluteDays = 180;
 
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -118,7 +120,7 @@ export function securityHeaders(): MiddlewareHandler<{ Bindings: Env }> {
     }
     context.header(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://lh3.googleusercontent.com; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://gmail.googleapis.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com",
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://lh3.googleusercontent.com; connect-src 'self' wss://organato.etphli.workers.dev https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://gmail.googleapis.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com",
     );
     context.header("X-Content-Type-Options", "nosniff");
     context.header("Referrer-Policy", "strict-origin-when-cross-origin");
@@ -205,8 +207,8 @@ export async function createSession(
   const sessionId = randomToken();
   const csrfToken = randomToken();
   const now = new Date();
-  const idle = new Date(now.getTime() + 7 * 86_400_000);
-  const absolute = new Date(now.getTime() + 30 * 86_400_000);
+  const idle = new Date(now.getTime() + sessionIdleDays * 86_400_000);
+  const absolute = new Date(now.getTime() + sessionAbsoluteDays * 86_400_000);
   await context.env.DB.prepare(
     `INSERT INTO session
       (id_hash, email_normalized, csrf_hash, user_agent, created_at, last_activity_at, idle_expires_at, absolute_expires_at)
@@ -228,7 +230,7 @@ export async function createSession(
     httpOnly: true,
     sameSite: "Lax",
     path: "/",
-    maxAge: 30 * 86_400,
+    maxAge: sessionAbsoluteDays * 86_400,
   });
   // Keep the proxied sign-in response to one Set-Cookie header. The first
   // authenticated /api/session request issues the browser-readable CSRF cookie.
@@ -269,7 +271,7 @@ export async function getOrCreateCsrfToken(
     httpOnly: false,
     sameSite: "Strict",
     path: "/",
-    maxAge: 30 * 86_400,
+    maxAge: sessionAbsoluteDays * 86_400,
   });
   return csrfToken;
 }
@@ -349,7 +351,7 @@ export function requireSession(): MiddlewareHandler<{
     }
     const nextIdleExpiry = new Date(
       Math.min(
-        Date.now() + 7 * 86_400_000,
+        Date.now() + sessionIdleDays * 86_400_000,
         new Date(row.absolute_expires_at).getTime(),
       ),
     ).toISOString();
@@ -389,7 +391,7 @@ export function requireRecentSession(
 }
 
 export async function rateLimit(
-  context: Context<{ Bindings: Env; Variables: Variables }>,
+  context: { env: Env },
   key: string,
   limit: number,
   windowMinutes = 60,

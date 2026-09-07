@@ -13,3 +13,6 @@ test-results/
 artifacts/
 *.tsbuildinfo
 .vercel/
+
+# Built from reviewed connector source during the web build.
+apps/web/public/downloads/organato-canvas-connector.tar.gz*

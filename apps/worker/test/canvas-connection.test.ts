@@ -11,18 +11,34 @@ import {
 } from "../src/canvas-connection";
 
 describe("Canvas connection boundary", () => {
-  it("accepts only a token from the browser", () => {
-    expect(
-      canvasConnectSchema.safeParse({ token: "a-secure-token-value" }).success,
-    ).toBe(true);
-    expect(
-      canvasConnectSchema.parse({ token: '  Bearer "a-secure-token-value"\n' }),
-    ).toEqual({ token: "a-secure-token-value" });
+  it("accepts only a session cookie from the browser", () => {
     expect(
       canvasConnectSchema.safeParse({
-        token: "a-secure-token-value",
+        cookie: "canvas_session=a-secure-session-value",
+      }).success,
+    ).toBe(true);
+    expect(
+      canvasConnectSchema.parse({
+        cookie: '  cookie: "canvas_session=a-secure-session-value"\n',
+      }),
+    ).toEqual({ cookie: "canvas_session=a-secure-session-value" });
+    expect(
+      canvasConnectSchema.safeParse({
+        cookie: "canvas_session=a-secure-session-value",
         baseUrl: "https://attacker.example",
       }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a cookie value with line breaks or control characters", () => {
+    expect(
+      canvasConnectSchema.safeParse({
+        cookie: "canvas_session=one\ncanvas_session=two",
+      }).success,
+    ).toBe(false);
+    expect(
+      canvasConnectSchema.safeParse({ cookie: "canvas_session=\u0007" })
+        .success,
     ).toBe(false);
   });
 
@@ -55,18 +71,18 @@ describe("Canvas connection boundary", () => {
     expect(metadata.credentialAad).toBe(
       "integration:canvas:https://emanuel.instructure.com",
     );
-    expect(JSON.stringify(metadata)).not.toContain("private-token");
+    expect(JSON.stringify(metadata)).not.toContain("private-session");
     expect(parseCanvasConnectionMetadata(JSON.stringify(metadata))).toEqual(
       metadata,
     );
   });
 
-  it("gives token rejection a safe, useful message", () => {
+  it("gives session rejection a safe, useful message", () => {
     expect(
       safeCanvasConnectionError(
-        new CanvasConnectionError("token_rejected", "raw provider error"),
+        new CanvasConnectionError("session_rejected", "raw provider error"),
       ),
-    ).toMatch(/invalid or expired/i);
+    ).toMatch(/ended this browser session/i);
   });
 
   it("does not tell a user to regenerate a token when Canvas denied API access", () => {

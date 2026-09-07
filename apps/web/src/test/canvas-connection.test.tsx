@@ -2,10 +2,18 @@ import type {
   CanvasConnectResponse,
   CanvasConnectionStatus,
 } from "@organato/domain";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CanvasConnectionSection } from "../components/settings/CanvasConnectionSection";
 import { IntegrationRequestError } from "../lib/integrationApi";
+
+afterEach(cleanup);
 
 const disconnected: CanvasConnectionStatus = {
   installation: {
@@ -61,6 +69,21 @@ describe("Canvas connection settings", () => {
         if (path === "/api/session") {
           return { recentAuthentication: true };
         }
+        if (path === "/api/integrations/canvas/connector") {
+          return {
+            enabled: true,
+            paired: false,
+            erasurePending: false,
+            deviceName: null,
+            lastSeenAt: null,
+            state: "unpaired",
+            identity: null,
+            candidateIdentity: null,
+            lastSyncAt: null,
+            error: null,
+            loginExpiresAt: null,
+          };
+        }
         if (path.endsWith("/status")) {
           return isConnected ? connected : disconnected;
         }
@@ -87,8 +110,11 @@ describe("Canvas connection settings", () => {
       screen.queryByRole("button", { name: "Sync now" }),
     ).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Personal access token"), {
-      target: { value: "private-canvas-token" },
+    fireEvent.click(
+      screen.getByText("Use a session cookie instead", { selector: "summary" }),
+    );
+    fireEvent.change(await screen.findByLabelText("Reshet session cookie"), {
+      target: { value: "canvas_session=private-session" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Connect Reshet" }));
 
@@ -97,7 +123,7 @@ describe("Canvas connection settings", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Ethan Likht")).toBeInTheDocument();
     expect(
-      screen.queryByLabelText("Personal access token"),
+      screen.queryByLabelText("Reshet session cookie"),
     ).not.toBeInTheDocument();
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
 
@@ -107,16 +133,31 @@ describe("Canvas connection settings", () => {
     expect(connectCall?.[1]).toEqual(
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ token: "private-canvas-token" }),
+        body: JSON.stringify({ cookie: "canvas_session=private-session" }),
       }),
     );
     expect(connectCall?.[1]?.body).not.toContain("baseUrl");
   });
 
-  it("asks for recent Google confirmation before accepting a token", async () => {
+  it("asks for recent Google confirmation before accepting a session cookie", async () => {
     const request = vi.fn(async (path: string): Promise<unknown> => {
       if (path === "/api/session") {
         return { recentAuthentication: false };
+      }
+      if (path === "/api/integrations/canvas/connector") {
+        return {
+          enabled: true,
+          paired: false,
+          erasurePending: false,
+          deviceName: null,
+          lastSeenAt: null,
+          state: "unpaired",
+          identity: null,
+          candidateIdentity: null,
+          lastSyncAt: null,
+          error: null,
+          loginExpiresAt: null,
+        };
       }
       if (path.endsWith("/status")) return disconnected;
       throw new Error(`Unexpected request: ${path}`);
@@ -128,24 +169,39 @@ describe("Canvas connection settings", () => {
       await screen.findByRole("button", { name: "Confirm sign-in" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByLabelText("Personal access token"),
+      screen.queryByLabelText("Reshet session cookie"),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Connect Reshet" }),
     ).not.toBeInTheDocument();
   });
 
-  it("requires a different token after Canvas rejects the submitted token", async () => {
+  it("requires a different session after Canvas rejects the submitted cookie", async () => {
     const request = vi.fn(
       async (path: string, init?: RequestInit): Promise<unknown> => {
         if (path === "/api/session") {
           return { recentAuthentication: true };
         }
+        if (path === "/api/integrations/canvas/connector") {
+          return {
+            enabled: true,
+            paired: false,
+            erasurePending: false,
+            deviceName: null,
+            lastSeenAt: null,
+            state: "unpaired",
+            identity: null,
+            candidateIdentity: null,
+            lastSyncAt: null,
+            error: null,
+            loginExpiresAt: null,
+          };
+        }
         if (path.endsWith("/status")) return disconnected;
         if (path.endsWith("/connect") && init?.method === "POST") {
           throw new IntegrationRequestError(
-            "That token was not accepted. Create a new token in Reshet and try again.",
-            "token_rejected",
+            "Reshet ended this browser session. Copy the fresh Cookie value and reconnect.",
+            "session_rejected",
           );
         }
         throw new Error(`Unexpected request: ${path}`);
@@ -153,21 +209,30 @@ describe("Canvas connection settings", () => {
     );
 
     render(<CanvasConnectionSection request={request} />);
-    const input = await screen.findByLabelText("Personal access token");
+    fireEvent.click(
+      await screen.findByText("Use a session cookie instead", {
+        selector: "summary",
+      }),
+    );
+    const input = await screen.findByLabelText("Reshet session cookie");
     const button = screen.getByRole("button", { name: "Connect Reshet" });
 
-    fireEvent.change(input, { target: { value: "rejected-canvas-token" } });
+    fireEvent.change(input, {
+      target: { value: "canvas_session=rejected-session" },
+    });
     fireEvent.click(button);
 
     expect(
-      await screen.findByText(/That token was not accepted/i),
+      await screen.findByText(/Reshet ended this browser session/i),
     ).toBeInTheDocument();
     expect(button).toBeDisabled();
 
-    fireEvent.change(input, { target: { value: "new-canvas-token" } });
+    fireEvent.change(input, {
+      target: { value: "canvas_session=new-session" },
+    });
     expect(button).toBeEnabled();
     expect(
-      screen.queryByText(/That token was not accepted/i),
+      screen.queryByText(/Reshet ended this browser session/i),
     ).not.toBeInTheDocument();
   });
 });

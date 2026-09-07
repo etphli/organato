@@ -7,7 +7,6 @@ import {
   Check,
   ChevronDown,
   Clock3,
-  ExternalLink,
   Eye,
   EyeOff,
   LockKeyhole,
@@ -22,6 +21,7 @@ import {
   reauthenticate,
   type SessionSecurityState,
 } from "../../lib/integrationApi";
+import { CanvasConnectorSection } from "./CanvasConnectorSection";
 import "./CanvasConnectionSection.css";
 
 type RequestJson = (path: string, init?: RequestInit) => Promise<unknown>;
@@ -91,7 +91,7 @@ function statusLabel(status: CanvasConnectionStatus): string {
   return "Action needed";
 }
 
-export function CanvasConnectionSection({
+function LegacyCanvasConnectionSection({
   initialStatus,
   request,
   onWorkspaceRefresh,
@@ -101,14 +101,14 @@ export function CanvasConnectionSection({
   const [status, setStatus] = useState<CanvasConnectionStatus | null>(
     initialStatus ?? (demoMode ? demoDisconnectedStatus : null),
   );
-  const [token, setToken] = useState("");
-  const [showToken, setShowToken] = useState(false);
+  const [cookie, setCookie] = useState("");
+  const [showCookie, setShowCookie] = useState(false);
   const [replacing, setReplacing] = useState(false);
   const [busy, setBusy] = useState<
     "connect" | "sync" | "disconnect" | "reauthenticate" | null
   >(null);
   const [error, setError] = useState<string | null>(null);
-  const [tokenRejected, setTokenRejected] = useState(false);
+  const [cookieRejected, setCookieRejected] = useState(false);
   const [recentAuthentication, setRecentAuthentication] = useState<
     boolean | null
   >(demoMode ? true : null);
@@ -149,14 +149,16 @@ export function CanvasConnectionSection({
 
   const connect = async () => {
     if (!recentAuthentication) {
-      setError("Confirm your Google sign-in before entering a Reshet token.");
+      setError(
+        "Confirm your Google sign-in before entering a Reshet session cookie.",
+      );
       return;
     }
-    const trimmedToken = token.trim();
-    if (trimmedToken.length < 10) return;
+    const trimmedCookie = cookie.trim();
+    if (trimmedCookie.length < 10) return;
     setBusy("connect");
     setError(null);
-    setTokenRejected(false);
+    setCookieRejected(false);
     setActivityMessage(null);
     try {
       if (demoMode) {
@@ -166,7 +168,7 @@ export function CanvasConnectionSection({
       } else {
         const result = (await requestJson("/api/integrations/canvas/connect", {
           method: "POST",
-          body: JSON.stringify({ token: trimmedToken }),
+          body: JSON.stringify({ cookie: trimmedCookie }),
         })) as CanvasConnectResponse;
         await refreshAfterMutation();
         setActivityMessage(
@@ -175,8 +177,8 @@ export function CanvasConnectionSection({
             : `${result.initialSync.fetched} upcoming items checked across ${result.initialSync.courses} courses.`,
         );
       }
-      setToken("");
-      setShowToken(false);
+      setCookie("");
+      setShowCookie(false);
       setReplacing(false);
     } catch (connectError) {
       const reauthenticationRequired =
@@ -184,12 +186,12 @@ export function CanvasConnectionSection({
         connectError.code === "reauthentication_required";
       const rejected =
         connectError instanceof IntegrationRequestError &&
-        connectError.code === "token_rejected";
-      setTokenRejected(rejected);
+        connectError.code === "session_rejected";
+      setCookieRejected(rejected);
       if (reauthenticationRequired) {
         setRecentAuthentication(false);
-        setToken("");
-        setShowToken(false);
+        setCookie("");
+        setShowCookie(false);
       }
       setError(
         connectError instanceof Error
@@ -204,8 +206,8 @@ export function CanvasConnectionSection({
   const confirmAgain = async () => {
     setBusy("reauthenticate");
     setError(null);
-    setToken("");
-    setShowToken(false);
+    setCookie("");
+    setShowCookie(false);
     try {
       await reauthenticate("/settings/canvas");
     } catch (reauthenticationError) {
@@ -356,46 +358,61 @@ export function CanvasConnectionSection({
 
       {showCredentialForm && recentAuthentication ? (
         <div className="canvas-connection__credential">
-          <label htmlFor="canvas-personal-token">Personal access token</label>
-          <div className="canvas-connection__token-field">
+          <label htmlFor="canvas-session-cookie">Reshet session cookie</label>
+          <div className="canvas-connection__cookie-field">
             <LockKeyhole size={17} aria-hidden="true" />
             <input
-              id="canvas-personal-token"
-              type={showToken ? "text" : "password"}
+              id="canvas-session-cookie"
+              type={showCookie ? "text" : "password"}
               autoComplete="off"
               data-1p-ignore="true"
               data-lpignore="true"
               spellCheck={false}
-              value={token}
+              value={cookie}
               onChange={(event) => {
-                setToken(event.target.value);
-                setTokenRejected(false);
+                setCookie(event.target.value);
+                setCookieRejected(false);
                 setError(null);
               }}
-              placeholder="Paste your Canvas token"
+              placeholder="Paste your Reshet Cookie value"
             />
             <button
               type="button"
-              aria-label={showToken ? "Hide token" : "Show token"}
-              onClick={() => setShowToken((visible) => !visible)}
+              aria-label={showCookie ? "Hide cookie" : "Show cookie"}
+              onClick={() => setShowCookie((visible) => !visible)}
             >
-              {showToken ? <EyeOff size={18} /> : <Eye size={18} />}
+              {showCookie ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
           </div>
-          <a
-            href="https://emanuel.instructure.com/profile/settings"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Where do I find this? <ExternalLink size={11} />
-          </a>
-          <p>Used only to read your courses and upcoming assignments.</p>
+          <details className="canvas-connection__howto">
+            <summary>
+              Where do I find this? <ChevronDown size={14} />
+            </summary>
+            <ol>
+              <li>Sign in to Reshet in your normal browser.</li>
+              <li>
+                Press F12 to open developer tools and switch to the Network tab.
+              </li>
+              <li>Refresh the page, then click the very first request.</li>
+              <li>
+                Under Request Headers, copy the whole value of the{" "}
+                <code>cookie:</code> line.
+              </li>
+              <li>Paste it above. No API key is needed.</li>
+            </ol>
+          </details>
+          <p>
+            Used only to read your courses and upcoming assignments. No API key
+            required.
+          </p>
           <div className="canvas-connection__form-actions">
             <button
               type="button"
               className="canvas-connection__primary"
               disabled={
-                busy === "connect" || tokenRejected || token.trim().length < 10
+                busy === "connect" ||
+                cookieRejected ||
+                cookie.trim().length < 10
               }
               onClick={() => void connect()}
             >
@@ -404,7 +421,7 @@ export function CanvasConnectionSection({
                   ? "Replacing…"
                   : "Connecting…"
                 : replacing
-                  ? "Replace token"
+                  ? "Replace session"
                   : "Connect Reshet"}
             </button>
             {replacing ? (
@@ -413,8 +430,8 @@ export function CanvasConnectionSection({
                 className="canvas-connection__secondary"
                 onClick={() => {
                   setReplacing(false);
-                  setToken("");
-                  setTokenRejected(false);
+                  setCookie("");
+                  setCookieRejected(false);
                   setError(null);
                 }}
               >
@@ -495,7 +512,7 @@ export function CanvasConnectionSection({
                     setError(null);
                   }}
                 >
-                  Replace token
+                  Replace session
                 </button>
                 <button
                   type="button"
@@ -569,5 +586,27 @@ export function CanvasConnectionSection({
         ) : null}
       </div>
     </section>
+  );
+}
+
+export function CanvasConnectionSection(props: CanvasConnectionSectionProps) {
+  const [manualOpen, setManualOpen] = useState(false);
+
+  return (
+    <div className="canvas-connection-page">
+      <CanvasConnectorSection
+        {...(props.request ? { request: props.request } : {})}
+        {...(props.onWorkspaceRefresh
+          ? { onWorkspaceRefresh: props.onWorkspaceRefresh }
+          : {})}
+      />
+      <details
+        className="canvas-connection__manual-fallback"
+        onToggle={(event) => setManualOpen(event.currentTarget.open)}
+      >
+        <summary>Use a session cookie instead</summary>
+        {manualOpen ? <LegacyCanvasConnectionSection {...props} /> : null}
+      </details>
+    </div>
   );
 }

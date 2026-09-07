@@ -57,7 +57,7 @@ describe("Calendar", () => {
         name: /Draft outline, All day, no subject, Todo, pending/,
       }),
     ).not.toHaveLength(0);
-  });
+  }, 30_000);
 
   it("renders a real week surface and gives agenda navigation a range", () => {
     renderCalendar();

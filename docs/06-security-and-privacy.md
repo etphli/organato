@@ -11,12 +11,12 @@ The goal is to minimize both:
 
 ## 2. Data classification
 
-| Class       | Examples                                                                | Handling                                                                |
-| ----------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Secret      | Canvas token, Google refresh token, session signing key, encryption key | Encrypted or deployment secret store; never returned to browser or logs |
-| Private     | Assignment names, due dates, subjects, notes, email addresses           | Authenticated access only; minimal logging                              |
-| Operational | Sync counts, error categories, schema version                           | Authenticated/admin access; sanitized                                   |
-| Public      | App name, sign-in page assets, privacy statement                        | May be served without a session                                         |
+| Class       | Examples                                                                         | Handling                                                                |
+| ----------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Secret      | Canvas session cookie, Google refresh token, session signing key, encryption key | Encrypted or deployment secret store; never returned to browser or logs |
+| Private     | Assignment names, due dates, subjects, notes, email addresses                    | Authenticated access only; minimal logging                              |
+| Operational | Sync counts, error categories, schema version                                    | Authenticated/admin access; sanitized                                   |
+| Public      | App name, sign-in page assets, privacy statement                                 | May be served without a session                                         |
 
 ## 3. Authentication
 
@@ -78,7 +78,7 @@ Store these in the Worker secret store:
 
 ### Encrypted database secrets
 
-Store Canvas tokens and Google refresh tokens as AES-GCM encrypted envelopes:
+Store the Canvas session cookie and Google refresh tokens as AES-GCM encrypted envelopes:
 
 - Random nonce per encryption.
 - Ciphertext.
@@ -101,7 +101,7 @@ Never store secrets in:
 
 ### Canvas
 
-Use a personal token and only GET endpoints. Organato's code should not contain Canvas mutation calls.
+Organato authenticates with the signed-in user's browser session cookie and only GET endpoints. Organato's code should not contain Canvas mutation calls. Because a session cookie is a full-account credential, it is encrypted with provider-bound AAD, sent only to the pinned Canvas origin, never logged, and never returned to the browser.
 
 ### Google identity
 
@@ -192,7 +192,7 @@ Google's OAuth configuration may require public homepage and privacy-policy URLs
 | XSS steals visible data                    | CSP, escaping, Markdown sanitation, no raw Canvas HTML        |
 | Database leak exposes provider tokens      | Application-level encryption with separate key                |
 | Malicious attachment URL attacks server    | Store link only; no server-side fetch                         |
-| Canvas redirects token to attacker         | Host pinning and cross-host redirect rejection                |
+| Canvas redirects cookie to attacker        | Host pinning and cross-host redirect rejection                |
 | Duplicate Cron run sends duplicate mail    | Locks and unique delivery keys                                |
 | Google deletion erases school item         | Event deletion only suppresses calendar projection            |
 | Canvas outage archives everything          | Two successful absence confirmations                          |
@@ -217,11 +217,11 @@ Do not retain IP addresses longer than operationally necessary. A coarse securit
 
 ## 16. Recovery procedures
 
-### Canvas token exposed
+### Canvas session cookie exposed
 
-1. Revoke it in Canvas.
+1. Sign out of all Canvas sessions in Reshet (Account → Logout), which invalidates the leaked cookie.
 2. Disconnect Canvas in Organato.
-3. Replace token.
+3. Reconnect with a fresh cookie value.
 4. Review recent sync runs.
 5. Existing items remain intact.
 
@@ -261,7 +261,7 @@ A school Google Workspace administrator may prevent third-party OAuth clients fr
 - Use the school account as an allow-listed sign-in identity if basic sign-in is permitted.
 - Use a personal Gmail account as the integration owner for Calendar and email.
 
-The Canvas token remains independent of the Google identity.
+The Canvas session cookie remains independent of the Google identity.
 
 ## 19. Security acceptance checklist
 

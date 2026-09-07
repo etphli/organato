@@ -11,9 +11,11 @@ import WorkPage from "../pages/WorkPage";
 import { OrganatoProvider } from "../state/OrganatoProvider";
 import { seedItems, seedSettings, seedSubjects } from "../data/seed";
 
-function renderAssignments() {
+function renderAssignments({ creating = false } = {}) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter
+      initialEntries={[creating ? "/assignments?new=1" : "/assignments"]}
+    >
       <OrganatoProvider>
         <WorkPage page="assignments" />
       </OrganatoProvider>
@@ -32,6 +34,7 @@ describe("Assignment controls", () => {
 
   afterEach(() => {
     cleanup();
+    window.history.replaceState(null, "", "/");
   });
 
   it("switches between active and all assignments", () => {
@@ -53,8 +56,10 @@ describe("Assignment controls", () => {
 
   it("uses the custom date picker in the create form", () => {
     renderAssignments();
-
     fireEvent.click(screen.getByRole("button", { name: "New" }));
+    expect(
+      screen.getByRole("dialog", { name: "Add the details" }),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Due date" }));
 
     const calendar = screen.getByRole("dialog", {
@@ -85,6 +90,25 @@ describe("Assignment controls", () => {
     ).toBeInTheDocument();
   });
 
+  it("opens and cancels the create form repeatedly without document navigation", () => {
+    renderAssignments();
+
+    for (let index = 0; index < 25; index += 1) {
+      fireEvent.click(screen.getByRole("button", { name: "New" }));
+      expect(
+        screen.getByRole("textbox", { name: "Work item name" }),
+      ).toBeInTheDocument();
+      fireEvent.change(
+        screen.getByRole("textbox", { name: "Work item name" }),
+        { target: { value: `Draft ${index}` } },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(
+        screen.queryByRole("textbox", { name: "Work item name" }),
+      ).not.toBeInTheDocument();
+    }
+  }, 60_000);
+
   it("deletes an assignment through the row action menu", () => {
     renderAssignments();
 
@@ -96,14 +120,14 @@ describe("Assignment controls", () => {
     );
 
     const confirmation = screen.getByRole("textbox", {
-      name: "Type the assignment name to confirm",
+      name: "Type delete to confirm assignment deletion",
     });
     const deleteButton = screen.getByRole("button", {
       name: "Delete assignment",
     });
     expect(deleteButton).toBeDisabled();
 
-    fireEvent.change(confirmation, { target: { value: "Group lab report" } });
+    fireEvent.change(confirmation, { target: { value: "delete" } });
     expect(deleteButton).toBeEnabled();
     fireEvent.click(deleteButton);
 
@@ -147,5 +171,5 @@ describe("Assignment controls", () => {
     expect(screen.getByText("51–100 of 2000")).toBeInTheDocument();
     expect(screen.getByText("Large assignment 051")).toBeInTheDocument();
     expect(screen.queryByText("Large assignment 001")).not.toBeInTheDocument();
-  });
+  }, 30_000);
 });

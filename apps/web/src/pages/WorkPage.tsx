@@ -14,15 +14,16 @@ import {
   Archive,
   Columns3,
   Combine,
+  Eye,
+  EyeOff,
   ExternalLink,
   Filter,
   GitCompareArrows,
   MoreHorizontal,
-  Plus,
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   daysRemainingLabel,
   itemDeadline,
@@ -34,14 +35,12 @@ import {
 import { PageHeader } from "../components/PageHeader";
 import {
   OrganatoActionMenu,
-  OrganatoDatePicker,
   OrganatoSelect,
-  quarterHourOptions,
 } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
 import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
-import { useDialogFocus } from "../components/useDialogFocus";
-import { localDateTimeToIso } from "./calendar/model";
+import { CreateWorkControl, type NewWorkItem } from "./CreateWorkForm";
+import { DeleteWorkDialog } from "./DeleteWorkDialog";
 
 const now = new Date();
 const columnHelper = createColumnHelper<OrganatoItem>();
@@ -59,6 +58,23 @@ const statusOptions = [
   { value: "submitted", label: "Submitted" },
   { value: "completed", label: "Completed" },
 ];
+const assignmentsShowCompletedKey = "organato-assignments-show-completed-v1";
+
+function loadShowCompletedPreference(): boolean {
+  try {
+    return localStorage.getItem(assignmentsShowCompletedKey) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveShowCompletedPreference(value: boolean): void {
+  try {
+    localStorage.setItem(assignmentsShowCompletedKey, String(value));
+  } catch {
+    // The table still works when browser storage is unavailable.
+  }
+}
 
 export default function WorkPage({
   page,
@@ -78,38 +94,38 @@ export default function WorkPage({
   const [query, setQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [showColumns, setShowColumns] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(
+    loadShowCompletedPreference,
+  );
   const [priorityFilter, setPriorityFilter] = useState("");
   const [viewName, setViewName] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [workName, setWorkName] = useState("");
-  const [workDueDate, setWorkDueDate] = useState("");
-  const [workDueTime, setWorkDueTime] = useState("");
-  const [workSubject, setWorkSubject] = useState("");
-  const [workPriority, setWorkPriority] = useState<
-    NonNullable<OrganatoItem["priority"]> | ""
-  >("");
-  const [workClassification, setWorkClassification] = useState<
-    "assignment" | "checkpoint" | "both"
-  >(page === "assignments" ? "assignment" : "checkpoint");
-  const pageViews = views.filter((view) => view.page === page);
   const [activeView, setActiveView] = useState("active");
   const [deleteCandidate, setDeleteCandidate] = useState<OrganatoItem | null>(
     null,
   );
-  const deleteDialogRef = useRef<HTMLElement>(null);
-  const deleteCloseRef = useRef<HTMLButtonElement>(null);
   const mobileActionsRef = useRef<HTMLDetailsElement>(null);
-  useDialogFocus(
-    deleteCandidate !== null,
-    deleteDialogRef,
-    deleteCloseRef,
-    deleteCandidate?.id ?? "closed",
-  );
-  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const itemNoun = page === "assignments" ? "assignment" : "checkpoint";
   const closeMobileActions = () => {
     if (mobileActionsRef.current) mobileActionsRef.current.open = false;
   };
+  const pageViews = useMemo(
+    () => views.filter((view) => view.page === page),
+    [page, views],
+  );
+  const createWork = useCallback(
+    (item: NewWorkItem) => {
+      dispatch({ type: "addWork", ...item });
+    },
+    [dispatch],
+  );
+  const closeDeleteDialog = useCallback(() => setDeleteCandidate(null), []);
+  const deleteWork = useCallback(
+    (candidate: OrganatoItem, confirmation: string) => {
+      dispatch({ type: "deleteItem", id: candidate.id, confirmation });
+      setDeleteCandidate(null);
+    },
+    [dispatch],
+  );
   const viewOptions = useMemo(
     () => [
       { value: "active", label: "All active" },
@@ -117,9 +133,11 @@ export default function WorkPage({
         value: "all",
         label: page === "assignments" ? "All assignments" : "All checkpoints",
       },
-      ...pageViews.map((view) => ({ value: view.id, label: view.name })),
+      ...views
+        .filter((view) => view.page === page)
+        .map((view) => ({ value: view.id, label: view.name })),
     ],
-    [page, pageViews],
+    [page, views],
   );
   const data = useMemo(
     () =>
@@ -134,7 +152,11 @@ export default function WorkPage({
         if (priorityFilter && item.priority !== priorityFilter) return false;
         if (activeView === "active") {
           const status = visibleStatus(item, now);
-          if (status === "completed") return false;
+          if (
+            status === "completed" &&
+            (page !== "assignments" || !showCompleted)
+          )
+            return false;
           if (status === "submitted" && !settings.showSubmittedActive)
             return false;
         }
@@ -159,6 +181,7 @@ export default function WorkPage({
       pageViews,
       priorityFilter,
       settings.showSubmittedActive,
+      showCompleted,
     ],
   );
   const columns = useMemo(
@@ -346,10 +369,7 @@ export default function WorkPage({
                 label: `Delete ${itemNoun}`,
                 icon: <Trash2 size={14} aria-hidden="true" />,
                 danger: true,
-                onSelect: () => {
-                  setDeleteCandidate(row.original);
-                  setDeleteConfirmation("");
-                },
+                onSelect: () => setDeleteCandidate(row.original),
               },
             ]}
           />
@@ -366,16 +386,21 @@ export default function WorkPage({
       setDeleteCandidate,
     ],
   );
+  const tableState = useMemo(
+    () => ({ sorting, globalFilter: query, rowSelection, pagination }),
+    [sorting, query, rowSelection, pagination],
+  );
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, globalFilter: query, rowSelection, pagination },
+    state: tableState,
     onSortingChange: setSorting,
     onGlobalFilterChange: setQuery,
     onRowSelectionChange: setRowSelection,
     onPaginationChange: setPagination,
     enableRowSelection: true,
     columnResizeMode: "onChange",
+    autoResetPageIndex: false,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -417,11 +442,26 @@ export default function WorkPage({
       });
     }
   };
+  const toggleCompleted = () => {
+    const next = !showCompleted;
+    setShowCompleted(next);
+    setRowSelection({});
+    saveShowCompletedPreference(next);
+  };
+  const completedVisibleCount =
+    page === "assignments"
+      ? data.filter((item) => item.workingStatus === "completed").length
+      : 0;
+  const activeVisibleCount = data.length - completedVisibleCount;
   return (
     <div className="page work-page">
       <PageHeader
         title={page === "assignments" ? "Assignments" : "Checkpoints"}
-        meta={`${data.length} ${activeView === "all" ? page : "active"}`}
+        meta={
+          completedVisibleCount
+            ? `${activeVisibleCount} active · ${completedVisibleCount} completed`
+            : `${activeVisibleCount} active`
+        }
         actions={
           <>
             <OrganatoSelect
@@ -449,12 +489,22 @@ export default function WorkPage({
             >
               <Columns3 size={16} /> Columns
             </button>
-            <button
-              className="new-button"
-              onClick={() => setCreating((value) => !value)}
-            >
-              <Plus size={16} /> New
-            </button>
+            {page === "assignments" ? (
+              <button
+                aria-pressed={showCompleted}
+                className="text-button icon-labelled work-secondary-action"
+                onClick={toggleCompleted}
+              >
+                {showCompleted ? <EyeOff size={16} /> : <Eye size={16} />}
+                {showCompleted ? "Hide completed" : "Show completed"}
+              </button>
+            ) : null}
+            <CreateWorkControl
+              page={page}
+              subjects={subjects}
+              timezone={settings.timezone}
+              onCreate={createWork}
+            />
             <details ref={mobileActionsRef} className="mobile-actions-menu">
               <summary aria-label="More page actions">
                 <MoreHorizontal size={19} />
@@ -499,111 +549,21 @@ export default function WorkPage({
                 >
                   <Columns3 size={16} /> Columns
                 </button>
+                {page === "assignments" ? (
+                  <button
+                    aria-pressed={showCompleted}
+                    onClick={toggleCompleted}
+                    role="menuitem"
+                  >
+                    {showCompleted ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showCompleted ? "Hide completed" : "Show completed"}
+                  </button>
+                ) : null}
               </div>
             </details>
           </>
         }
       />
-      {creating ? (
-        <form
-          className="create-work-line"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!workName.trim()) return;
-            dispatch({
-              type: "addWork",
-              name: workName.trim(),
-              classification: workClassification,
-              dueAt:
-                workDueDate && workDueTime
-                  ? localDateTimeToIso(
-                      workDueDate,
-                      workDueTime,
-                      settings.timezone,
-                    )
-                  : null,
-              dueDateLocal: workDueDate && !workDueTime ? workDueDate : null,
-              dueHasExplicitTime: Boolean(workDueDate && workDueTime),
-              subjectId: workSubject || null,
-              priority: workPriority || null,
-            });
-            setWorkName("");
-            setWorkDueDate("");
-            setWorkDueTime("");
-            setWorkSubject("");
-            setWorkPriority("");
-            setCreating(false);
-          }}
-        >
-          <input
-            autoFocus
-            aria-label="Work item name"
-            value={workName}
-            onChange={(event) => setWorkName(event.target.value)}
-            placeholder="Work item name"
-            required
-          />
-          <div className="create-work-due">
-            <OrganatoDatePicker
-              ariaLabel="Due date"
-              value={workDueDate}
-              onChange={setWorkDueDate}
-              placeholder="No date"
-            />
-            <OrganatoSelect
-              ariaLabel="Due time"
-              disabled={!workDueDate}
-              options={quarterHourOptions}
-              value={workDueTime}
-              onChange={setWorkDueTime}
-            />
-          </div>
-          <OrganatoSelect
-            ariaLabel="Classification"
-            options={[
-              {
-                value: page === "assignments" ? "assignment" : "checkpoint",
-                label: page === "assignments" ? "Assignment" : "Checkpoint",
-              },
-              { value: "both", label: "Both" },
-            ]}
-            value={workClassification}
-            onChange={(value) =>
-              setWorkClassification(value as typeof workClassification)
-            }
-          />
-          <OrganatoSelect
-            ariaLabel="Subject"
-            options={[
-              { value: "", label: "No subject" },
-              ...subjects
-                .filter((subject) => subject.active)
-                .map((subject) => ({
-                  value: subject.id,
-                  label: subject.displayName,
-                })),
-            ]}
-            value={workSubject}
-            onChange={setWorkSubject}
-          />
-          <OrganatoSelect
-            ariaLabel="Priority"
-            options={[
-              { value: "", label: "Blank priority" },
-              { value: "low", label: "Low" },
-              { value: "medium", label: "Medium" },
-              { value: "high", label: "High" },
-              { value: "urgent", label: "Urgent" },
-            ]}
-            value={workPriority}
-            onChange={(value) => setWorkPriority(value as typeof workPriority)}
-          />
-          <button type="submit">Create</button>
-          <button type="button" onClick={() => setCreating(false)}>
-            Cancel
-          </button>
-        </form>
-      ) : null}
       {Object.keys(rowSelection).length ? (
         <div className="bulk-bar" role="toolbar" aria-label="Bulk actions">
           <strong>{Object.keys(rowSelection).length} selected</strong>
@@ -878,83 +838,13 @@ export default function WorkPage({
         <p className="item-count">{filteredRowCount} items</p>
       ) : null}
       {deleteCandidate ? (
-        <div
-          className="delete-item-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) {
-              setDeleteCandidate(null);
-              setDeleteConfirmation("");
-            }
-          }}
-        >
-          <section
-            ref={deleteDialogRef}
-            className="delete-item-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-item-title"
-          >
-            <header>
-              <h2 id="delete-item-title">
-                Delete {deleteCandidate.kind === "work" ? itemNoun : "todo"}?
-              </h2>
-              <button
-                ref={deleteCloseRef}
-                type="button"
-                className="icon-button"
-                aria-label="Close delete dialog"
-                onClick={() => {
-                  setDeleteCandidate(null);
-                  setDeleteConfirmation("");
-                }}
-              >
-                ×
-              </button>
-            </header>
-            <p>
-              This permanently removes{" "}
-              <strong>{deleteCandidate.displayName}</strong> from Organato. This
-              cannot be undone.
-            </p>
-            <label>
-              Type the {deleteCandidate.kind === "work" ? itemNoun : "todo"}{" "}
-              name to confirm
-              <input
-                autoFocus
-                value={deleteConfirmation}
-                onChange={(event) => setDeleteConfirmation(event.target.value)}
-              />
-            </label>
-            <footer>
-              <button
-                type="button"
-                onClick={() => {
-                  setDeleteCandidate(null);
-                  setDeleteConfirmation("");
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="danger-button"
-                disabled={deleteConfirmation !== deleteCandidate.displayName}
-                onClick={() => {
-                  dispatch({
-                    type: "deleteItem",
-                    id: deleteCandidate.id,
-                    confirmation: deleteConfirmation,
-                  });
-                  setDeleteCandidate(null);
-                  setDeleteConfirmation("");
-                }}
-              >
-                Delete {deleteCandidate.kind === "work" ? itemNoun : "todo"}
-              </button>
-            </footer>
-          </section>
-        </div>
+        <DeleteWorkDialog
+          key={deleteCandidate.id}
+          candidate={deleteCandidate}
+          itemNoun={itemNoun}
+          onCancel={closeDeleteDialog}
+          onDelete={(confirmation) => deleteWork(deleteCandidate, confirmation)}
+        />
       ) : null}
     </div>
   );

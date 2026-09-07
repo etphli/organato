@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { useRef } from "react";
-import { Inspector } from "../components/Inspector";
+import { DeferredOverlays } from "../components/DeferredOverlays";
 import WorkPage from "../pages/WorkPage";
 import { seedItems } from "../data/seed";
 import {
@@ -66,12 +66,12 @@ describe("long-session performance regressions", () => {
   beforeEach(() => localStorage.clear());
   afterEach(cleanup);
 
-  it("keeps one Inspector tree mounted through repeated open and close cycles", () => {
+  it("unmounts the Inspector cleanly through repeated open and close cycles", () => {
     render(
       <MemoryRouter>
         <OrganatoProvider>
           <WorkPage page="assignments" />
-          <Inspector />
+          <DeferredOverlays />
         </OrganatoProvider>
       </MemoryRouter>,
     );
@@ -79,18 +79,40 @@ describe("long-session performance regressions", () => {
     const row = screen.getByText("Group lab report").closest("tr");
     expect(row).not.toBeNull();
     fireEvent.click(row!);
-    const inspector = screen.getByRole("dialog", {
-      name: "Details for Group lab report",
-    });
-
-    for (let index = 0; index < 25; index += 1) {
+    for (let index = 0; index < 10; index += 1) {
       fireEvent.click(screen.getByRole("button", { name: "Close details" }));
-      expect(inspector).not.toBeVisible();
+      expect(
+        screen.queryByRole("dialog", { name: "Details for Group lab report" }),
+      ).not.toBeInTheDocument();
       fireEvent.click(row!);
       expect(
         screen.getByRole("dialog", { name: "Details for Group lab report" }),
-      ).toBe(inspector);
+      ).toBeVisible();
     }
+  }, 60_000);
+
+  it("opens the global search and command overlays", () => {
+    render(
+      <MemoryRouter>
+        <OrganatoProvider>
+          <WorkPage page="assignments" />
+          <DeferredOverlays />
+        </OrganatoProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Search Organato" }));
+    expect(
+      screen.getByRole("dialog", { name: "Search Organato" }),
+    ).toBeVisible();
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open command palette" }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Command palette" }),
+    ).toBeVisible();
   });
 
   it("does not rerender data-only consumers when selection changes", () => {

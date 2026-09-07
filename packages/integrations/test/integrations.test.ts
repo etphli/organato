@@ -1,10 +1,14 @@
+/* global fetch, Response */
+
 import { describe, expect, it, vi } from "vitest";
 import type { OrganatoItem } from "@organato/domain";
 import {
   CanvasConnectionError,
   CanvasRestProvider,
   GoogleCalendarRestProvider,
+  encodeMimeHeader,
   nextLink,
+  normalizeCanvasCookie,
   projectCalendarEvent,
   validateBaseUrl,
 } from "../src";
@@ -54,6 +58,17 @@ function item(overrides: Partial<OrganatoItem> = {}): OrganatoItem {
   };
 }
 
+describe("Gmail MIME headers", () => {
+  it("RFC-2047 encodes non-ASCII subjects without mojibake", () => {
+    const encoded = encodeMimeHeader("Organato · 3 coming up this week");
+    expect(encoded).toMatch(/^=\?UTF-8\?B\?.+\?=$/);
+    expect(encoded).not.toContain("·");
+    expect(encodeMimeHeader("Organato: 3 coming up this week")).toBe(
+      "Organato: 3 coming up this week",
+    );
+  });
+});
+
 describe("Canvas network boundaries", () => {
   it("passes a plain URL string to the runtime fetch implementation", async () => {
     const fetcher = vi.fn(async function (
@@ -63,8 +78,8 @@ describe("Canvas network boundaries", () => {
     ) {
       expect(this).toBe(globalThis);
       expect(typeof input).toBe("string");
-      expect(new Headers(init?.headers).get("Authorization")).toBe(
-        "Bearer private-token",
+      expect(new Headers(init?.headers).get("Cookie")).toBe(
+        "canvas_session=private-session",
       );
       if (String(input).endsWith("/api/v1/users/self")) {
         expect(input).toBe("https://emanuel.instructure.com/api/v1/users/self");
@@ -80,7 +95,7 @@ describe("Canvas network boundaries", () => {
     }) as unknown as typeof fetch;
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "private-token",
+      "canvas_session=private-session",
       fetcher,
     );
 
@@ -90,11 +105,11 @@ describe("Canvas network boundaries", () => {
     });
   });
 
-  it("normalizes a pasted Bearer token before sending it", async () => {
+  it("normalizes a pasted Cookie header before sending it", async () => {
     const fetcher = vi.fn(
       async (_input: RequestInfo | URL, init?: RequestInit) => {
-        expect(new Headers(init?.headers).get("Authorization")).toBe(
-          "Bearer private-token",
+        expect(new Headers(init?.headers).get("Cookie")).toBe(
+          "canvas_session=private-session",
         );
         if (String(_input).endsWith("/api/v1/users/self")) {
           return new Response(JSON.stringify({ id: 1, name: "Ethan Likht" }), {
@@ -110,7 +125,7 @@ describe("Canvas network boundaries", () => {
     ) as unknown as typeof fetch;
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      '  Bearer "private-\ntoken"  ',
+      '  cookie: "canvas_session=private-session"  ',
       fetcher,
     );
 
@@ -120,10 +135,80 @@ describe("Canvas network boundaries", () => {
     });
   });
 
-  it("distinguishes an invalid token from denied API access", async () => {
-    const invalidTokenProvider = new CanvasRestProvider(
+  it("keeps every cookie pair intact while normalizing", () => {
+    expect(normalizeCanvasCookie("_csrf_token=a; canvas_session=b")).toBe(
+      "_csrf_token=a; canvas_session=b",
+    );
+    expect(normalizeCanvasCookie("Cookie:\n_canvas_session=x")).toBe(
+      "_canvas_session=x",
+    );
+  });
+
+  it("signs every request as the Canvas web app so the edge gate passes", async () => {
+    const seen: Array<Record<string, string>> = [];
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(Object.fromEntries(new Headers(init?.headers).entries()));
+        if (String(_input).endsWith("/api/v1/users/self")) {
+          return new Response(JSON.stringify({ id: 1, name: "Ethan Likht" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    ) as unknown as typeof fetch;
+    const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "invalid-token",
+      "canvas_session=private-session",
+      fetcher,
+    );
+
+    await expect(provider.validateConnection()).resolves.toMatchObject({
+      id: "1",
+    });
+    for (const headers of seen) {
+      expect(headers["user-agent"]).toContain("Chrome/");
+      expect(headers["x-requested-with"]).toBe("XMLHttpRequest");
+      expect(headers["origin"]).toBe("https://emanuel.instructure.com");
+      expect(headers["referer"]).toBe("https://emanuel.instructure.com/");
+      expect(headers["sec-fetch-mode"]).toBe("same-origin");
+      expect(headers.cookie).toBe("canvas_session=private-session");
+    }
+  });
+
+  it("classifies an Instructure edge gate page separately from API denial", async () => {
+    const gatedProvider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "canvas_session=private-session",
+      (async () =>
+        new Response(
+          "<!DOCTYPE html><html><body><h2>Not Authorized</h2></body></html>",
+          { status: 403 },
+        )) as typeof fetch,
+    );
+    await expect(gatedProvider.validateConnection()).rejects.toMatchObject({
+      code: "edge_blocked",
+      status: 403,
+    });
+
+    const plainDeniedProvider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "canvas_session=private-session",
+      (async () => new Response(null, { status: 403 })) as typeof fetch,
+    );
+    await expect(
+      plainDeniedProvider.validateConnection(),
+    ).rejects.toMatchObject({ code: "api_access_denied", status: 403 });
+  });
+
+  it("distinguishes an expired session from denied API access", async () => {
+    const expiredSessionProvider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "canvas_session=expired",
       (async () =>
         new Response(null, {
           status: 401,
@@ -132,26 +217,26 @@ describe("Canvas network boundaries", () => {
     );
     const deniedProvider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "restricted-token",
+      "canvas_session=restricted",
       (async () => new Response(null, { status: 403 })) as typeof fetch,
     );
 
     await expect(
-      invalidTokenProvider.validateConnection(),
-    ).rejects.toMatchObject({ code: "token_rejected", status: 401 });
+      expiredSessionProvider.validateConnection(),
+    ).rejects.toMatchObject({ code: "session_rejected", status: 401 });
     await expect(deniedProvider.validateConnection()).rejects.toMatchObject({
       code: "api_access_denied",
       status: 403,
     });
 
-    const invalidWithoutChallengeProvider = new CanvasRestProvider(
+    const expiredWithoutChallengeProvider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "invalid-token",
+      "canvas_session=expired",
       (async () => new Response(null, { status: 401 })) as typeof fetch,
     );
     await expect(
-      invalidWithoutChallengeProvider.validateConnection(),
-    ).rejects.toMatchObject({ code: "token_rejected", status: 401 });
+      expiredWithoutChallengeProvider.validateConnection(),
+    ).rejects.toMatchObject({ code: "session_rejected", status: 401 });
   });
 
   it("falls back to the profile endpoint when the standard identity route is denied", async () => {
@@ -176,7 +261,7 @@ describe("Canvas network boundaries", () => {
     }) as typeof fetch;
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "private-token",
+      "canvas_session=private-session",
       fetcher,
     );
 
@@ -202,7 +287,7 @@ describe("Canvas network boundaries", () => {
     }) as typeof fetch;
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "private-token",
+      "canvas_session=private-session",
       fetcher,
     );
 
@@ -310,7 +395,7 @@ describe("Canvas network boundaries", () => {
       )) as typeof fetch;
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "private-token",
+      "canvas_session=private-session",
       fetcher,
     );
 
@@ -336,13 +421,87 @@ describe("Canvas network boundaries", () => {
       )) as typeof fetch;
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "private-token",
+      "canvas_session=private-session",
       fetcher,
     );
 
     await expect(provider.fetchUpcomingAssignments()).rejects.toMatchObject({
       code: "unexpected_origin",
     });
+  });
+
+  it("imports the personalized incomplete assignments shown in Canvas Planner", async () => {
+    const requestedPaths: string[] = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      requestedPaths.push(`${url.pathname}${url.search}`);
+      if (url.pathname === "/api/v1/courses") {
+        return new Response(
+          JSON.stringify([
+            { id: 12, name: "English", workflow_state: "available" },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      expect(url.pathname).toBe("/api/v1/planner/items");
+      expect(url.searchParams.get("filter")).toBe("incomplete_items");
+      expect(url.searchParams.get("start_date")).toBeTruthy();
+      expect(url.searchParams.get("end_date")).toBeTruthy();
+      return new Response(
+        JSON.stringify([
+          {
+            course_id: 12,
+            plannable_id: 101,
+            plannable_type: "assignment",
+            plannable_date: "2026-08-15T06:00:00Z",
+            plannable: {
+              id: 101,
+              title: "Comparative essay draft",
+              due_at: "2026-08-15T06:00:00Z",
+              updated_at: "2026-07-30T00:10:00Z",
+            },
+            submissions: { submitted: false, graded: false, excused: false },
+            html_url: "/courses/12/assignments/101",
+          },
+          {
+            course_id: 12,
+            plannable_id: 202,
+            plannable_type: "calendar_event",
+            plannable_date: "2026-08-16T06:00:00Z",
+            plannable: {},
+            submissions: false,
+            html_url: "/calendar?event_id=202",
+          },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    const provider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "private-token",
+      fetcher,
+    );
+
+    await expect(provider.fetchUpcomingAssignments()).resolves.toMatchObject({
+      assignments: [
+        {
+          id: "101",
+          courseId: "12",
+          name: "Comparative essay draft",
+          dueAt: "2026-08-15T06:00:00Z",
+          htmlUrl: "https://emanuel.instructure.com/courses/12/assignments/101",
+          updatedAt: "2026-07-30T00:10:00Z",
+          published: true,
+          submitted: false,
+        },
+      ],
+      successfulCourseIds: ["12"],
+      skippedMalformedItems: 0,
+    });
+    expect(requestedPaths).toHaveLength(2);
+    expect(
+      requestedPaths.some((path) => path.includes("bucket=upcoming")),
+    ).toBe(false);
   });
 });
 

@@ -565,7 +565,8 @@ function reducer(state: State, action: Action): State {
   }
   if (action.type === "deleteItem") {
     const current = state.items.find((item) => item.id === action.id);
-    if (!current || action.confirmation !== current.displayName) return state;
+    if (!current || action.confirmation.trim().toLowerCase() !== "delete")
+      return state;
     const itemLabel =
       current.kind === "todo"
         ? "Todo"
@@ -717,18 +718,39 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
         );
       }
       if (init.body) headers.set("Content-Type", "application/json");
-      const response = await fetch(path, {
-        ...init,
-        headers,
-        credentials: "same-origin",
-      });
-      const body = (await response.json().catch(() => ({}))) as T & {
-        error?: string;
-      };
-      if (!response.ok) {
-        throw new Error(body.error ?? "The request could not be completed.");
+      const controller = new AbortController();
+      let timedOut = false;
+      const timeout = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, 15_000);
+      const abortFromCaller = () => controller.abort(init.signal?.reason);
+      if (init.signal?.aborted) abortFromCaller();
+      else
+        init.signal?.addEventListener("abort", abortFromCaller, { once: true });
+      try {
+        const response = await fetch(path, {
+          ...init,
+          headers,
+          credentials: "same-origin",
+          signal: controller.signal,
+        });
+        const body = (await response.json().catch(() => ({}))) as T & {
+          error?: string;
+        };
+        if (!response.ok) {
+          throw new Error(body.error ?? "The request could not be completed.");
+        }
+        return body;
+      } catch (error) {
+        if (timedOut) {
+          throw new Error("The request timed out. Please try again.");
+        }
+        throw error;
+      } finally {
+        window.clearTimeout(timeout);
+        init.signal?.removeEventListener("abort", abortFromCaller);
       }
-      return body;
     },
     [],
   );
@@ -912,17 +934,19 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
         return;
       }
       const queueKey =
-        "id" in action && typeof action.id === "string"
-          ? `item:${action.id}`
-          : action.type === "addAttachment"
-            ? `item:${action.itemId}`
-            : action.type === "patchSubject"
-              ? `subject:${action.id}`
-              : action.type === "settings"
-                ? "settings"
-                : action.type === "undo" && undoState
-                  ? `item:${undoState.item.id}`
-                  : action.type;
+        action.type === "addTodo" || action.type === "addWork"
+          ? `${action.type}:${crypto.randomUUID()}`
+          : "id" in action && typeof action.id === "string"
+            ? `item:${action.id}`
+            : action.type === "addAttachment"
+              ? `item:${action.itemId}`
+              : action.type === "patchSubject"
+                ? `subject:${action.id}`
+                : action.type === "settings"
+                  ? "settings"
+                  : action.type === "undo" && undoState
+                    ? `item:${undoState.item.id}`
+                    : action.type;
       const previous =
         mutationQueues.current.get(queueKey) ?? Promise.resolve();
       const operation = previous

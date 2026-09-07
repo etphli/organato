@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Navigate,
   Route,
@@ -6,33 +6,23 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom";
+import { Analytics } from "@vercel/analytics/react";
 import { AppShell } from "./components/AppShell";
-import { AppErrorBoundary } from "./components/AppErrorBoundary";
-import { CommandPalette } from "./components/CommandPalette";
-import { Inspector } from "./components/Inspector";
+import { RouteErrorBoundary } from "./components/AppErrorBoundary";
+import { DeferredOverlays } from "./components/DeferredOverlays";
 import { NetworkStatus } from "./components/NetworkStatus";
-import { PwaUpdateNotice } from "./components/PwaUpdateNotice";
-import { SearchOverlay } from "./components/SearchOverlay";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { Toast } from "./components/Toast";
+import CalendarPage from "./pages/CalendarPage";
+import HomePage from "./pages/HomePage";
+import SettingsPage from "./pages/SettingsPage";
+import TodoPage from "./pages/TodoPage";
+import WorkPage from "./pages/WorkPage";
 import {
   useOrganatoActions,
   useOrganatoItems,
   useOrganatoWorkspace,
 } from "./state/OrganatoProvider";
-import {
-  loadCalendarPage,
-  loadHomePage,
-  loadSettingsPage,
-  loadTodoPage,
-  loadWorkPage,
-} from "./pages/routeLoaders";
-
-const HomePage = lazy(loadHomePage);
-const WorkPage = lazy(loadWorkPage);
-const CalendarPage = lazy(loadCalendarPage);
-const TodoPage = lazy(loadTodoPage);
-const SettingsPage = lazy(loadSettingsPage);
 
 function AssignmentsRoute() {
   return <WorkPage page="assignments" />;
@@ -57,37 +47,6 @@ function ItemDeepLink() {
   }, [dispatch, id, items, navigate]);
 
   return null;
-}
-
-function PageFallback() {
-  return (
-    <div
-      className="page page-fallback"
-      aria-label="Loading page"
-      aria-busy="true"
-    >
-      <div className="page-fallback-heading">
-        <span />
-        <span />
-      </div>
-      <div className="page-fallback-rule" />
-      <div className="page-fallback-row">
-        <span />
-        <span />
-        <span />
-      </div>
-      <div className="page-fallback-row">
-        <span />
-        <span />
-        <span />
-      </div>
-      <div className="page-fallback-row">
-        <span />
-        <span />
-        <span />
-      </div>
-    </div>
-  );
 }
 
 export function App() {
@@ -185,7 +144,6 @@ export function App() {
   return (
     <>
       <NetworkStatus />
-      <PwaUpdateNotice />
       <AppShell>
         {showSetup ? (
           <SetupWizard
@@ -195,32 +153,23 @@ export function App() {
             }}
           />
         ) : (
-          <AppErrorBoundary>
-            <Suspense fallback={<PageFallback />}>
-              <Routes>
-                <Route path="/" element={<HomePage />} />
-                <Route
-                  path="/assignments"
-                  element={<AssignmentsRoute />}
-                />
-                <Route
-                  path="/checkpoints"
-                  element={<CheckpointsRoute />}
-                />
-                <Route path="/calendar" element={<CalendarPage />} />
-                <Route path="/todo" element={<TodoPage />} />
-                <Route path="/settings/*" element={<SettingsPage />} />
-                <Route path="/items/:id" element={<ItemDeepLink />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </Suspense>
-          </AppErrorBoundary>
+          <RouteErrorBoundary>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/assignments" element={<AssignmentsRoute />} />
+              <Route path="/checkpoints" element={<CheckpointsRoute />} />
+              <Route path="/calendar" element={<CalendarPage />} />
+              <Route path="/todo" element={<TodoPage />} />
+              <Route path="/settings/*" element={<SettingsPage />} />
+              <Route path="/items/:id" element={<ItemDeepLink />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </RouteErrorBoundary>
         )}
       </AppShell>
-      <Inspector />
-      <CommandPalette />
-      <SearchOverlay />
+      <DeferredOverlays />
       <Toast />
+      <Analytics />
     </>
   );
 }

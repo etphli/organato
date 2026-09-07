@@ -842,7 +842,7 @@ export default function SettingsPage() {
   const permanentlyDeleteItem = async () => {
     if (
       !archivePreview ||
-      itemDeleteConfirmation !== archivePreview.displayName
+      itemDeleteConfirmation.trim().toLowerCase() !== "delete"
     ) {
       return;
     }
@@ -1431,8 +1431,8 @@ export default function SettingsPage() {
                     ) : null}
                     <div className="archive-delete-control">
                       <label>
-                        Type <strong>{archivePreview.displayName}</strong> to
-                        permanently delete this item
+                        Type <strong>delete</strong> to permanently delete this
+                        item
                         <input
                           value={itemDeleteConfirmation}
                           onChange={(event) =>
@@ -1443,8 +1443,8 @@ export default function SettingsPage() {
                       <button
                         className="danger-button"
                         disabled={
-                          itemDeleteConfirmation !==
-                            archivePreview.displayName ||
+                          itemDeleteConfirmation.trim().toLowerCase() !==
+                            "delete" ||
                           connectionBusy === `delete-item:${archivePreview.id}`
                         }
                         onClick={() => void permanentlyDeleteItem()}
@@ -1676,19 +1676,10 @@ export default function SettingsPage() {
               </p>
               <button
                 onClick={() => {
-                  void navigator.serviceWorker
-                    ?.getRegistration()
-                    .then((registration) => registration?.update())
-                    .then(() =>
-                      dispatch({
-                        type: "toast",
-                        message:
-                          "Organato is using the latest available app shell",
-                      }),
-                    );
+                  window.location.reload();
                 }}
               >
-                <RotateCcw size={15} /> Check for PWA update
+                <RotateCcw size={15} /> Reload latest Organato
               </button>
             </div>
           ) : null}
@@ -1749,8 +1740,8 @@ export default function SettingsPage() {
           message:
             provider === "gmail"
               ? import.meta.env.VITE_DEMO_MODE === "true"
-                ? "Test delivery simulated · production sends through Gmail"
-                : "Test email sent"
+                ? "Reminder preview simulated · production sends through Gmail"
+                : "Reminder preview sent"
               : "Integration is up to date",
         });
       } catch (error) {
@@ -1842,7 +1833,7 @@ export default function SettingsPage() {
             disabled={connectionBusy === provider || !connected}
             onClick={() => void runAction()}
           >
-            {provider === "gmail" ? "Send test" : "Reconcile now"}
+            {provider === "gmail" ? "Send preview" : "Reconcile now"}
           </button>
           <button
             disabled={Boolean(connectionBusy) || !connected}

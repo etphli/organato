@@ -1,0 +1,25 @@
+[Unit]
+Description=Organato Canvas connector loopback VNC bridge
+Requires=organato-canvas-xvfb.service
+After=organato-canvas-xvfb.service
+
+[Service]
+Type=simple
+User=organato-canvas
+Group=organato-canvas
+Environment=DISPLAY=:99
+ExecStart=/usr/bin/x11vnc -display :99 -localhost -nopw -forever -shared -rfbport 5900 -noclipboard -nosetclipboard -noxdamage -repeat
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=127.0.0.0/8
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

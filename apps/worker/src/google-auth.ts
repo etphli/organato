@@ -139,32 +139,10 @@ googleIntegrationRoutes.post(
 
 googleIntegrationRoutes.put(
   "/recipients",
-  requireRecentSession(),
+  requireRecentSession(7 * 24 * 60),
   zValidator("json", recipientSchema),
   async (context) => {
     const recipients = [...new Set(context.req.valid("json").recipients)];
-    const configured = new Set(
-      context.env.ALLOWED_GOOGLE_EMAILS.split(",")
-        .map((email) => email.trim().toLowerCase())
-        .filter((email) => Boolean(email) && email !== "*"),
-    );
-    const identities = await context.env.DB.prepare(
-      `SELECT email_normalized FROM allowed_identity
-       WHERE workspace_id = ? AND enabled = 1 AND is_owner = 1`,
-    )
-      .bind(context.get("user").workspaceId)
-      .all<{ email_normalized: string }>();
-    for (const identity of identities.results) {
-      configured.add(identity.email_normalized.toLowerCase());
-    }
-    if (!recipients.every((recipient) => configured.has(recipient))) {
-      return context.json(
-        {
-          error: "Reminder email must be one of the approved owner addresses.",
-        },
-        400,
-      );
-    }
     try {
       const settings = await updateGoogleRecipients(
         context.env,
@@ -175,7 +153,7 @@ googleIntegrationRoutes.put(
         context.env.DB,
         "email_recipients_changed",
         context.get("user").email,
-        `Reminder delivery now has ${recipients.length} approved recipient${recipients.length === 1 ? "" : "s"}.`,
+        `Reminder delivery now has ${recipients.length} recipient${recipients.length === 1 ? "" : "s"}.`,
       );
       return context.json(settings);
     } catch {

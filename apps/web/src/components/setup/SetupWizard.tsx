@@ -1,29 +1,26 @@
-import type {
-  CanvasConnectResponse,
-  CanvasConnectionStatus,
-} from "@organato/domain";
 import {
   CalendarDays,
   Check,
   ChevronRight,
-  Eye,
-  EyeOff,
   GraduationCap,
-  LockKeyhole,
   Mail,
   ShieldCheck,
   Tag,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   beginGoogleConnection,
   type GoogleDeliverySettings,
   IntegrationRequestError,
   integrationRequest,
   reauthenticate,
-  type SessionSecurityState,
 } from "../../lib/integrationApi";
 import { useOrganatoActions } from "../../state/OrganatoProvider";
+import {
+  CanvasConnectorSection,
+  canvasConnectorIsConnected,
+  type CanvasConnectorStatus,
+} from "../settings/CanvasConnectorSection";
 import { EmailDeliverySection } from "../settings/EmailDeliverySection";
 import "./SetupWizard.css";
 
@@ -46,41 +43,37 @@ const setupSteps: Array<{
 export function SetupWizard({ onDismiss }: SetupWizardProps) {
   const { dispatch, refresh } = useOrganatoActions();
   const [step, setStep] = useState<SetupStep>(1);
-  const [canvas, setCanvas] = useState<CanvasConnectionStatus | null>(null);
+  const [canvas, setCanvas] = useState<CanvasConnectorStatus | null>(null);
   const [google, setGoogle] = useState<GoogleDeliverySettings | null>(null);
-  const [token, setToken] = useState("");
-  const [showToken, setShowToken] = useState(false);
-  const [busy, setBusy] = useState<
-    "load" | "canvas" | "canvas-probe" | "google" | "reauthenticate" | null
-  >("load");
+  const [busy, setBusy] = useState<"load" | "google" | "reauthenticate" | null>(
+    "load",
+  );
   const [error, setError] = useState<string | null>(null);
   const [needsReauthentication, setNeedsReauthentication] = useState(false);
   const [canvasMessage, setCanvasMessage] = useState<string | null>(null);
   const [emailReady, setEmailReady] = useState(false);
-  const [recentAuthentication, setRecentAuthentication] = useState<
-    boolean | null
-  >(null);
+
+  const handleCanvasStatus = useCallback(
+    (nextStatus: CanvasConnectorStatus) => {
+      setCanvas(nextStatus);
+      if (canvasConnectorIsConnected(nextStatus)) {
+        setStep((currentStep) => (currentStep === 1 ? 2 : currentStep));
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     let active = true;
     void Promise.all([
-      integrationRequest<CanvasConnectionStatus>(
-        "/api/integrations/canvas/status",
-      ),
       integrationRequest<GoogleDeliverySettings>(
         "/api/integrations/google/settings",
       ),
-      integrationRequest<SessionSecurityState>("/api/session"),
     ])
-      .then(([canvasStatus, googleStatus, sessionStatus]) => {
+      .then(([googleStatus]) => {
         if (!active) return;
-        setCanvas(canvasStatus);
         setGoogle(googleStatus);
-        setRecentAuthentication(sessionStatus.recentAuthentication);
-        setNeedsReauthentication(
-          !canvasStatus.connection && !sessionStatus.recentAuthentication,
-        );
-        setStep(!canvasStatus.connection ? 1 : !googleStatus.connected ? 2 : 3);
+        setStep(1);
       })
       .catch((loadError) => {
         if (!active) return;
@@ -100,12 +93,12 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
 
   const completed = useMemo(
     () => ({
-      1: Boolean(canvas?.connection),
+      1: Boolean(canvas && canvasConnectorIsConnected(canvas)),
       2: Boolean(google?.connected),
       3: emailReady,
       4: false,
     }),
-    [canvas?.connection, emailReady, google?.connected],
+    [canvas, emailReady, google?.connected],
   );
 
   const handleError = (requestError: unknown) => {
@@ -113,55 +106,11 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
       requestError instanceof IntegrationRequestError &&
       requestError.code === "reauthentication_required";
     setNeedsReauthentication(reauthenticationRequired);
-    if (reauthenticationRequired) {
-      setRecentAuthentication(false);
-      setToken("");
-      setShowToken(false);
-    }
     setError(
       requestError instanceof Error
         ? requestError.message
         : "Setup could not continue.",
     );
-  };
-
-  const connectCanvas = async () => {
-    if (!recentAuthentication) {
-      setNeedsReauthentication(true);
-      setError("Confirm your Google sign-in before entering a Reshet token.");
-      return;
-    }
-    const trimmed = token.trim();
-    if (trimmed.length < 10) return;
-    setBusy("canvas");
-    setError(null);
-    setCanvasMessage(null);
-    try {
-      const result = await integrationRequest<CanvasConnectResponse>(
-        "/api/integrations/canvas/connect",
-        {
-          method: "POST",
-          body: JSON.stringify({ token: trimmed }),
-        },
-      );
-      const nextStatus = await integrationRequest<CanvasConnectionStatus>(
-        "/api/integrations/canvas/status",
-      );
-      setCanvas(nextStatus);
-      setToken("");
-      setShowToken(false);
-      setCanvasMessage(
-        result.initialSync.status === "failed"
-          ? result.initialSync.message
-          : `${result.initialSync.fetched} upcoming item${result.initialSync.fetched === 1 ? "" : "s"} checked across ${result.initialSync.courses} course${result.initialSync.courses === 1 ? "" : "s"}.`,
-      );
-      await refresh().catch(() => undefined);
-      setStep(2);
-    } catch (requestError) {
-      handleError(requestError);
-    } finally {
-      setBusy(null);
-    }
   };
 
   const connectGoogle = async () => {
@@ -175,32 +124,9 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
     }
   };
 
-  const checkCanvasReachability = async () => {
-    setBusy("canvas-probe");
-    setError(null);
-    setCanvasMessage(null);
-    try {
-      const result = await integrationRequest<{
-        reachable: boolean;
-        result: string;
-      }>("/api/integrations/canvas/reachability");
-      setCanvasMessage(
-        result.reachable
-          ? "Reshet is reachable from Organato. If validation still fails, create a fresh personal access token."
-          : `Organato’s server could not reach Reshet (${result.result.replaceAll("_", " ")}).`,
-      );
-    } catch (requestError) {
-      handleError(requestError);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const confirmAgain = async () => {
+  const confirmGoogleAgain = async () => {
     setBusy("reauthenticate");
     setError(null);
-    setToken("");
-    setShowToken(false);
     try {
       await reauthenticate("/");
     } catch (requestError) {
@@ -210,7 +136,7 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
   };
 
   const finish = () => {
-    if (!canvas?.connection) {
+    if (!canvas || !canvasConnectorIsConnected(canvas)) {
       setStep(1);
       return;
     }
@@ -285,93 +211,13 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
 
           {step === 1 && busy !== "load" ? (
             <div className="setup-step setup-step--canvas">
-              <div className="setup-step__form">
-                <h2>Connect Reshet</h2>
-                <p>
-                  Import active courses and upcoming assignments from Emanuel
-                  School.
-                </p>
-                {canvas?.connection ? (
-                  <div className="setup-step__connected">
-                    <Check size={15} />
-                    <span>
-                      <strong>Connected as {canvas.connection.userName}</strong>
-                      <small>
-                        {canvas.counts.activeCourses} active courses ·{" "}
-                        {canvas.counts.upcomingItems} upcoming items
-                      </small>
-                    </span>
-                  </div>
-                ) : !recentAuthentication ? (
-                  <button
-                    className="setup-google-account"
-                    disabled={busy === "reauthenticate"}
-                    onClick={() => void confirmAgain()}
-                    type="button"
-                  >
-                    <ShieldCheck size={18} />
-                    <span>
-                      <strong>Confirm your Google sign-in</strong>
-                      <small>
-                        Required once before Organato can securely save a Reshet
-                        credential.
-                      </small>
-                    </span>
-                    <ChevronRight size={16} />
-                  </button>
-                ) : (
-                  <>
-                    <div className="setup-token">
-                      <label htmlFor="setup-canvas-token">
-                        Personal access token
-                      </label>
-                      <span className="setup-token__input">
-                        <LockKeyhole size={16} aria-hidden="true" />
-                        <input
-                          autoComplete="off"
-                          data-1p-ignore="true"
-                          data-lpignore="true"
-                          id="setup-canvas-token"
-                          placeholder="Paste your Canvas token"
-                          spellCheck={false}
-                          type={showToken ? "text" : "password"}
-                          value={token}
-                          onChange={(event) => setToken(event.target.value)}
-                        />
-                        <button
-                          aria-label={showToken ? "Hide token" : "Show token"}
-                          onClick={() => setShowToken((current) => !current)}
-                          type="button"
-                        >
-                          {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </button>
-                      </span>
-                    </div>
-                    <a
-                      className="setup-step__external"
-                      href="https://emanuel.instructure.com/profile/settings"
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Create a token in Reshet
-                      <ChevronRight size={13} />
-                    </a>
-                    <button
-                      className="setup-step__probe"
-                      disabled={busy === "canvas-probe"}
-                      onClick={() => void checkCanvasReachability()}
-                      type="button"
-                    >
-                      {busy === "canvas-probe"
-                        ? "Checking Reshet…"
-                        : "Check Reshet availability"}
-                    </button>
-                    <p className="setup-step__privacy">
-                      <ShieldCheck size={14} />
-                      Read-only. Stored encrypted and never shown again.
-                    </p>
-                  </>
-                )}
+              <div className="setup-step__form setup-step__form--connector">
+                <CanvasConnectorSection
+                  onStatusChange={handleCanvasStatus}
+                  onWorkspaceRefresh={refresh}
+                  returnTo="/"
+                  variant="setup"
+                />
                 {error ? (
                   <p className="setup-step__error" role="alert">
                     {error}
@@ -382,28 +228,6 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                     <Check size={14} /> {canvasMessage}
                   </p>
                 ) : null}
-                <div className="setup-step__actions">
-                  {canvas?.connection ? (
-                    <button
-                      className="setup-step__primary"
-                      onClick={() => setStep(2)}
-                      type="button"
-                    >
-                      Continue
-                    </button>
-                  ) : recentAuthentication ? (
-                    <button
-                      className="setup-step__primary"
-                      disabled={busy === "canvas" || token.trim().length < 10}
-                      onClick={() => void connectCanvas()}
-                      type="button"
-                    >
-                      {busy === "canvas"
-                        ? "Verifying and importing…"
-                        : "Connect and import"}
-                    </button>
-                  ) : null}
-                </div>
               </div>
               <div className="setup-step__explanation">
                 <div>
@@ -411,7 +235,8 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                   <span>
                     <strong>Verify your account</strong>
                     <small>
-                      Organato checks the token against Emanuel School.
+                      Organato checks your Reshet session against Emanuel
+                      School.
                     </small>
                   </span>
                 </div>
@@ -491,7 +316,7 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                     <button
                       className="setup-step__secondary"
                       disabled={Boolean(busy)}
-                      onClick={() => void confirmAgain()}
+                      onClick={() => void confirmGoogleAgain()}
                       type="button"
                     >
                       Confirm Google sign-in
@@ -544,7 +369,7 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                 <EmailDeliverySection
                   onReady={() => {
                     setEmailReady(true);
-                    if (canvas?.connection) {
+                    if (canvas && canvasConnectorIsConnected(canvas)) {
                       setStep(4);
                     } else {
                       setCanvasMessage(
@@ -600,7 +425,7 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                   <Check size={14} /> Calendar & Gmail connected
                 </li>
                 <li>
-                  <Check size={14} /> Test email accepted by Gmail
+                  <Check size={14} /> Reminder preview accepted by Gmail
                 </li>
               </ul>
               <button

@@ -58,7 +58,7 @@ const searchTerms: Record<SettingsCategoryId, string> = {
   calendar:
     "month week agenda first day drag reschedule all day google calendar event",
   canvas:
-    "canvas reshet Emanuel School access token course upcoming assignment import sync read only connect",
+    "canvas reshet Emanuel School session cookie course upcoming assignment import sync read only connect",
   email:
     "gmail email digest reminder 6 am Sydney recipient test message short notice",
   subjects: "course subject name rename short label colour color active hidden",

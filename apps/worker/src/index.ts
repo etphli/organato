@@ -1,4 +1,13 @@
+import {
+  canvasConnectorRoutes,
+  canvasDeviceRoutes,
+  canvasViewer,
+  browserConnectorActive,
+  connectorStub,
+} from "./canvas-connector-routes";
+export { CanvasConnector } from "./canvas-connector-object";
 import { GoogleApiError } from "@organato/integrations";
+import { EMAIL_TEMPLATE_VERSION } from "@organato/email";
 import { Hono } from "hono";
 import { apiRoutes } from "./api";
 import { authRoutes } from "./auth";
@@ -18,6 +27,7 @@ import {
   securityHeaders,
 } from "./security";
 import {
+  DigestPreviewError,
   runCalendarReconciliation,
   runCanvasSync,
   runDailyDigest,
@@ -46,7 +56,10 @@ async function runHourlyForAllWorkspaces(env: Env) {
   let canvasSynced = 0;
   let canvasFailed = 0;
   for (const [workspaceId, connected] of providers) {
-    if (connected.has("canvas")) {
+    if (
+      connected.has("canvas") &&
+      !(await browserConnectorActive(env, workspaceId))
+    ) {
       try {
         const result = await runCanvasSync(env, workspaceId, "scheduled");
         await sendUrgentImport(
@@ -85,6 +98,7 @@ app.get("/health", (context) =>
     ok: true,
     service: "organato",
     version: "0.1.0",
+    emailTemplateVersion: EMAIL_TEMPLATE_VERSION,
     privateData: false,
   }),
 );
@@ -131,6 +145,9 @@ app.post("/api/internal/schedule", async (context) => {
   return context.json({ error: "Unknown job." }, 400);
 });
 
+app.route("/api/canvas-device", canvasDeviceRoutes);
+app.get("/api/canvas-view", (c) => canvasViewer(c.req.raw, c.env));
+
 app.use("/api/*", requireSession());
 app.use("/api/*", async (context, next) => {
   if (
@@ -148,11 +165,65 @@ app.use("/api/*", async (context, next) => {
   await next();
 });
 
+app.post("/api/client-diagnostics", async (context) => {
+  const user = context.get("user");
+  if (
+    !(await rateLimit(
+      context,
+      `client-diagnostics:${user.email.toLowerCase()}`,
+      120,
+      60,
+    ))
+  ) {
+    return context.json({ ok: true });
+  }
+  const body = (await context.req.json().catch(() => null)) as {
+    kind?: unknown;
+    [key: string]: unknown;
+  } | null;
+  const allowedKinds = new Set([
+    "interaction",
+    "runtime_error",
+    "react_error",
+    "freeze",
+    "crash_recovery",
+    "long_task",
+  ]);
+  if (!body || typeof body.kind !== "string" || !allowedKinds.has(body.kind)) {
+    return context.json({ error: "Invalid diagnostic event." }, 400);
+  }
+  await recordSecurityEvent(
+    context.env.DB,
+    `client_${body.kind}`,
+    user.email,
+    JSON.stringify(body),
+  );
+  return context.json({ ok: true });
+});
+
+app.get("/api/client-diagnostics", async (context) => {
+  const rows = await context.env.DB.prepare(
+    `SELECT category, summary, created_at
+     FROM security_event
+     WHERE workspace_id = ? AND category LIKE 'client_%'
+     ORDER BY created_at DESC
+     LIMIT 50`,
+  )
+    .bind(context.get("user").workspaceId)
+    .all<{ category: string; summary: string; created_at: string }>();
+  return context.json({ events: rows.results });
+});
+
 app.route("/api/integrations/google", googleIntegrationRoutes);
+app.route("/api/integrations/canvas/connector", canvasConnectorRoutes);
 
 app.post("/api/integrations/canvas/sync", async (context) => {
   try {
     const workspaceId = context.get("user").workspaceId;
+    if (await browserConnectorActive(context.env, workspaceId))
+      return connectorStub(context.env, workspaceId).fetch(
+        new Request("https://connector/sync", { method: "POST" }),
+      );
     const result = await runCanvasSync(context.env, workspaceId, "manual");
     context.executionCtx.waitUntil(
       Promise.all([
@@ -198,10 +269,15 @@ app.post("/api/integrations/google/reconcile", async (context) => {
 app.post("/api/integrations/google/test-email", async (context) => {
   const user = context.get("user");
   if (
-    !(await rateLimit(context, `gmail-test:${user.email.toLowerCase()}`, 3, 60))
+    !(await rateLimit(
+      context,
+      `gmail-test:${user.email.toLowerCase()}`,
+      10,
+      10,
+    ))
   ) {
     return context.json(
-      { error: "Test email limit reached. Try again in an hour." },
+      { error: "Test email limit reached. Try again in 10 minutes." },
       429,
     );
   }
@@ -223,10 +299,13 @@ app.post("/api/integrations/google/test-email", async (context) => {
       context.env.DB,
       "test_email_sent",
       user.email,
-      "A private Organato test email was accepted by Gmail.",
+      "A production-format reminder preview was accepted by Gmail.",
     );
     return context.json({ ok: true, messageId: sent.messageId });
   } catch (error) {
+    if (error instanceof DigestPreviewError) {
+      return context.json({ error: error.message }, 409);
+    }
     const notConnected =
       error instanceof GoogleConnectionError && error.code === "not_connected";
     const authorizationFailure =
@@ -255,10 +334,10 @@ app.post("/api/integrations/google/test-email", async (context) => {
     return context.json(
       {
         error: notConnected
-          ? "Connect Calendar and Gmail before sending a test email."
+          ? "Connect Calendar and Gmail before sending an email preview."
           : authorizationFailure
             ? "Google needs to be reconnected before email can be sent."
-            : "Gmail could not accept the test message. Your recipient setting is saved; try again shortly.",
+            : "Gmail could not accept the reminder preview. Your recipient setting is saved; try again shortly.",
       },
       notConnected ? 409 : 502,
     );

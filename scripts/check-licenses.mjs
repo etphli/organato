@@ -8,6 +8,7 @@ const allowed = [
   "BSD-3-Clause",
   "BlueOak-1.0.0",
   "CC-BY-4.0",
+  "CC0-1.0",
   "ISC",
   "MIT",
   "MIT-0",
@@ -26,9 +27,19 @@ for (const [license, packages] of Object.entries(report)) {
     .split(/\s+OR\s+|\s+AND\s+/)
     .map((part) => part.replace(/[()]/g, ""));
   if (!parts.some((part) => allowed.includes(part))) {
-    problems.push(
-      `${license}: ${Object.keys(packages).slice(0, 8).join(", ")}`,
+    const unexpected = packages.filter(
+      (pkg) =>
+        !(
+          license === "LGPL-3.0-or-later" &&
+          pkg.name.startsWith("@img/sharp-libvips-")
+        ),
     );
+    // Miniflare's local test runtime dynamically links libvips. It is not shipped
+    // in the Worker, web bundle, or standalone Pi package.
+    if (unexpected.length)
+      problems.push(
+        `${license}: ${unexpected.map((pkg) => pkg.name).join(", ")}`,
+      );
   }
 }
 if (problems.length) {

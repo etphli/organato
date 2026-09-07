@@ -93,13 +93,17 @@ export function EmailDeliverySection({
     setError(null);
     setMessage(null);
     try {
-      const next = await integrationRequest<GoogleDeliverySettings>(
-        "/api/integrations/google/recipients",
-        {
-          method: "PUT",
-          body: JSON.stringify({ recipients: [normalized] }),
-        },
-      );
+      const savedRecipient = settings?.recipients[0]?.trim().toLowerCase();
+      const next =
+        savedRecipient === normalized
+          ? settings
+          : await integrationRequest<GoogleDeliverySettings>(
+              "/api/integrations/google/recipients",
+              {
+                method: "PUT",
+                body: JSON.stringify({ recipients: [normalized] }),
+              },
+            );
       await integrationRequest<{ ok: true; messageId: string }>(
         "/api/integrations/google/test-email",
         {
@@ -107,8 +111,8 @@ export function EmailDeliverySection({
           body: JSON.stringify({}),
         },
       );
-      setSettings(next);
-      setMessage(`Test email sent to ${normalized}.`);
+      if (next) setSettings(next);
+      setMessage(`Reminder preview sent to ${normalized}.`);
       await onWorkspaceRefresh?.().catch(() => undefined);
       onReady?.();
     } catch (requestError) {
@@ -217,8 +221,8 @@ export function EmailDeliverySection({
           onChange={(event) => setRecipient(event.target.value)}
         />
         <small id="email-delivery-recipient-help">
-          Your approved school address can receive reminders even if its
-          administrator blocks Organato sign-in.
+          Use any valid email address, including a school address that cannot
+          sign in to Organato.
         </small>
       </div>
       {error ? (
@@ -247,7 +251,7 @@ export function EmailDeliverySection({
           type="button"
         >
           <Send size={14} />
-          {busy === "test" ? "Sending…" : "Send test email"}
+          {busy === "test" ? "Sending…" : "Send reminder preview"}
         </button>
         {needsReauthentication ? (
           <button

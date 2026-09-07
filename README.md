@@ -42,6 +42,7 @@ Vercel serves the PWA and forwards same-origin `/api` requests to the Cloudflare
 | [Decision register](docs/09-decision-register.md)                     | Confirmed decisions, inferred decisions, assumptions, and information still needed           |
 | [Build and release runbook](docs/10-build-and-release-runbook.md)     | Local setup, provider configuration, scheduler decision, quality gates, deployment, recovery |
 | [Production handoff](docs/11-production-handoff.md)                   | Live resources, completed deployment work, remaining owner-only activation, and operations   |
+| [Reshet session import](docs/12-reshet-session-import.md)             | Connecting Canvas without an API key: the session-cookie method, step by step                |
 
 ## Implemented architecture
 
@@ -54,7 +55,9 @@ The production-ready repository contains:
 - Google OpenID Connect for sign-in.
 - Google Calendar API for a dedicated `Organato` calendar.
 - Gmail API for HTML email sent from the connected Google account to itself.
-- Canvas REST API with a personal access token.
+- Canvas REST API authenticated with the browser session cookie of a signed-in
+  Reshet tab — no personal access token, so Emanuel School's block on student
+  API key creation is irrelevant.
 - Account administration, active-session revocation, security history, complete
   export/validated restore, archive recovery, and permanent-deletion controls.
 - Durable reminder-delivery history with bounded retries, Calendar
@@ -92,7 +95,7 @@ flowchart LR
 
 ## Owner activation still required
 
-The deployment, database, generated secrets, owner allow-list, Google OAuth client, Calendar API, and Gmail API are configured. Emanuel School's Reshet installation is pinned server-side. Sign in with either permitted Google identity, then enter only a personal Canvas access token through Organato's protected Settings flow. Provider credentials never belong in Git.
+The deployment, database, generated secrets, owner allow-list, Google OAuth client, Calendar API, and Gmail API are configured. Emanuel School's Reshet installation is pinned server-side. Sign in with either permitted Google identity, then paste the session cookie of a signed-in Reshet browser tab through Organato's protected Settings flow — no Canvas API token exists anywhere in this product. Provider credentials never belong in Git.
 
 For local development, run `pnpm install`, then `pnpm dev:web`. The release gate
 currently runs 67 domain, integration, component, authentication, and Worker

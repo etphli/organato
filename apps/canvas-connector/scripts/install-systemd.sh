@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "Run this installer with sudo." >&2
+  exit 1
+fi
+
+source_dir="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+source_dir="$(cd "$source_dir" && pwd)"
+install_dir="/opt/organato-canvas-connector"
+state_dir="/var/lib/organato-canvas-connector"
+env_file="/etc/organato-canvas-connector.env"
+service_user="organato-canvas"
+service_group="organato-canvas"
+
+for required in package.json package-lock.json src bin policies systemd; do
+  [[ -e "$source_dir/$required" ]] || {
+    echo "Source directory is missing $required." >&2
+    exit 1
+  }
+done
+
+if [[ "$(uname -m)" != "aarch64" ]] || [[ "$(dpkg --print-architecture 2>/dev/null || true)" != "arm64" ]]; then
+  echo "Raspberry Pi OS 64-bit (arm64/aarch64) is required." >&2
+  exit 1
+fi
+
+if [[ ! -r /etc/os-release ]]; then
+  echo "A Debian-compatible Raspberry Pi OS installation is required." >&2
+  exit 1
+fi
+# shellcheck disable=SC1091
+source /etc/os-release
+if [[ "${ID:-}" != "raspbian" && "${ID:-}" != "debian" && "${ID_LIKE:-}" != *debian* ]]; then
+  echo "A Debian-compatible Raspberry Pi OS installation is required." >&2
+  exit 1
+fi
+command -v apt-get >/dev/null 2>&1 || {
+  echo "apt-get is required on Raspberry Pi OS." >&2
+  exit 1
+}
+
+# Never replace code or its runtime while an old connector can still be using it.
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl stop organato-canvas-connector.service organato-canvas-x11vnc.service organato-canvas-xvfb.service >/dev/null 2>&1 || true
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+browser_package="chromium"
+if ! apt-cache show "$browser_package" >/dev/null 2>&1; then
+  browser_package="chromium-browser"
+fi
+apt-cache show "$browser_package" >/dev/null 2>&1 || {
+  echo "The configured apt sources do not provide Chromium." >&2
+  exit 1
+}
+apt-get install --no-install-recommends -y ca-certificates curl tar xz-utils "$browser_package" xvfb x11vnc
+
+node_is_supported() {
+  local version major
+  command -v node >/dev/null 2>&1 || return 1
+  version="$(node --version 2>/dev/null || true)"
+  [[ "$version" =~ ^v([0-9]+)\. ]] || return 1
+  major="${BASH_REMATCH[1]}"
+  [[ "$major" -ge 22 && "$major" -lt 25 ]]
+}
+
+if ! node_is_supported; then
+  node_version="${ORGANATO_NODE_VERSION:-22.23.2}"
+  [[ "$node_version" =~ ^22\.[0-9]+\.[0-9]+$ ]] || {
+    echo "ORGANATO_NODE_VERSION must be a Node.js 22.x.y release." >&2
+    exit 1
+  }
+  node_root="/usr/local/lib/nodejs/node-v${node_version}-linux-arm64"
+  temporary="$(mktemp -d /tmp/organato-node.XXXXXX)"
+  trap 'rm -rf "$temporary"' EXIT
+  archive="node-v${node_version}-linux-arm64.tar.xz"
+  node_url="https://nodejs.org/dist/v${node_version}"
+  curl --fail --silent --show-error --location "$node_url/SHASUMS256.txt" \
+    --output "$temporary/SHASUMS256.txt"
+  curl --fail --silent --show-error --location "$node_url/$archive" \
+    --output "$temporary/$archive"
+  expected="$(awk -v target="$archive" '$2 == target { print $1; exit }' "$temporary/SHASUMS256.txt")"
+  [[ "$expected" =~ ^[[:xdigit:]]{64}$ ]] || {
+    echo "Node.js archive checksum was not published for $archive." >&2
+    exit 1
+  }
+  printf '%s  %s\n' "$expected" "$temporary/$archive" | sha256sum --check --status - || {
+    echo "Node.js archive checksum verification failed." >&2
+    exit 1
+  }
+  install -d -m 0755 /usr/local/lib/nodejs
+  rm -rf "$node_root"
+  tar -xJf "$temporary/$archive" -C /usr/local/lib/nodejs
+  for executable in node npm npx corepack; do
+    if [[ -x "$node_root/bin/$executable" ]]; then
+      ln -sfn "$node_root/bin/$executable" "/usr/local/bin/$executable"
+    fi
+  done
+  trap - EXIT
+  rm -rf "$temporary"
+fi
+
+node_is_supported || {
+  echo "Node.js 22, 23, or 24 is required after installation; found $(node --version 2>/dev/null || echo missing)." >&2
+  exit 1
+}
+command -v npm >/dev/null 2>&1 || {
+  echo "npm was not installed with the supported Node.js runtime." >&2
+  exit 1
+}
+node_path="$(command -v node)"
+npm_path="$(command -v npm)"
+npx_path="$(command -v npx 2>/dev/null || true)"
+[[ "$node_path" == "/usr/local/bin/node" ]] || ln -sfn "$node_path" /usr/local/bin/node
+[[ "$npm_path" == "/usr/local/bin/npm" ]] || ln -sfn "$npm_path" /usr/local/bin/npm
+if [[ -n "$npx_path" && "$npx_path" != "/usr/local/bin/npx" ]]; then
+  ln -sfn "$npx_path" /usr/local/bin/npx
+fi
+
+if ! getent group "$service_group" >/dev/null 2>&1; then
+  groupadd --system "$service_group"
+fi
+if ! id "$service_user" >/dev/null 2>&1; then
+  useradd --system --gid "$service_group" --home-dir "$state_dir" --create-home --shell /usr/sbin/nologin "$service_user"
+fi
+if [[ -L "$state_dir" ]]; then
+  echo "$state_dir must not be a symbolic link." >&2
+  exit 1
+fi
+install -d -o "$service_user" -g "$service_group" -m 0700 "$state_dir"
+
+if [[ -L "$install_dir" || ( -e "$install_dir" && ! -d "$install_dir" ) ]]; then
+  echo "$install_dir must be a directory, not a symbolic link or file." >&2
+  exit 1
+fi
+if [[ -L "$env_file" ]]; then
+  echo "$env_file must not be a symbolic link." >&2
+  exit 1
+fi
+install -d -m 0755 "$install_dir"
+rm -rf "$install_dir/src" "$install_dir/bin" "$install_dir/policies" "$install_dir/node_modules"
+install -m 0644 "$source_dir/package.json" "$install_dir/package.json"
+install -m 0644 "$source_dir/package-lock.json" "$install_dir/package-lock.json"
+install -d -m 0755 "$install_dir/src" "$install_dir/bin"
+cp -a "$source_dir/src/." "$install_dir/src/"
+cp -a "$source_dir/bin/." "$install_dir/bin/"
+cp -a "$source_dir/policies" "$install_dir/policies"
+chmod 0755 "$install_dir/bin/pair.mjs" "$install_dir/src/index.mjs"
+chown -R root:root "$install_dir"
+
+if [[ ! -f "$env_file" ]]; then
+  install -m 0640 -o root -g "$service_group" /dev/null "$env_file"
+  cat >"$env_file" <<'EOF'
+# Non-secret connector settings. Leave the SSO list blank to use the verified
+# Emanuel defaults; add exact comma-separated HTTPS origins when needed.
+ORGANATO_API_BASE=https://organato.etphli.workers.dev
+ORGANATO_STATE_DIR=/var/lib/organato-canvas-connector
+DISPLAY=:99
+CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+CANVAS_SSO_ALLOWLIST=
+EOF
+  chown root:"$service_group" "$env_file"
+  chmod 0640 "$env_file"
+fi
+
+# systemd bind-mounts the package policy into the connector's private mount
+# namespace. Keep the host policy directories empty and never replace files a
+# system administrator may already have installed there.
+for policy_destination in /etc/chromium/policies/managed /etc/chromium-browser/policies/managed; do
+  if [[ -L "$policy_destination" || ( -e "$policy_destination" && ! -d "$policy_destination" ) ]]; then
+    echo "$policy_destination must be a directory, not a symbolic link or file." >&2
+    exit 1
+  fi
+  if [[ ! -e "$policy_destination" ]]; then
+    install -d -m 0755 "$policy_destination"
+  fi
+done
+
+npm ci --prefix "$install_dir" --omit=dev --ignore-scripts --no-audit --no-fund
+
+install -m 0644 "$source_dir/systemd/organato-canvas-xvfb.service" /etc/systemd/system/organato-canvas-xvfb.service
+install -m 0644 "$source_dir/systemd/organato-canvas-x11vnc.service" /etc/systemd/system/organato-canvas-x11vnc.service
+install -m 0644 "$source_dir/systemd/organato-canvas-connector.service" /etc/systemd/system/organato-canvas-connector.service
+systemctl daemon-reload
+systemctl enable organato-canvas-xvfb.service organato-canvas-x11vnc.service organato-canvas-connector.service
+systemctl restart organato-canvas-xvfb.service organato-canvas-x11vnc.service
+
+echo "Installed Chromium, Xvfb, x11vnc, Node.js, and the connector package."
+echo "Configure $env_file, pair the device, then start organato-canvas-connector.service."

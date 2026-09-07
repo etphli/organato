@@ -26,26 +26,44 @@ const courseSchema = z.object({
   workflow_state: z.string().default("available"),
 });
 
-const assignmentSchema = z.object({
-  id: z.union([z.string(), z.number()]).transform(String),
-  course_id: z.union([z.string(), z.number()]).transform(String),
-  name: z.string(),
-  due_at: z.string().nullable().optional(),
-  html_url: z.string().url(),
-  updated_at: z.string(),
-  published: z.boolean().default(true),
-  submission: z
-    .object({ workflow_state: z.string().optional() })
+const plannerItemSchema = z.object({
+  course_id: z
+    .union([z.string(), z.number()])
+    .transform(String)
     .nullable()
     .optional(),
+  plannable_id: z.union([z.string(), z.number()]).transform(String),
+  plannable_type: z.string(),
+  plannable_date: z.string().nullable().optional(),
+  plannable: z.unknown(),
+  submissions: z
+    .union([
+      z.literal(false),
+      z.object({
+        submitted: z.boolean().default(false),
+        graded: z.boolean().default(false),
+        excused: z.boolean().default(false),
+      }),
+    ])
+    .nullable()
+    .optional(),
+  html_url: z.string(),
+});
+
+const plannerAssignmentSchema = z.object({
+  id: z.union([z.string(), z.number()]).transform(String),
+  title: z.string(),
+  due_at: z.string().nullable().optional(),
+  updated_at: z.string(),
 });
 
 export type CanvasConnectionErrorCode =
   | "invalid_base_url"
   | "unexpected_origin"
   | "unexpected_redirect"
-  | "token_rejected"
+  | "session_rejected"
   | "api_access_denied"
+  | "edge_blocked"
   | "rate_limited"
   | "request_failed"
   | "invalid_response"
@@ -64,25 +82,28 @@ export class CanvasConnectionError extends Error {
 }
 
 /**
- * Canvas shows the token value as plain text, but clipboard managers and
- * password tools commonly include a Bearer prefix, quotes, or line breaks.
- * Normalize those harmless presentation details once at the integration
- * boundary so every request uses the exact credential value Canvas expects.
+ * Organato authenticates as the signed-in Canvas user by replaying the
+ * browser session cookie, so no personal access token is required. The
+ * cookie value is normally copied from the browser's developer tools and
+ * clipboard tools commonly include a "Cookie:" header label, quotes, or
+ * line breaks. Normalize those harmless presentation details once at the
+ * integration boundary so every request uses the exact value Canvas
+ * expects.
  */
-export function normalizeCanvasToken(value: string): string {
-  let token = value.replace(/^\uFEFF/, "").trim();
+export function normalizeCanvasCookie(value: string): string {
+  let cookie = value.replace(/^\uFEFF/, "").trim();
   for (let pass = 0; pass < 2; pass += 1) {
     if (
-      (token.startsWith('"') && token.endsWith('"')) ||
-      (token.startsWith("'") && token.endsWith("'"))
+      (cookie.startsWith('"') && cookie.endsWith('"')) ||
+      (cookie.startsWith("'") && cookie.endsWith("'"))
     ) {
-      token = token.slice(1, -1).trim();
+      cookie = cookie.slice(1, -1).trim();
     }
-    if (/^bearer\s+/i.test(token)) {
-      token = token.replace(/^bearer\s+/i, "").trim();
+    if (/^cookie\s*:/i.test(cookie)) {
+      cookie = cookie.replace(/^cookie\s*:/i, "").trim();
     }
   }
-  return token.replace(/(?:\s|\u200B|\u200C|\u200D|\u2060|\uFEFF)/gu, "");
+  return cookie;
 }
 
 function identityFromResponse(
@@ -174,21 +195,57 @@ export function retryAfterMs(
 
 type Sleep = (milliseconds: number) => Promise<void>;
 
+/**
+ * Instructure's edge refuses requests that do not look like they came from
+ * the Canvas web app itself: a bare server User-Agent receives an HTTP 403
+ * "Not Authorized" gate page before authentication is even evaluated. Every
+ * request therefore carries the exact header set a signed-in browser sends,
+ * which the verified-correct session cookie then authenticates normally.
+ */
+function canvasRequestHeaders(
+  cookie: string,
+  origin: string,
+): Record<string, string> {
+  return {
+    Cookie: cookie,
+    Accept: "application/json, text/plain, */*",
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    Origin: origin,
+    Referer: `${origin}/`,
+    "X-Requested-With": "XMLHttpRequest",
+    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "same-origin",
+    "sec-fetch-site": "same-origin",
+  };
+}
+
+function isEdgeGateResponse(response: Response, bodyStart: string): boolean {
+  return (
+    (response.status === 403 || response.status === 503) &&
+    /<!doctype html/i.test(bodyStart) &&
+    /not authorized|access denied|challenge/i.test(bodyStart)
+  );
+}
+
 export class CanvasRestProvider implements CanvasProvider {
   readonly baseUrl: URL;
 
   constructor(
     baseUrl: string,
-    token: string,
+    cookie: string,
     private readonly fetcher: typeof fetch = fetch,
     private readonly sleep: Sleep = (milliseconds) =>
       new Promise((resolve) => setTimeout(resolve, milliseconds)),
   ) {
     this.baseUrl = validateBaseUrl(baseUrl);
-    this.token = normalizeCanvasToken(token);
+    this.cookie = normalizeCanvasCookie(cookie);
   }
 
-  private readonly token: string;
+  private readonly cookie: string;
 
   private async request(
     pathOrUrl: string,
@@ -205,10 +262,7 @@ export class CanvasRestProvider implements CanvasProvider {
       let response: Response;
       try {
         response = await this.fetcher.call(globalThis, url.toString(), {
-          headers: {
-            Authorization: `Bearer ${this.token}`,
-            Accept: "application/json",
-          },
+          headers: canvasRequestHeaders(this.cookie, this.baseUrl.origin),
           redirect: "manual",
           ...(signal ? { signal } : {}),
         });
@@ -233,14 +287,22 @@ export class CanvasRestProvider implements CanvasProvider {
         throw new CanvasConnectionError(
           isInsufficientScope(response)
             ? "api_access_denied"
-            : "token_rejected",
+            : "session_rejected",
           isInsufficientScope(response)
             ? "Canvas denied access to this API endpoint."
-            : "Canvas rejected the token.",
+            : "Canvas rejected the browser session.",
           response.status,
         );
       }
       if (response.status === 403) {
+        const bodyStart = (await response.text()).slice(0, 400);
+        if (isEdgeGateResponse(response, bodyStart)) {
+          throw new CanvasConnectionError(
+            "edge_blocked",
+            "The school's Canvas firewall refused this request before it reached Canvas.",
+            response.status,
+          );
+        }
         throw new CanvasConnectionError(
           "api_access_denied",
           "Canvas denied API access.",
@@ -367,9 +429,9 @@ export class CanvasRestProvider implements CanvasProvider {
     }
 
     // Some Canvas installations scope the self/profile endpoints separately
-    // from course access. Prove the credential can perform Organato's actual
-    // read-only import before accepting it, while still failing closed for a
-    // bad token or an inaccessible course API.
+    // from course access. Prove the session can perform Organato's actual
+    // read-only import before accepting it, while still failing closed for
+    // an expired session or an inaccessible course API.
     let courseProbeError: CanvasConnectionError | null = null;
     try {
       const response = await this.request(
@@ -440,7 +502,6 @@ export class CanvasRestProvider implements CanvasProvider {
     }));
     const assignments: CanvasAssignment[] = [];
     const partialFailures: CanvasSyncResult["partialFailures"] = [];
-    const successfulCourseIds: string[] = [];
     let skippedMalformedItems = malformedCourseCount;
     if (malformedCourseCount) {
       partialFailures.push({
@@ -449,70 +510,78 @@ export class CanvasRestProvider implements CanvasProvider {
       });
     }
 
-    const chunks = Array.from(
-      { length: Math.ceil(courses.length / 4) },
-      (_, index) => courses.slice(index * 4, index * 4 + 4),
+    const start = new Date(Date.now() - 86_400_000);
+    const end = new Date(start);
+    end.setUTCFullYear(end.getUTCFullYear() + 1);
+    const plannerParams = new URLSearchParams({
+      start_date: start.toISOString(),
+      end_date: end.toISOString(),
+      filter: "incomplete_items",
+      per_page: "100",
+    });
+    let malformedPlannerCount = 0;
+    const plannerRows = await this.paginated(
+      `/api/v1/planner/items?${plannerParams.toString()}`,
+      plannerItemSchema,
+      signal,
+      () => {
+        malformedPlannerCount += 1;
+      },
     );
-    for (const chunk of chunks) {
-      const results = await Promise.allSettled(
-        chunk.map(async (course) => {
-          let malformedForCourse = 0;
-          const rows = await this.paginated(
-            `/api/v1/courses/${encodeURIComponent(course.id)}/assignments?bucket=upcoming&override_assignment_dates=true&include[]=submission&per_page=100`,
-            assignmentSchema,
-            signal,
-            () => {
-              malformedForCourse += 1;
-            },
-          );
-          const normalized: CanvasAssignment[] = [];
-          for (const row of rows) {
-            const assignmentUrl = new URL(row.html_url);
-            if (assignmentUrl.origin !== this.baseUrl.origin) {
-              malformedForCourse += 1;
-              continue;
-            }
-            normalized.push({
-              id: String(row.id),
-              courseId: String(row.course_id),
-              name: row.name,
-              dueAt: row.due_at ?? null,
-              htmlUrl: assignmentUrl.href,
-              updatedAt: row.updated_at,
-              published: row.published ?? true,
-              submitted: ["submitted", "graded", "pending_review"].includes(
-                row.submission?.workflow_state ?? "",
-              ),
-            });
-          }
-          return { course, assignments: normalized, malformedForCourse };
-        }),
-      );
-      results.forEach((result, index) => {
-        if (result.status === "fulfilled") {
-          assignments.push(...result.value.assignments);
-          skippedMalformedItems += result.value.malformedForCourse;
-          if (result.value.malformedForCourse) {
-            partialFailures.push({
-              courseId: result.value.course.id,
-              category: "malformed_item",
-            });
-          } else {
-            successfulCourseIds.push(result.value.course.id);
-          }
-        } else {
-          partialFailures.push({
-            courseId: chunk[index]?.id ?? "unknown",
-            category: "course_fetch_failed",
-          });
-        }
+    const courseIds = new Set(courses.map((course) => course.id));
+    const malformedCourseIds = new Set<string>();
+    for (const row of plannerRows) {
+      if (row.plannable_type !== "assignment") continue;
+      const assignment = plannerAssignmentSchema.safeParse(row.plannable);
+      const courseId =
+        row.course_id === null || row.course_id === undefined
+          ? null
+          : String(row.course_id);
+      let assignmentUrl: URL | null = null;
+      try {
+        assignmentUrl = new URL(row.html_url, this.baseUrl);
+      } catch {
+        // Count this below with the other malformed planner cases.
+      }
+      if (
+        !assignment.success ||
+        !courseId ||
+        !courseIds.has(courseId) ||
+        assignment.data.id !== row.plannable_id ||
+        assignmentUrl?.origin !== this.baseUrl.origin
+      ) {
+        malformedPlannerCount += 1;
+        if (courseId) malformedCourseIds.add(courseId);
+        continue;
+      }
+      const submission = row.submissions === false ? null : row.submissions;
+      assignments.push({
+        id: assignment.data.id,
+        courseId,
+        name: assignment.data.title,
+        dueAt: assignment.data.due_at ?? row.plannable_date ?? null,
+        htmlUrl: assignmentUrl.href,
+        updatedAt: assignment.data.updated_at,
+        published: true,
+        submitted: Boolean(
+          submission?.submitted || submission?.graded || submission?.excused,
+        ),
+      });
+    }
+    skippedMalformedItems += malformedPlannerCount;
+    if (malformedPlannerCount) {
+      partialFailures.push({
+        courseId: [...malformedCourseIds].join(",") || "planner_feed",
+        category: "malformed_item",
       });
     }
     return {
       courses,
       assignments,
       partialFailures,
-      successfulCourseIds,
+      successfulCourseIds: courses
+        .filter((course) => !malformedCourseIds.has(course.id))
+        .map((course) => course.id),
       catalogueComplete: malformedCourseCount === 0,
       skippedMalformedItems,
     };

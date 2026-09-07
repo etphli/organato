@@ -191,14 +191,40 @@
   width: 40px;
 }
 
-.setup-step__external {
+.setup-step__howto {
+  margin-top: 12px;
+}
+
+.setup-step__howto summary {
   align-items: center;
   color: color-mix(in srgb, var(--focus) 72%, white);
+  cursor: pointer;
   display: inline-flex;
   font-size: 0.8rem;
   gap: 2px;
-  margin-top: 12px;
-  text-decoration: none;
+  list-style: none;
+  user-select: none;
+}
+
+.setup-step__howto summary::-webkit-details-marker {
+  display: none;
+}
+
+.setup-step__howto ol {
+  color: var(--secondary);
+  display: grid;
+  font-size: 0.76rem;
+  gap: 6px;
+  line-height: 1.5;
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.setup-step__howto code {
+  background: rgba(128, 128, 128, 0.16);
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  padding: 1px 4px;
 }
 
 .setup-step__probe {

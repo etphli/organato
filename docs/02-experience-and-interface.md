@@ -438,7 +438,7 @@ Every error should answer:
 2. Is data safe?
 3. What can the owner do?
 
-Example: `Canvas could not be checked because its token was rejected. Your existing Organato items are unchanged. Reconnect Canvas in Settings.`
+Example: `Canvas could not be checked because its session expired. Your existing Organato items are unchanged. Reconnect Canvas in Settings.`
 
 ## 16. Keyboard shortcut defaults
 

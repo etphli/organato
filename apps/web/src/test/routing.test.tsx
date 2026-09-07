@@ -2,7 +2,6 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { App } from "../App";
-import { loadWorkPage } from "../pages/routeLoaders";
 import { OrganatoProvider } from "../state/OrganatoProvider";
 
 describe("Primary navigation", () => {
@@ -15,7 +14,6 @@ describe("Primary navigation", () => {
   });
 
   it("switches between assignments and checkpoints without retaining route state", async () => {
-    await loadWorkPage();
     render(
       <MemoryRouter initialEntries={["/assignments"]}>
         <OrganatoProvider>

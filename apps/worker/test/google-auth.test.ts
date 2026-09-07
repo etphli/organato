@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
 import {
   googleIntegrationCallback,
+  googleIntegrationRoutes,
   validateGoogleIntegrationClaims,
 } from "../src/google-auth";
 import { encryptSecret, sha256 } from "../src/security";
-import type { Env } from "../src/types";
+import type { Env, Variables } from "../src/types";
 
 const now = new Date("2026-07-26T10:00:00.000Z");
 const validClaims = {
@@ -125,5 +127,76 @@ describe("Google integration callback", () => {
 
     expect(tokenFetch).toHaveBeenCalledOnce();
     expect(response.status).toBe(400);
+  });
+});
+
+describe("reminder recipients", () => {
+  it("accepts a valid school address that is not an approved sign-in owner", async () => {
+    let metadataJson = JSON.stringify({
+      email: "sender@gmail.com",
+      recipients: ["sender@gmail.com"],
+    });
+    const db = {
+      prepare(query: string) {
+        return {
+          bind(...values: unknown[]) {
+            return {
+              first: async () =>
+                query.includes("FROM integration_connection")
+                  ? {
+                      encrypted_credential: "encrypted-refresh-token",
+                      metadata_json: metadataJson,
+                      status: "healthy",
+                      reconnect_needed: 0,
+                      last_success_at: null,
+                      last_attempt_at: null,
+                      last_error_category: null,
+                    }
+                  : null,
+              run: async () => {
+                if (query.includes("UPDATE integration_connection")) {
+                  metadataJson = String(values[0]);
+                }
+                return { success: true, meta: { changes: 1 } };
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+    app.use("*", async (context, next) => {
+      context.set("user", {
+        email: "friend@gmail.com",
+        workspaceId: "friend@gmail.com",
+        displayName: "Friend",
+        csrfToken: "csrf",
+        sessionIdHash: "session",
+        authenticatedAt: new Date().toISOString(),
+      });
+      await next();
+    });
+    app.route("/", googleIntegrationRoutes);
+
+    const response = await app.request(
+      "/recipients",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipients: ["student@emanuelschool.nsw.edu.au"],
+        }),
+      },
+      {
+        DB: db,
+        ALLOWED_GOOGLE_EMAILS: "friend@gmail.com",
+        DEMO_MODE: "false",
+      } as Env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      recipients: ["student@emanuelschool.nsw.edu.au"],
+    });
   });
 });
