@@ -268,6 +268,44 @@ describe("Canvas connector settings", () => {
     expect(viewAttempts).toBe(2);
   });
 
+  it("lets an unconfirmed connector restart sign-in after a read error", async () => {
+    let currentStatus = connectorStatus("error", {
+      paired: true,
+      error: "Canvas could not be read. Try again shortly.",
+    });
+    const calls: string[] = [];
+    const request = requestRecorder(async (path) => {
+      calls.push(path);
+      if (path === "/api/session") return { recentAuthentication: true };
+      if (path === "/api/integrations/canvas/connector") return currentStatus;
+      if (path.endsWith("/login")) {
+        currentStatus = connectorStatus("signing_in", {
+          paired: true,
+          loginExpiresAt: futureIso(600_000),
+        });
+        return { ok: true };
+      }
+      if (path.endsWith("/view")) {
+        return {
+          url: "wss://organato.etphli.workers.dev/api/canvas-view?ticket=retry",
+          expiresAt: futureIso(60_000),
+        };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(<CanvasConnectorSection request={request} rfbFactory={vi.fn()} />);
+
+    const retry = await screen.findByRole("button", {
+      name: "Try sign-in again",
+    });
+    fireEvent.click(retry);
+
+    await waitFor(() =>
+      expect(calls).toContain("/api/integrations/canvas/connector/login"),
+    );
+  });
+
   it("blocks connector actions until recent Google sign-in is confirmed", async () => {
     const request = requestRecorder(async (path) => {
       if (path === "/api/session") return { recentAuthentication: false };
