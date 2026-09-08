@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { clearTimeout, setImmediate, setTimeout } from "node:timers";
 
 import {
   CanvasBrowserAdapter,
@@ -36,9 +37,9 @@ const CANVAS_BASE = "https://canvas.example.org";
 const TOKEN = "a".repeat(64);
 const ISO_NOW = "2026-09-06T00:00:00.000Z";
 
-test("Chromium starts in one kiosk window", () => {
+test("Chromium starts without a launch mode that blocks browser control", () => {
   const args = chromiumLaunchArguments();
-  assert.ok(args.includes("--kiosk"));
+  assert.equal(args.includes("--kiosk"), false);
   assert.equal(
     args.some((argument) => argument.startsWith("--app=")),
     false,
@@ -667,6 +668,7 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
     };
     let routeHandler;
     let onPage;
+    const browserCommands = [];
     const context = {
       async addInitScript() {},
       async route(_pattern, handler) {
@@ -678,6 +680,18 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
       on(event, callback) {
         if (event === "page") onPage = callback;
       },
+      async newCDPSession() {
+        return {
+          async send(method, params) {
+            browserCommands.push([method, params]);
+            if (method === "Browser.getWindowForTarget") {
+              return { windowId: 42 };
+            }
+            return {};
+          },
+          async detach() {},
+        };
+      },
       async close() {},
     };
     const adapter = new CanvasBrowserAdapter({
@@ -688,7 +702,15 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
       browserLauncher: async () => context,
     });
     await adapter.openLogin();
+    await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(navigations, [`${CANVAS_BASE}/`]);
+    assert.deepEqual(browserCommands, [
+      ["Browser.getWindowForTarget", undefined],
+      [
+        "Browser.setWindowBounds",
+        { windowId: 42, bounds: { windowState: "fullscreen" } },
+      ],
+    ]);
     let popupClosed = false;
     onPage({
       async close() {
@@ -737,6 +759,46 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
       [["abort", "blockedbyclient"]],
     );
     await adapter.close();
+  });
+});
+
+test("fullscreen presentation cannot delay browser readiness", async () => {
+  await withTempDirectory(async (directory) => {
+    const executable = path.join(directory, "chromium");
+    await fs.writeFile(executable, "browser");
+    const fakePage = {
+      on() {},
+      async goto() {},
+      async bringToFront() {},
+    };
+    const adapter = new CanvasBrowserAdapter({
+      canvasBaseUrl: CANVAS_BASE,
+      profileDir: path.join(directory, "profile"),
+      executablePath: executable,
+      lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+      browserLauncher: async () => ({
+        async addInitScript() {},
+        async route() {},
+        pages: () => [fakePage],
+        on() {},
+        newCDPSession: () => new Promise(() => {}),
+        async close() {},
+      }),
+    });
+
+    let timeout;
+    try {
+      const result = await Promise.race([
+        adapter.openLogin().then(() => "ready"),
+        new Promise((resolve) => {
+          timeout = setTimeout(() => resolve("timed_out"), 100);
+        }),
+      ]);
+      assert.equal(result, "ready");
+    } finally {
+      clearTimeout(timeout);
+      await adapter.close();
+    }
   });
 });
 

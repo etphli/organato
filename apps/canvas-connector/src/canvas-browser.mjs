@@ -345,7 +345,6 @@ async function launchPersistentBrowser({
 
 export function chromiumLaunchArguments() {
   return [
-    "--kiosk",
     "--window-size=1280,900",
     "--no-first-run",
     "--disable-default-apps",
@@ -356,6 +355,23 @@ export function chromiumLaunchArguments() {
     "--disable-password-generation",
     "--disable-features=DeveloperToolsAvailability,PasswordManagerOnboarding",
   ];
+}
+
+async function enterFullscreenAfterLaunch(context, page) {
+  if (typeof context.newCDPSession !== "function") return;
+  let session;
+  try {
+    session = await context.newCDPSession(page);
+    const { windowId } = await session.send("Browser.getWindowForTarget");
+    await session.send("Browser.setWindowBounds", {
+      windowId,
+      bounds: { windowState: "fullscreen" },
+    });
+  } catch {
+    // Fullscreen is presentation only. Browser readiness must not depend on it.
+  } finally {
+    await session?.detach?.().catch(() => undefined);
+  }
 }
 
 const BLOCK_CLIPBOARD_SCRIPT = `(() => {
@@ -868,6 +884,7 @@ export class CanvasBrowserAdapter {
       this.installPage(this.page);
       for (const extra of pages.slice(1)) await extra.close();
       this.context = context;
+      void enterFullscreenAfterLaunch(context, this.page);
       return context;
     } catch {
       if (typeof context.close === "function")
