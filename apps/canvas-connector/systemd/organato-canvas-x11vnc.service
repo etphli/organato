@@ -8,7 +8,7 @@ Type=simple
 User=organato-canvas
 Group=organato-canvas
 Environment=DISPLAY=:99
-ExecStart=/usr/bin/x11vnc -display :99 -localhost -nopw -forever -shared -rfbport 5900 -noclipboard -nosetclipboard -noxdamage -repeat
+ExecStart=/usr/bin/x11vnc -display :99 -auth /var/lib/organato-canvas-connector/Xauthority -localhost -nopw -forever -shared -rfbport 5900 -noclipboard -nosetclipboard -noxdamage -repeat
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=yes

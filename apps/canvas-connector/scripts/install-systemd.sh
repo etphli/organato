@@ -13,6 +13,8 @@ state_dir="/var/lib/organato-canvas-connector"
 env_file="/etc/organato-canvas-connector.env"
 service_user="organato-canvas"
 service_group="organato-canvas"
+shopt -s nullglob
+profile_units=(/etc/systemd/system/organato-canvas-profile-*-connector.service)
 
 for required in package.json package-lock.json src bin policies systemd; do
   [[ -e "$source_dir/$required" ]] || {
@@ -43,6 +45,7 @@ command -v apt-get >/dev/null 2>&1 || {
 
 # Never replace code or its runtime while an old connector can still be using it.
 if command -v systemctl >/dev/null 2>&1; then
+  for profile_unit in "${profile_units[@]}"; do systemctl stop "$(basename "$profile_unit")"; done
   systemctl stop organato-canvas-connector.service organato-canvas-x11vnc.service organato-canvas-xvfb.service >/dev/null 2>&1 || true
 fi
 
@@ -56,7 +59,7 @@ apt-cache show "$browser_package" >/dev/null 2>&1 || {
   echo "The configured apt sources do not provide Chromium." >&2
   exit 1
 }
-apt-get install --no-install-recommends -y ca-certificates curl tar xz-utils "$browser_package" xvfb x11vnc
+apt-get install --no-install-recommends -y ca-certificates curl tar xz-utils "$browser_package" xvfb x11vnc xauth
 
 node_is_supported() {
   local version major
@@ -147,6 +150,9 @@ install -m 0644 "$source_dir/package-lock.json" "$install_dir/package-lock.json"
 install -d -m 0755 "$install_dir/src" "$install_dir/bin"
 cp -a "$source_dir/src/." "$install_dir/src/"
 cp -a "$source_dir/bin/." "$install_dir/bin/"
+install -d -m 0755 "$install_dir/scripts" "$install_dir/systemd"
+cp -a "$source_dir/scripts/." "$install_dir/scripts/"
+cp -a "$source_dir/systemd/." "$install_dir/systemd/"
 cp -a "$source_dir/policies" "$install_dir/policies"
 chmod 0755 "$install_dir/bin/pair.mjs" "$install_dir/src/index.mjs"
 chown -R root:root "$install_dir"
@@ -184,9 +190,30 @@ npm ci --prefix "$install_dir" --omit=dev --ignore-scripts --no-audit --no-fund
 install -m 0644 "$source_dir/systemd/organato-canvas-xvfb.service" /etc/systemd/system/organato-canvas-xvfb.service
 install -m 0644 "$source_dir/systemd/organato-canvas-x11vnc.service" /etc/systemd/system/organato-canvas-x11vnc.service
 install -m 0644 "$source_dir/systemd/organato-canvas-connector.service" /etc/systemd/system/organato-canvas-connector.service
+auth_file="$state_dir/Xauthority"
+if [[ ! -f "$auth_file" ]]; then
+  auth_cookie="$(mcookie)"
+  printf 'add :99 . %s\n' "$auth_cookie" | xauth -f "$auth_file" source -
+  chown "$service_user:$service_group" "$auth_file"
+  chmod 0600 "$auth_file"
+fi
+for profile_unit in "${profile_units[@]}"; do
+  profile_name="$(basename "$profile_unit" -connector.service)"
+  profile_slug="${profile_name#organato-canvas-profile-}"
+  profile_display="$(sed -n 's/^DISPLAY=://p' "/etc/$profile_name.env")"
+  [[ "$profile_display" =~ ^10[0-7]$ ]] || { echo "Invalid profile display for $profile_slug." >&2; exit 1; }
+  bash "$install_dir/scripts/setup-profile.sh" "$profile_slug" "$((profile_display - 99))" --refresh
+done
 systemctl daemon-reload
 systemctl enable organato-canvas-xvfb.service organato-canvas-x11vnc.service organato-canvas-connector.service
 systemctl restart organato-canvas-xvfb.service organato-canvas-x11vnc.service
+
+for profile_unit in "${profile_units[@]}"; do
+  profile_name="$(basename "$profile_unit" -connector.service)"
+  if systemctl is-enabled --quiet "$profile_name-connector.service"; then
+    systemctl restart "$profile_name-xvfb.service" "$profile_name-x11vnc.service" "$profile_name-connector.service"
+  fi
+done
 
 echo "Installed Chromium, Xvfb, x11vnc, Node.js, and the connector package."
 echo "Configure $env_file, pair the device, then start organato-canvas-connector.service."

@@ -653,6 +653,7 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
       async bringToFront() {},
     };
     let routeHandler;
+    let onPage;
     const context = {
       async addInitScript() {},
       async route(_pattern, handler) {
@@ -661,7 +662,9 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
       pages() {
         return [fakePage];
       },
-      on() {},
+      on(event, callback) {
+        if (event === "page") onPage = callback;
+      },
       async close() {},
     };
     const adapter = new CanvasBrowserAdapter({
@@ -672,6 +675,14 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
       browserLauncher: async () => context,
     });
     await adapter.ensureContext();
+    let popupClosed = false;
+    onPage({
+      async close() {
+        popupClosed = true;
+      },
+    });
+    assert.equal(popupClosed, true);
+    assert.equal(adapter.page, fakePage);
 
     async function routeResult(method, url) {
       const result = [];
@@ -803,4 +814,24 @@ test("browser startup errors reach the server as a category without private laun
       false,
     );
   });
+});
+
+test("remote browsing only permits Canvas and its sign-in provider as destinations", () => {
+  const policy = new DestinationPolicy({ canvasBaseUrl: CANVAS_BASE });
+  assert.equal(policy.isNavigationAllowed(`${CANVAS_BASE}/courses`), true);
+  assert.equal(
+    policy.isNavigationAllowed(
+      "https://emanuelschool-login.cloudworkengine.net/login",
+    ),
+    true,
+  );
+  for (const url of [
+    "https://example.org",
+    "chrome://settings",
+    "file:///etc/passwd",
+    "https://fonts.googleapis.com/css",
+    "https://user:password@canvas.example.org",
+  ]) {
+    assert.equal(policy.isNavigationAllowed(url), false);
+  }
 });

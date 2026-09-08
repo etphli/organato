@@ -263,9 +263,17 @@ describe("Canvas connector settings", () => {
       screen.getByText(/The Pi is opening the browser/),
     ).toBeInTheDocument();
 
+    expect(
+      screen.getByRole("progressbar", {
+        name: "Estimated Canvas loading progress",
+      }),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry viewing" }));
     await waitFor(() => expect(rfbFactory).toHaveBeenCalledOnce());
     expect(viewAttempts).toBe(2);
+    await waitFor(() =>
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument(),
+    );
   });
 
   it("retries viewing automatically while the Pi relay starts", async () => {

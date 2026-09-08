@@ -287,6 +287,20 @@ export class DestinationPolicy {
     }
   }
 
+  isNavigationAllowed(value) {
+    try {
+      const url = new URL(value);
+      return (
+        !url.username &&
+        !url.password &&
+        (url.origin === this.canvasOrigin ||
+          url.origin === "https://emanuelschool-login.cloudworkengine.net")
+      );
+    } catch {
+      return false;
+    }
+  }
+
   isWriteAllowed(value, method = "GET") {
     const normalizedMethod = String(method ?? "GET").toUpperCase();
     if (["GET", "HEAD"].includes(normalizedMethod)) return true;

@@ -25,6 +25,7 @@ async function run() {
     profileDir: state.profileDir,
     chromiumPath: process.env.CHROMIUM_EXECUTABLE_PATH,
     display: process.env.DISPLAY || ":99",
+    vncPort: Number(process.env.ORGANATO_VNC_PORT || 5900),
     logger,
   });
   const stop = () => {

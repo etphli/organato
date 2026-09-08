@@ -184,6 +184,7 @@ export function CanvasConnectorSection({
   const [error, setError] = useState<string | null>(null);
   const [activityMessage, setActivityMessage] = useState<string | null>(null);
   const [rfbReady, setRfbReady] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(8);
   const [now, setNow] = useState(() => Date.now());
   const viewerRef = useRef<HTMLDivElement>(null);
   const viewerSessionRef = useRef<CanvasRfbSession | null>(null);
@@ -192,6 +193,26 @@ export function CanvasConnectorSection({
   const viewRetryAttemptRef = useRef(0);
   const reportedConnectedRef = useRef(false);
   const createRfb = rfbFactory ?? defaultRfbFactory;
+  useEffect(() => {
+    if (rfbReady) {
+      setLoadingProgress(100);
+      return;
+    }
+    setLoadingProgress(8);
+    if (
+      status?.state !== "signing_in" &&
+      status?.state !== "awaiting_confirmation"
+    )
+      return;
+    const timer = window.setInterval(
+      () =>
+        setLoadingProgress((value) =>
+          Math.min(92, value + Math.max(1, (94 - value) / 9)),
+        ),
+      700,
+    );
+    return () => window.clearInterval(timer);
+  }, [rfbReady, status?.state]);
 
   const handleMobileKeyboardInput = useCallback(
     (event: FormEvent<HTMLInputElement>) => {
@@ -521,7 +542,7 @@ export function CanvasConnectorSection({
         if (active) {
           session = nextSession;
           viewerSessionRef.current = nextSession;
-          setRfbReady(typeof nextSession.sendKey === "function");
+          setRfbReady(true);
         } else {
           nextSession.disconnect();
         }
@@ -1034,17 +1055,31 @@ export function CanvasConnectorSection({
                     : `${formatRemaining(viewExpiresAt ?? status.loginExpiresAt, now)} · 10 min sign-in`}
                 </span>
               </div>
-              <div
-                ref={viewerRef}
-                className="canvas-connector__viewer"
-                aria-label="Canvas sign-in browser"
-              >
-                {!viewUrl ? (
-                  <span>
-                    {viewError
-                      ? "The remote browser is unavailable."
-                      : "Opening the remote browser…"}
-                  </span>
+              <div className="canvas-connector__screen">
+                <div
+                  ref={viewerRef}
+                  className="canvas-connector__viewer"
+                  aria-label="Canvas sign-in browser"
+                ></div>
+                {!rfbReady ? (
+                  <div
+                    className="canvas-connector__loading-progress"
+                    role="status"
+                  >
+                    <span>
+                      {viewUrl
+                        ? "Connecting to your Canvas screen…"
+                        : "Opening Canvas on the Pi…"}
+                    </span>
+                    <progress
+                      aria-label="Estimated Canvas loading progress"
+                      max={100}
+                      value={loadingProgress}
+                    />
+                    <small>
+                      Estimated progress · the first start may take longer
+                    </small>
+                  </div>
                 ) : null}
               </div>
               {viewError ? (

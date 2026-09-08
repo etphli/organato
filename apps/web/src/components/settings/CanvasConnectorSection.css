@@ -571,3 +571,26 @@
     justify-self: start;
   }
 }
+
+.canvas-connector__screen {
+  position: relative;
+}
+.canvas-connector__loading-progress {
+  position: absolute;
+  inset: 1px;
+  border-radius: 8px;
+  background: #11111a;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+}
+.canvas-connector__loading-progress progress {
+  width: 100%;
+  height: 8px;
+  accent-color: #9074e8;
+}
+.canvas-connector__loading-progress small {
+  color: var(--muted);
+}

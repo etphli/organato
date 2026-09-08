@@ -5,10 +5,14 @@
   "AutofillAddressEnabled": false,
   "AutofillCreditCardEnabled": false,
   "SyncDisabled": true,
-  "URLBlocklist": [
-    "file://*",
-    "devtools://*",
-    "chrome://settings/passwords*",
-    "chrome://password-manager/*"
+  "URLBlocklist": ["*", "chrome://*", "chrome-extension://*", "devtools://*"],
+  "URLAllowlist": [
+    "https://.emanuel.instructure.com",
+    "https://.emanuelschool-login.cloudworkengine.net",
+    "https://.emanuel.files.cloudworkengine.net.au",
+    "https://.theme.files.cloudworkengine.net.au",
+    "https://.fonts.googleapis.com",
+    "https://.fonts.gstatic.com",
+    "https://.ssl.gstatic.com"
   ]
 }

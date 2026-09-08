@@ -39,6 +39,7 @@ export class ConnectorService {
     profileDir,
     chromiumPath,
     display = ":99",
+    vncPort = 5900,
     client,
     browser,
     relay,
@@ -56,6 +57,7 @@ export class ConnectorService {
     this.profileDir = profileDir;
     this.chromiumPath = chromiumPath;
     this.display = display;
+    this.vncPort = vncPort;
     this.client = client;
     this.browser = browser;
     this.relay = relay;
@@ -101,6 +103,7 @@ export class ConnectorService {
     }
     if (!this.relay) {
       this.relay = new VncRelay({
+        vncPort: this.vncPort,
         apiBase: this.apiBase,
         token: this.token,
         logger: this.logger,

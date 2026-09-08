@@ -341,6 +341,7 @@ async function launchPersistentBrowser({
     env: { ...process.env, DISPLAY: display },
     args: [
       "--window-size=1280,900",
+      "--kiosk",
       "--no-first-run",
       "--disable-default-apps",
       "--disable-extensions",
@@ -354,6 +355,18 @@ async function launchPersistentBrowser({
 }
 
 const BLOCK_CLIPBOARD_SCRIPT = `(() => {
+  window.open = () => null;
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "F11" || event.key === "F12" ||
+        ((event.ctrlKey || event.metaKey) && ["l", "t", "n", "w", "o", "j", "u"].includes(event.key.toLowerCase()))) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+  document.addEventListener("click", (event) => {
+    const anchor = event.target.closest?.("a[target]");
+    if (anchor) anchor.target = "_self";
+  }, true);
   const blocked = () => Promise.reject(new DOMException("Clipboard access is disabled", "NotAllowedError"));
   try {
     Object.defineProperty(navigator, "clipboard", {
@@ -821,6 +834,8 @@ export class CanvasBrowserAdapter {
               : request?.method;
           try {
             if (
+              (request.isNavigationRequest?.() &&
+                !this.policy.isNavigationAllowed(requestUrl)) ||
               isApiWriteRequest(request) ||
               !this.policy.isWriteAllowed(requestUrl, requestMethod) ||
               !(await this.policy.isAllowed(requestUrl))
@@ -836,13 +851,18 @@ export class CanvasBrowserAdapter {
       }
       if (typeof context.on === "function") {
         context.on("page", (page) => {
+          if (this.page && this.page !== page) {
+            void page.close().catch(() => undefined);
+            return;
+          }
+          this.page = page;
           this.installPage(page);
-          if (!this.page) this.page = page;
         });
       }
       const pages = typeof context.pages === "function" ? context.pages() : [];
       this.page = pages[0] ?? (await context.newPage());
       this.installPage(this.page);
+      for (const extra of pages.slice(1)) await extra.close();
       this.context = context;
       return context;
     } catch {

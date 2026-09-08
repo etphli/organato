@@ -228,7 +228,50 @@ rm -rf -- "$upgrade_dir"
 rm -- "$backup"
 ```
 
-## 8. Troubleshooting
+## 8. Share one Pi with friends
+
+Upgrade the Pi with section 7 first. Each person keeps their own Organato
+account, Canvas login, browser profile, Linux service account, authenticated
+display, and loopback VNC port. Pairing another person does not replace your
+existing pairing. The Pi owner must add each person; knowing the public
+Organato URL does not grant access to the Pi.
+
+Ask your friend to create a pairing code in their own Organato Canvas settings.
+On the Pi, choose a lowercase name and an unused slot from 1 to 8:
+
+```sh
+sudo bash /opt/organato-canvas-connector/scripts/setup-profile.sh alex 1
+```
+
+Enter your friend's pairing code when prompted. They can then open Canvas
+sign-in in their own Organato account. Repeat with another name and slot for
+another friend, for example `sam 2`. The original owner's profile uses slot 0
+and needs no changes. Eight slots are available, but the number of simultaneous
+Chromium sessions the Pi can run depends on its memory; start with a few people.
+
+Check a friend's services with:
+
+```sh
+sudo systemctl --no-pager status organato-canvas-profile-alex-{xvfb,x11vnc,connector}
+```
+
+The installer updates the shared code and regenerates each profile's service
+units during upgrades. It preserves their saved browser directories and
+restarts enabled profiles. The backup command in section 7 covers the original
+owner only; back up each friend's `/var/lib/organato-canvas-profile-NAME`
+directory while their connector is stopped if you need a backup of it.
+
+Disconnecting Canvas in a friend's Organato account revokes only their pairing
+and erases only their saved browser profile when their connector next polls.
+The Pi owner can stop that profile with
+`sudo systemctl stop organato-canvas-profile-alex-connector`.
+
+The remote browser opens fullscreen without a general-purpose address bar.
+Extra tabs and windows are closed. Main-page navigation permits Canvas and
+Emanuel's sign-in provider; required school assets remain available. The loading
+bar is an estimate and completes only when the remote display handshake finishes.
+
+## 9. Troubleshooting
 
 ### Repair the Xvfb lock-file restart loop
 

@@ -9,6 +9,7 @@ Type=simple
 User=organato-canvas
 Group=organato-canvas
 WorkingDirectory=/opt/organato-canvas-connector
+Environment=XAUTHORITY=/var/lib/organato-canvas-connector/Xauthority
 EnvironmentFile=/etc/organato-canvas-connector.env
 ExecStart=/usr/local/bin/node /opt/organato-canvas-connector/src/index.mjs run
 Restart=on-failure
