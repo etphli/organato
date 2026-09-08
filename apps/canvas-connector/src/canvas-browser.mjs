@@ -1,7 +1,14 @@
 /* global URL, TextEncoder, fetch, process */
 
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import {
+  clearInterval,
+  clearTimeout,
+  setInterval,
+  setTimeout,
+} from "node:timers";
 
 import {
   DestinationPolicy,
@@ -324,23 +331,28 @@ async function launchPersistentBrowser({
   display,
 }) {
   const { chromium } = await import("playwright-core");
-  return chromium.launchPersistentContext(profileDir, {
-    executablePath,
-    headless: false,
-    viewport: null,
-    acceptDownloads: false,
-    serviceWorkers: "block",
-    userPrefs: {
-      credentials_enable_service: false,
-      "profile.password_manager_enabled": false,
-      "autofill.profile_enabled": false,
-      "autofill.credit_card_enabled": false,
-      "download.prompt_for_download": false,
-      "download.directory_upgrade": false,
-    },
+  await fs.mkdir(profileDir, { recursive: true, mode: 0o700 });
+  const activePortFile = path.join(profileDir, "DevToolsActivePort");
+  await fs.rm(activePortFile, { force: true });
+
+  const child = spawn(executablePath, chromiumProcessArguments(profileDir), {
     env: { ...process.env, DISPLAY: display },
-    args: chromiumLaunchArguments(),
+    stdio: ["ignore", "ignore", "pipe"],
   });
+
+  let browser;
+  try {
+    const endpoint = await waitForChromiumEndpoint(child, activePortFile);
+    browser = await chromium.connectOverCDP(endpoint, { timeout: 30_000 });
+    const [context] = browser.contexts();
+    if (!context) {
+      throw new Error("Chromium started without a persistent browser context.");
+    }
+    return managedPersistentContext(context, browser, child);
+  } catch (error) {
+    await stopChromium(browser, child);
+    throw error;
+  }
 }
 
 export function chromiumLaunchArguments() {
@@ -354,6 +366,133 @@ export function chromiumLaunchArguments() {
     "--disable-password-generation",
     "--disable-features=PasswordManagerOnboarding",
   ];
+}
+
+export function chromiumProcessArguments(profileDir) {
+  return [
+    ...chromiumLaunchArguments(),
+    `--user-data-dir=${profileDir}`,
+    "--remote-debugging-address=127.0.0.1",
+    "--remote-debugging-port=0",
+    "about:blank",
+  ];
+}
+
+export function devToolsEndpointFromActivePort(contents) {
+  const [portText, browserPath] = contents.trim().split(/\r?\n/, 2);
+  const port = Number(portText);
+  if (
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65_535 ||
+    !browserPath?.startsWith("/devtools/browser/")
+  ) {
+    return null;
+  }
+  return `ws://127.0.0.1:${port}${browserPath}`;
+}
+
+function waitForChromiumEndpoint(child, activePortFile, timeoutMs = 30_000) {
+  return new Promise((resolve, reject) => {
+    let stderr = "";
+    let settled = false;
+
+    const cleanup = ({ keepDrainingStderr = false } = {}) => {
+      clearInterval(pollTimer);
+      clearTimeout(timeoutTimer);
+      if (!keepDrainingStderr) child.stderr?.off("data", onStderr);
+      child.off("error", onError);
+      child.off("exit", onExit);
+    };
+    const succeed = (endpoint) => {
+      if (settled) return;
+      settled = true;
+      cleanup({ keepDrainingStderr: true });
+      resolve(endpoint);
+    };
+    const fail = (message, cause) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const recentLogs = stderr.trim().slice(-4_000);
+      reject(
+        new Error(
+          recentLogs ? `${message}\nChromium logs:\n${recentLogs}` : message,
+          {
+            cause,
+          },
+        ),
+      );
+    };
+    const readActivePort = () => {
+      void fs
+        .readFile(activePortFile, "utf8")
+        .then((contents) => {
+          const endpoint = devToolsEndpointFromActivePort(contents);
+          if (endpoint) succeed(endpoint);
+        })
+        .catch((error) => {
+          if (error?.code !== "ENOENT") {
+            fail("Chromium readiness file could not be read.", error);
+          }
+        });
+    };
+    const onStderr = (chunk) => {
+      stderr = (stderr + chunk.toString()).slice(-8_000);
+    };
+    const onError = (error) => {
+      fail("Chromium could not be started.", error);
+    };
+    const onExit = (code, signal) => {
+      fail(
+        `Chromium exited before browser control was ready (code ${String(code)}, signal ${String(signal)}).`,
+      );
+    };
+
+    child.stderr?.on("data", onStderr);
+    child.once("error", onError);
+    child.once("exit", onExit);
+    const pollTimer = setInterval(readActivePort, 100);
+    const timeoutTimer = setTimeout(() => {
+      fail("Timed out waiting for Chromium browser control.");
+    }, timeoutMs);
+    readActivePort();
+  });
+}
+
+async function stopChromium(browser, child) {
+  if (browser) {
+    await Promise.race([
+      browser.close().catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 2_000)),
+    ]);
+  }
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGTERM");
+    await Promise.race([
+      new Promise((resolve) => child.once("exit", resolve)),
+      new Promise((resolve) => setTimeout(resolve, 2_000)),
+    ]);
+  }
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGKILL");
+  }
+}
+
+function managedPersistentContext(context, browser, child) {
+  let closePromise;
+  return new Proxy(context, {
+    get(target, property) {
+      if (property === "close") {
+        return () => {
+          closePromise ??= stopChromium(browser, child);
+          return closePromise;
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
 }
 
 async function enterFullscreenAfterLaunch(context, page) {

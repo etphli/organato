@@ -12,6 +12,8 @@ import {
   CanvasBrowserError,
   MAX_CANVAS_RESULT_BYTES,
   chromiumLaunchArguments,
+  chromiumProcessArguments,
+  devToolsEndpointFromActivePort,
   normalizeCanvasIdentity,
   normalizeCanvasSyncResult,
   syncInPage,
@@ -48,6 +50,30 @@ test("Chromium starts without a launch mode that blocks browser control", () => 
   assert.equal(
     args.some((argument) => argument.includes("DeveloperToolsAvailability")),
     false,
+  );
+});
+
+test("Chromium browser control uses a private random TCP port", () => {
+  const args = chromiumProcessArguments("/var/lib/organato/profile");
+  assert.equal(args.includes("--remote-debugging-pipe"), false);
+  assert.equal(args.includes("--remote-debugging-address=127.0.0.1"), true);
+  assert.equal(args.includes("--remote-debugging-port=0"), true);
+  assert.equal(
+    args.includes("--user-data-dir=/var/lib/organato/profile"),
+    true,
+  );
+  assert.equal(args.at(-1), "about:blank");
+});
+
+test("Chromium readiness file resolves only a valid local endpoint", () => {
+  assert.equal(
+    devToolsEndpointFromActivePort("43821\n/devtools/browser/browser-id\n"),
+    "ws://127.0.0.1:43821/devtools/browser/browser-id",
+  );
+  assert.equal(devToolsEndpointFromActivePort("0\n/devtools/browser/id"), null);
+  assert.equal(
+    devToolsEndpointFromActivePort("43821\nhttps://evil.test"),
+    null,
   );
 });
 

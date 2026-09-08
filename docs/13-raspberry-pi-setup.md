@@ -273,9 +273,11 @@ windows are closed, and main-page navigation permits only Canvas and Emanuel's
 sign-in provider. Required school assets remain available. The loading bar is an
 estimate and completes only when the remote display handshake finishes.
 
-The managed browser policy explicitly permits Chromium's private debugging pipe
-because Playwright uses it to control the browser. Organato does not expose a
-debugging port. Internal Chromium and DevTools pages remain blocked.
+The managed browser policy explicitly permits Chromium browser control. Chromium
+chooses a random debugging port bound only to `127.0.0.1`, so the port cannot be
+reached from another device. Organato waits for Chromium's readiness file and
+then connects Playwright locally. Internal Chromium and DevTools pages remain
+blocked.
 
 ## 9. Troubleshooting
 
