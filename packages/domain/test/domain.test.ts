@@ -202,14 +202,37 @@ describe("domain invariants", () => {
     expect(assertSecretFreeBackup('{"refresh_token":"nope"}')).toBe(false);
   });
 
-  it("rejects untrusted Canvas links and invalid date shapes in backups", () => {
+  it("rejects dangerous Canvas links and invalid date shapes in backups", () => {
+    // Any https host is accepted (the server recomputes Canvas identity per
+    // installation on restore), but non-https and credentialed URLs are not.
     expect(
       validateBackupItem(
         item({
           sourceType: "canvas",
           canvasAssignmentId: "42",
           canvasCourseId: "7",
-          canvasHtmlUrl: "https://attacker.example/courses/7/assignments/42",
+          canvasHtmlUrl:
+            "https://other-school.instructure.com/courses/7/assignments/42",
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      validateBackupItem(
+        item({
+          sourceType: "canvas",
+          canvasAssignmentId: "42",
+          canvasCourseId: "7",
+          canvasHtmlUrl: "javascript:alert(1)",
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      validateBackupItem(
+        item({
+          sourceType: "canvas",
+          canvasAssignmentId: "42",
+          canvasCourseId: "7",
+          canvasHtmlUrl: "https://user:pass@attacker.example/courses/7",
         }),
       ).success,
     ).toBe(false);

@@ -20,18 +20,19 @@ export function projectCalendarEvent(
   item: OrganatoItem,
   subject: Subject | undefined,
   appOrigin: string,
+  timezone = "Australia/Sydney",
 ): CalendarEventProjection | null {
   const deadline = itemDeadline(item);
   if (!deadline || item.archivedAt || !item.calendarEnabled) return null;
   const allDayDate =
     !item.dueHasExplicitTime && (item.dueDateLocal ?? localDateKey(deadline));
   const start = item.dueHasExplicitTime
-    ? { dateTime: deadline.toISOString(), timeZone: "Australia/Sydney" }
+    ? { dateTime: deadline.toISOString(), timeZone: timezone }
     : { date: allDayDate || localDateKey(deadline) };
   const end = item.dueHasExplicitTime
     ? {
         dateTime: new Date(deadline.getTime() + 30 * 60_000).toISOString(),
-        timeZone: "Australia/Sydney",
+        timeZone: timezone,
       }
     : { date: nextLocalDate(allDayDate || localDateKey(deadline)) };
   const type =

@@ -125,7 +125,10 @@ export class GoogleCalendarRestProvider implements GoogleCalendarProvider {
       new Promise((resolve) => setTimeout(resolve, milliseconds)),
   ) {}
 
-  async ensureOrganatoCalendar(storedCalendarId?: string): Promise<string> {
+  async ensureOrganatoCalendar(
+    storedCalendarId?: string,
+    timezone = "Australia/Sydney",
+  ): Promise<string> {
     if (storedCalendarId) return storedCalendarId;
     const created = await googleJson<{ id: string }>(
       this.tokenSource,
@@ -134,7 +137,7 @@ export class GoogleCalendarRestProvider implements GoogleCalendarProvider {
         method: "POST",
         body: JSON.stringify({
           summary: "Organato",
-          timeZone: "Australia/Sydney",
+          timeZone: timezone,
         }),
       },
       { fetcher: this.fetcher, sleep: this.sleep },
@@ -270,6 +273,8 @@ export class GmailSendProvider implements EmailProvider {
     private readonly tokenSource: TokenSource,
     private readonly sender: string,
     private readonly fetcher: typeof fetch = fetch,
+    private readonly sleep: Sleep = (milliseconds) =>
+      new Promise((resolve) => setTimeout(resolve, milliseconds)),
   ) {}
 
   async send(message: EmailMessage): Promise<{ messageId: string }> {
@@ -296,7 +301,7 @@ export class GmailSendProvider implements EmailProvider {
       this.tokenSource,
       "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
       { method: "POST", body: JSON.stringify({ raw: base64Url(mime) }) },
-      { fetcher: this.fetcher },
+      { fetcher: this.fetcher, sleep: this.sleep, retryable: true },
     );
     return { messageId: result.id };
   }

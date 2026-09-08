@@ -634,6 +634,7 @@ async function updateGoogleHealth(
     success: boolean;
     reconnectNeeded?: boolean;
     syncToken?: string;
+    pushCursorRowId?: number;
   },
 ) {
   const now = new Date().toISOString();
@@ -644,6 +645,9 @@ async function updateGoogleHealth(
        last_error_category = ?, reconnect_needed = ?,
        metadata_json = CASE WHEN ? IS NOT NULL
          THEN json_set(metadata_json, '$.syncToken', ?)
+         ELSE metadata_json END,
+       metadata_json = CASE WHEN ? IS NOT NULL
+         THEN json_set(metadata_json, '$.pushCursorRowId', ?)
          ELSE metadata_json END,
        updated_at = ?
      WHERE workspace_id = ? AND provider = 'google'`,
@@ -657,6 +661,8 @@ async function updateGoogleHealth(
       input.reconnectNeeded ? 1 : 0,
       input.syncToken ?? null,
       input.syncToken ?? null,
+      input.pushCursorRowId ?? null,
+      input.pushCursorRowId ?? null,
       now,
       workspaceId,
     )
@@ -737,9 +743,10 @@ export async function runCalendarReconciliation(
             pageToken,
           );
           for (const event of page.events) {
+            let failedItemId: string | undefined;
             try {
               const link = await env.DB.prepare(
-                `SELECT item_id, google_etag, sync_state
+                `SELECT item_id, google_etag, sync_state, last_pushed_item_version
                  FROM calendar_link WHERE workspace_id = ? AND google_event_id = ?`,
               )
                 .bind(workspaceId, event.id)
@@ -747,11 +754,13 @@ export async function runCalendarReconciliation(
                   item_id: string;
                   google_etag: string | null;
                   sync_state: string;
+                  last_pushed_item_version: number | null;
                 }>();
               const itemId =
                 link?.item_id ??
                 event.extendedProperties?.private?.organatoItemId;
               if (!itemId) continue;
+              failedItemId = itemId;
               const item = await getItem(env.DB, workspaceId, itemId);
               if (!item) continue;
               if (event.status === "cancelled") {
@@ -786,6 +795,41 @@ export async function runCalendarReconciliation(
                 continue;
               }
               if (link?.google_etag && event.etag === link.google_etag) {
+                continue;
+              }
+              // Both-changed detection: Google moved (etag differs) and the
+              // item moved locally since the last successful push. Adopting
+              // the Google patch would silently clobber the local edit, so
+              // park the item in conflict for explicit resolution instead.
+              if (
+                link &&
+                link.last_pushed_item_version !== null &&
+                item.version !== link.last_pushed_item_version
+              ) {
+                const conflictAt = new Date().toISOString();
+                await env.DB.batch([
+                  env.DB.prepare(
+                    `UPDATE item SET calendar_sync_state = 'conflict'
+                     WHERE id = ? AND workspace_id = ?`,
+                  ).bind(item.id, workspaceId),
+                  env.DB.prepare(
+                    `UPDATE calendar_link SET sync_state = 'conflict',
+                       last_synced_at = ? WHERE item_id = ? AND workspace_id = ?`,
+                  ).bind(conflictAt, item.id, workspaceId),
+                  env.DB.prepare(
+                    `INSERT INTO item_history
+                      (id, item_id, actor_type, actor_identity, action,
+                       summary, created_at)
+                     VALUES (?, ?, 'google', ?, 'calendar_conflict',
+                       'Edited in both Organato and Google Calendar — needs review', ?)`,
+                  ).bind(
+                    crypto.randomUUID(),
+                    item.id,
+                    connection.metadata.email,
+                    conflictAt,
+                  ),
+                ]);
+                pullFailures += 1;
                 continue;
               }
               const patch = calendarPatchFromEvent(item, event);
@@ -831,7 +875,32 @@ export async function runCalendarReconciliation(
                 ).bind(item.id, workspaceId),
               ]);
             } catch {
+              // Mark the failure on the link/item so it surfaces in the UI
+              // and is retried through the push path; the sync token still
+              // advances past fully processed pages below.
               pullFailures += 1;
+              if (failedItemId) {
+                const failedAt = new Date().toISOString();
+                const failedId = failedItemId;
+                // Separate statements so a missing calendar_link column
+                // (pre-migration) never blocks the item-level error marking.
+                await env.DB.prepare(
+                  `UPDATE calendar_link SET sync_state = 'error',
+                     last_error_category = 'calendar_pull_failed',
+                     last_synced_at = ? WHERE item_id = ? AND workspace_id = ?`,
+                )
+                  .bind(failedAt, failedId, workspaceId)
+                  .run()
+                  .catch(() => undefined);
+                await env.DB.prepare(
+                  `UPDATE item SET calendar_sync_state = 'error'
+                   WHERE id = ? AND workspace_id = ?
+                     AND calendar_sync_state NOT IN ('conflict')`,
+                )
+                  .bind(failedId, workspaceId)
+                  .run()
+                  .catch(() => undefined);
+              }
             }
           }
           pageToken = page.nextPageToken;
@@ -861,15 +930,54 @@ export async function runCalendarReconciliation(
       }
     }
 
-    const pendingRows = await env.DB.prepare(
-      `SELECT id FROM item
-       WHERE workspace_id = ?
-         AND calendar_sync_state IN ('pending', 'error', 'conflict')
-       ORDER BY updated_at LIMIT 1000`,
-    )
-      .bind(workspaceId)
-      .all<{ id: string }>();
-    for (const row of pendingRows.results) {
+    // Push pending rows in rowid order behind a persisted cursor so a
+    // persistently failing head can never starve the tail: every run sweeps
+    // forward from the cursor, wraps to the start, and stores its position.
+    // Rows in explicit conflict are left for resolveCalendarConflict.
+    const PUSH_PAGE_SIZE = 250;
+    const PUSH_MAX_ROWS = 1000;
+    const startCursor = connection.metadata.pushCursorRowId ?? 0;
+    let pushCursor = startCursor;
+    let pushCursorWrapped = false;
+    const pendingRows: Array<{ id: string; rowid: number }> = [];
+    for (
+      let page = 0;
+      page < PUSH_MAX_ROWS / PUSH_PAGE_SIZE &&
+      pendingRows.length < PUSH_MAX_ROWS;
+      page += 1
+    ) {
+      const batch = await env.DB.prepare(
+        `SELECT rowid, id FROM item
+         WHERE workspace_id = ?
+           AND calendar_sync_state IN ('pending', 'error')
+           AND rowid > ?
+         ORDER BY rowid LIMIT ?`,
+      )
+        .bind(workspaceId, pushCursor, PUSH_PAGE_SIZE)
+        .all<{ rowid: number; id: string }>();
+      if (!batch.results.length) {
+        if (!pushCursorWrapped && pushCursor !== 0) {
+          pushCursor = 0;
+          pushCursorWrapped = true;
+          continue;
+        }
+        break;
+      }
+      for (const row of batch.results) {
+        pendingRows.push(row);
+        pushCursor = Math.max(pushCursor, row.rowid);
+      }
+      if (batch.results.length < PUSH_PAGE_SIZE) {
+        if (!pushCursorWrapped && pushCursor !== startCursor) {
+          pushCursor = 0;
+          pushCursorWrapped = true;
+          continue;
+        }
+        break;
+      }
+    }
+    const settings = await getSettings(env.DB, workspaceId);
+    for (const row of pendingRows) {
       const item = await getItem(env.DB, workspaceId, row.id);
       if (!item) continue;
       const link = await env.DB.prepare(
@@ -887,6 +995,7 @@ export async function runCalendarReconciliation(
         item,
         item.subjectId ? subjectMap.get(item.subjectId) : undefined,
         env.APP_ORIGIN,
+        settings.timezone,
       );
       try {
         if (!projection) {
@@ -995,9 +1104,11 @@ export async function runCalendarReconciliation(
       errorCategory:
         pullFailures || pushFailures ? "calendar_partial_failure" : null,
       success: pullFailures === 0 && pushFailures === 0,
-      ...(pullFailures === 0 && nextSyncToken
-        ? { syncToken: nextSyncToken }
-        : {}),
+      // Reaching here means every page completed, so the token is safe to
+      // advance even when individual events failed (they are marked error
+      // above and retried through the push path).
+      ...(nextSyncToken ? { syncToken: nextSyncToken } : {}),
+      pushCursorRowId: pushCursor,
     });
     await finishCalendarRun(
       env,
@@ -1029,20 +1140,100 @@ export async function runCalendarReconciliation(
   }
 }
 
+export async function resolveCalendarConflict(
+  env: Env,
+  workspaceId: string,
+  itemId: string,
+  strategy: "mine" | "theirs",
+): Promise<{ resolved: boolean }> {
+  const item = await getItem(env.DB, workspaceId, itemId);
+  if (!item || item.calendarSyncState !== "conflict")
+    return { resolved: false };
+  const now = new Date().toISOString();
+  if (strategy === "mine") {
+    // Keep the local version and re-queue it for push. The pushed-version
+    // marker is left alone so a concurrent Google edit re-flags the
+    // conflict instead of being silently overwritten.
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE item SET calendar_sync_state = 'pending'
+         WHERE id = ? AND workspace_id = ?`,
+      ).bind(item.id, workspaceId),
+      env.DB.prepare(
+        `UPDATE calendar_link SET sync_state = 'pending', last_synced_at = ?
+         WHERE item_id = ? AND workspace_id = ?`,
+      ).bind(now, item.id, workspaceId),
+      env.DB.prepare(
+        `INSERT INTO item_history
+          (id, item_id, actor_type, actor_identity, action, summary, created_at)
+         VALUES (?, ?, 'user', 'owner', 'calendar_conflict_resolved',
+           'Calendar conflict resolved — kept the Organato version', ?)`,
+      ).bind(crypto.randomUUID(), item.id, now),
+    ]);
+  } else {
+    // Google wins: align the pushed-version marker so the next pull adopts
+    // the Google event instead of re-flagging the same pair.
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE calendar_link SET last_pushed_item_version = ?,
+           sync_state = 'synced', last_synced_at = ?
+         WHERE item_id = ? AND workspace_id = ?`,
+      ).bind(item.version, now, item.id, workspaceId),
+      env.DB.prepare(
+        `UPDATE item SET calendar_sync_state = 'synced'
+         WHERE id = ? AND workspace_id = ?`,
+      ).bind(item.id, workspaceId),
+      env.DB.prepare(
+        `INSERT INTO item_history
+          (id, item_id, actor_type, actor_identity, action, summary, created_at)
+         VALUES (?, ?, 'user', 'owner', 'calendar_conflict_resolved',
+           'Calendar conflict resolved — kept the Google Calendar version', ?)`,
+      ).bind(crypto.randomUUID(), item.id, now),
+    ]);
+  }
+  return { resolved: true };
+}
+
 export function nextDeliveryAttemptAt(attemptCount: number, now = new Date()) {
   const delayMinutes = Math.min(60, 5 * 2 ** Math.max(0, attemptCount - 1));
   return new Date(now.getTime() + delayMinutes * 60_000);
 }
 
-function syncHealthLabel(value: string | null | undefined, timezone: string) {
-  if (!value) return "never";
-  const instant = new Date(value);
-  if (!Number.isFinite(instant.getTime())) return "unknown";
-  return instant.toLocaleString("en-AU", {
-    timeZone: timezone,
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+function syncHealthLabel(
+  row:
+    | {
+        last_success_at: string | null;
+        last_attempt_at: string | null;
+        last_error_category: string | null;
+      }
+    | undefined,
+  timezone: string,
+) {
+  if (!row?.last_success_at && !row?.last_attempt_at) return "never";
+  const success = row.last_success_at ? new Date(row.last_success_at) : null;
+  const attempt = row.last_attempt_at ? new Date(row.last_attempt_at) : null;
+  const format = (instant: Date) =>
+    instant.toLocaleString("en-AU", {
+      timeZone: timezone,
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  // If the latest attempt is newer than the latest success, say so honestly
+  // instead of presenting a stale success as current health.
+  if (
+    attempt &&
+    Number.isFinite(attempt.getTime()) &&
+    (!success ||
+      !Number.isFinite(success.getTime()) ||
+      attempt.getTime() > success.getTime())
+  ) {
+    const category = row.last_error_category
+      ? ` (${row.last_error_category})`
+      : "";
+    return `attempted ${format(attempt)}${category}`;
+  }
+  if (success && Number.isFinite(success.getTime())) return format(success);
+  return "unknown";
 }
 
 async function renderWorkspaceDigest(
@@ -1051,27 +1242,38 @@ async function renderWorkspaceDigest(
   items: OrganatoItem[],
   now: Date,
   timezone: string,
+  truncated = false,
 ) {
   const [subjects, healthRows] = await Promise.all([
     listSubjects(env.DB, workspaceId),
     env.DB.prepare(
-      `SELECT provider, last_success_at FROM integration_connection
+      `SELECT provider, last_success_at, last_attempt_at, last_error_category
+       FROM integration_connection
        WHERE workspace_id = ? AND provider IN ('canvas', 'google')`,
     )
       .bind(workspaceId)
-      .all<{ provider: string; last_success_at: string | null }>(),
+      .all<{
+        provider: string;
+        last_success_at: string | null;
+        last_attempt_at: string | null;
+        last_error_category: string | null;
+      }>(),
   ]);
   const health = new Map(
-    healthRows.results.map((row) => [row.provider, row.last_success_at]),
+    healthRows.results.map((row) => [
+      row.provider,
+      syncHealthLabel(row, timezone),
+    ]),
   );
   return renderDigest({
     items,
     subjects,
     now,
     appOrigin: env.APP_ORIGIN,
-    lastCanvasSync: syncHealthLabel(health.get("canvas"), timezone),
-    lastCalendarSync: syncHealthLabel(health.get("google"), timezone),
+    lastCanvasSync: health.get("canvas") ?? "never",
+    lastCalendarSync: health.get("google") ?? "never",
     timezone,
+    truncated,
   });
 }
 
@@ -1085,16 +1287,18 @@ async function sendDigestForItems(
     now: Date;
     timezone: string;
     forceRetry?: boolean;
+    truncated?: boolean;
   },
-): Promise<void> {
+): Promise<boolean> {
   const connection = await loadGoogleConnection(env, workspaceId);
-  if (!connection) return;
+  if (!connection) return false;
   const rendered = await renderWorkspaceDigest(
     env,
     workspaceId,
     items,
     options.now,
     options.timezone,
+    options.truncated,
   );
   const nowIso = options.now.toISOString();
   const localDate = localDateKey(options.now, options.timezone);
@@ -1115,13 +1319,16 @@ async function sendDigestForItems(
         nowIso,
       )
       .run();
-    return;
+    return false;
   }
+  // The daily cap applies per delivery type so a burst of urgent imports can
+  // never suppress the morning digest (or vice versa).
   const dailyCount = await env.DB.prepare(
     `SELECT COUNT(*) AS count FROM reminder_delivery
-     WHERE workspace_id = ? AND local_date = ? AND status = 'sent'`,
+     WHERE workspace_id = ? AND local_date = ? AND delivery_type = ?
+       AND status = 'sent'`,
   )
-    .bind(workspaceId, localDate)
+    .bind(workspaceId, localDate, deliveryType)
     .first<{ count: number }>();
   if (Number(dailyCount?.count ?? 0) >= 10) {
     await env.DB.prepare(
@@ -1145,7 +1352,7 @@ async function sendDigestForItems(
         nowIso,
       )
       .run();
-    return;
+    return false;
   }
   const inserted = await env.DB.prepare(
     `INSERT OR IGNORE INTO reminder_delivery
@@ -1189,7 +1396,7 @@ async function sendDigestForItems(
         staleBefore,
       )
       .run();
-    if (!claimed.meta.changes) return;
+    if (!claimed.meta.changes) return false;
   }
   const recipients = connection.metadata.recipients?.length
     ? connection.metadata.recipients
@@ -1217,6 +1424,7 @@ async function sendDigestForItems(
     )
       .bind(sent.messageId, nowIso, nowIso, workspaceId, scopedDeliveryKey)
       .run();
+    return true;
   } catch (error) {
     const authorizationFailure =
       error instanceof GoogleApiError &&
@@ -1327,21 +1535,26 @@ export class DigestPreviewError extends Error {
   }
 }
 
+export interface DigestOutcome {
+  status: "sent" | "skipped" | "failed";
+  reason: string;
+}
+
 export async function runDailyDigest(
   env: Env,
   workspaceId: string,
   now = new Date(),
-): Promise<void> {
+): Promise<DigestOutcome> {
   const settings = await getSettings(env.DB, workspaceId);
-  if (
-    !settings.dailyDigestEnabled ||
-    !isDigestHour(now, settings.timezone, settings.digestHour)
-  ) {
-    return;
+  if (!settings.dailyDigestEnabled) {
+    return { status: "skipped", reason: "digest_disabled" };
+  }
+  if (!isDigestHour(now, settings.timezone, settings.digestHour)) {
+    return { status: "skipped", reason: "outside_digest_hour" };
   }
   await runCalendarReconciliation(env, workspaceId);
   const connection = await loadGoogleConnection(env, workspaceId);
-  if (!connection) return;
+  if (!connection) return { status: "skipped", reason: "google_not_connected" };
   const recipients = connection.metadata.recipients?.length
     ? connection.metadata.recipients
     : [connection.metadata.email];
@@ -1349,14 +1562,22 @@ export async function runDailyDigest(
     localDateKey(now, settings.timezone),
     recipients,
   );
-  await sendDigestForItems(
+  const items = await listItems(env.DB, workspaceId, { limit: 1_000 });
+  const sent = await sendDigestForItems(
     env,
     workspaceId,
-    await listItems(env.DB, workspaceId, { limit: 1_000 }),
+    items,
     key,
     "daily_digest",
-    { now, timezone: settings.timezone },
+    {
+      now,
+      timezone: settings.timezone,
+      truncated: items.length >= 1_000,
+    },
   );
+  return sent
+    ? { status: "sent", reason: "sent" }
+    : { status: "skipped", reason: "not_claimed_or_no_items" };
 }
 
 export async function sendUrgentImport(
@@ -1378,7 +1599,11 @@ export async function sendUrgentImport(
     items,
     `urgent-import:${runId}`,
     "urgent_import",
-    { now: new Date(), timezone: settings.timezone },
+    {
+      now: new Date(),
+      timezone: settings.timezone,
+      truncated: items.length >= 2000,
+    },
   );
 }
 
@@ -1426,6 +1651,66 @@ export async function retryLatestDelivery(
     },
   );
   return true;
+}
+
+/**
+ * Automatic retry sweeper for deliveries that failed transiently. Previously
+ * `next_attempt_at` was written but nothing ever read it, so failed digests
+ * waited for a manual retry forever. Runs inside the hourly job.
+ */
+export async function retryDueDeliveries(
+  env: Env,
+  workspaceId: string,
+  now = new Date(),
+): Promise<{ retried: number; sent: number }> {
+  const rows = await env.DB.prepare(
+    `SELECT delivery_key, delivery_type, item_snapshot_json
+     FROM reminder_delivery
+     WHERE workspace_id = ? AND status = 'failed_transient'
+       AND next_attempt_at IS NOT NULL AND next_attempt_at <= ?
+       AND created_at > ?
+     ORDER BY next_attempt_at ASC LIMIT 5`,
+  )
+    .bind(
+      workspaceId,
+      now.toISOString(),
+      new Date(now.getTime() - 48 * 3_600_000).toISOString(),
+    )
+    .all<{
+      delivery_key: string;
+      delivery_type: string;
+      item_snapshot_json: string;
+    }>();
+  let sent = 0;
+  const settings = await getSettings(env.DB, workspaceId);
+  for (const row of rows.results) {
+    if (
+      row.delivery_type !== "daily_digest" &&
+      row.delivery_type !== "urgent_import"
+    ) {
+      continue;
+    }
+    const ids = JSON.parse(row.item_snapshot_json) as unknown;
+    if (
+      !Array.isArray(ids) ||
+      !ids.every((value) => typeof value === "string")
+    ) {
+      continue;
+    }
+    const items = (
+      await Promise.all(ids.map((id) => getItem(env.DB, workspaceId, id)))
+    ).filter((item): item is OrganatoItem => item !== null);
+    const delivered = await sendDigestForItems(
+      env,
+      workspaceId,
+      items,
+      row.delivery_key.replace(`${workspaceId}:`, ""),
+      row.delivery_type,
+      { now, timezone: settings.timezone, forceRetry: true },
+    ).catch(() => false);
+    if (delivered) sent += 1;
+  }
+  return { retried: rows.results.length, sent };
 }
 
 export async function runRetentionCleanup(

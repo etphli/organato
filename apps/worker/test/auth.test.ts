@@ -88,7 +88,10 @@ describe("Google sign-in exchange", () => {
       "https://organato.example/google/exchange",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://organato.example",
+        },
         body: JSON.stringify({ code: "google-code", state }),
       },
       env,

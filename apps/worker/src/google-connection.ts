@@ -7,6 +7,7 @@ export interface GoogleMetadata {
   calendarId?: string;
   syncToken?: string;
   recipients?: string[];
+  pushCursorRowId?: number;
 }
 
 export interface GoogleDeliverySettings {
@@ -38,6 +39,9 @@ function parseMetadata(value: string): GoogleMetadata | null {
       email: metadata.email.trim().toLowerCase(),
       ...(metadata.calendarId ? { calendarId: metadata.calendarId } : {}),
       ...(metadata.syncToken ? { syncToken: metadata.syncToken } : {}),
+      ...(Number.isFinite(metadata.pushCursorRowId)
+        ? { pushCursorRowId: Number(metadata.pushCursorRowId) }
+        : {}),
       recipients: Array.isArray(metadata.recipients)
         ? metadata.recipients
             .map((recipient) => recipient.trim().toLowerCase())

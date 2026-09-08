@@ -1636,6 +1636,19 @@ apiRoutes.get("/export", requireRecentSession(), async (context) => {
 });
 
 apiRoutes.post("/import/preview", requireRecentSession(), async (context) => {
+  if (
+    !(await rateLimit(
+      context,
+      `import-preview:${context.get("user").email.toLowerCase()}`,
+      10,
+      60,
+    ))
+  ) {
+    return context.json(
+      { error: "Preview limit reached. Try again shortly." },
+      429,
+    );
+  }
   const length = Number(context.req.header("Content-Length") ?? 0);
   if (length > 25_000_000)
     return context.json({ error: "Backup is too large." }, 413);
@@ -1671,6 +1684,7 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
   const request = (await context.req.json().catch(() => null)) as {
     backup?: unknown;
     confirmation?: string;
+    allowEmptyRestore?: boolean;
   } | null;
   if (request?.confirmation !== "RESTORE ORGANATO") {
     return context.json({ error: "Restore confirmation is required." }, 400);
@@ -1683,6 +1697,25 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
     );
   }
   const backup = result.data;
+  // Refuse to merge an item-less backup over a non-empty workspace: that
+  // shape means a truncated or corrupt file, and the per-item child deletes
+  // below would destroy data. Explicit opt-in overrides for a real wipe.
+  if (backup.items.length === 0 && request.allowEmptyRestore !== true) {
+    const existing = await context.env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM item WHERE workspace_id = ?",
+    )
+      .bind(context.get("user").workspaceId)
+      .first<{ count: number }>();
+    if (Number(existing?.count ?? 0) > 0) {
+      return context.json(
+        {
+          error:
+            "This backup contains no items, so it was not applied. Export a fresh backup first, then retry with an empty-restore confirmation.",
+        },
+        400,
+      );
+    }
+  }
   const knownSubjectIds = new Set([
     ...backup.subjects.map((subject) => subject.id),
     ...(
@@ -1739,7 +1772,6 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
         now,
       ),
     );
-    await runBatches(context.env.DB, subjectStatements);
 
     const itemColumns = [
       "id",
@@ -1839,7 +1871,6 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
         now,
       ),
     );
-    await runBatches(context.env.DB, itemStatements);
 
     const childStatements = backup.items.flatMap((item) => [
       context.env.DB.prepare(
@@ -1903,7 +1934,6 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
         ),
       ),
     ]);
-    await runBatches(context.env.DB, childStatements);
 
     const viewStatements = backup.savedViews.map((view) =>
       context.env.DB.prepare(
@@ -1935,12 +1965,55 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
         now,
       ),
     );
-    await runBatches(context.env.DB, viewStatements);
-    await updateSettings(
-      context.env.DB,
-      context.get("user").workspaceId,
-      backup.settings,
+    // Execution happens once below via restoreGroups (atomically for small
+    // restores, grouped otherwise).
+    const mergedSettings = {
+      ...(await getSettings(context.env.DB, context.get("user").workspaceId)),
+      ...backup.settings,
+    };
+    const restoreGroups: Array<{
+      name: string;
+      statements: D1PreparedStatement[];
+    }> = [
+      { name: "subjects", statements: subjectStatements },
+      { name: "items", statements: itemStatements },
+      { name: "children", statements: childStatements },
+      { name: "views", statements: viewStatements },
+      {
+        name: "settings",
+        statements: [
+          context.env.DB.prepare(
+            "UPDATE workspace SET settings_json = ?, updated_at = ? WHERE id = ?",
+          ).bind(
+            JSON.stringify(mergedSettings),
+            now,
+            context.get("user").workspaceId,
+          ),
+        ],
+      },
+    ];
+    const restoreStatements = restoreGroups.flatMap(
+      (group) => group.statements,
     );
+    if (restoreStatements.length <= 90) {
+      await context.env.DB.batch(restoreStatements);
+    } else {
+      for (const group of restoreGroups) {
+        try {
+          await runBatches(context.env.DB, group.statements);
+        } catch (error) {
+          await recordSecurityEvent(
+            context.env.DB,
+            "restore_failed",
+            context.get("user").email,
+            `Backup restore stopped during ${group.name}: ${
+              error instanceof Error ? error.message : String(error)
+            }`.slice(0, 500),
+          ).catch(() => undefined);
+          throw error;
+        }
+      }
+    }
     await context.env.DB.prepare(
       `INSERT INTO security_event
         (id, workspace_id, category, actor_email, summary, created_at)
@@ -2125,44 +2198,52 @@ apiRoutes.post(
   },
 );
 
-apiRoutes.post("/sessions/revoke-others", async (context) => {
-  await context.env.DB.prepare(
-    "UPDATE session SET revoked_at = ? WHERE email_normalized = ? AND id_hash <> ? AND revoked_at IS NULL",
-  )
-    .bind(
-      new Date().toISOString(),
-      context.get("user").email,
-      context.get("user").sessionIdHash,
+apiRoutes.post(
+  "/sessions/revoke-others",
+  requireRecentSession(),
+  async (context) => {
+    await context.env.DB.prepare(
+      "UPDATE session SET revoked_at = ? WHERE email_normalized = ? AND id_hash <> ? AND revoked_at IS NULL",
     )
-    .run();
-  await closeCanvasViewer(context.env, context.get("user").workspaceId);
-  await recordSecurityEvent(
-    context.env.DB,
-    "sessions_revoked",
-    context.get("user").email,
-    "All other active Organato sessions were revoked.",
-  );
-  return context.json({ ok: true });
-});
+      .bind(
+        new Date().toISOString(),
+        context.get("user").email,
+        context.get("user").sessionIdHash,
+      )
+      .run();
+    await closeCanvasViewer(context.env, context.get("user").workspaceId);
+    await recordSecurityEvent(
+      context.env.DB,
+      "sessions_revoked",
+      context.get("user").email,
+      "All other active Organato sessions were revoked.",
+    );
+    return context.json({ ok: true });
+  },
+);
 
-apiRoutes.post("/sessions/revoke-all", async (context) => {
-  await context.env.DB.prepare(
-    "UPDATE session SET revoked_at = ? WHERE email_normalized = ? AND revoked_at IS NULL",
-  )
-    .bind(new Date().toISOString(), context.get("user").email)
-    .run();
-  await closeCanvasViewer(context.env, context.get("user").workspaceId);
-  await recordSecurityEvent(
-    context.env.DB,
-    "sessions_revoked",
-    context.get("user").email,
-    "Every active Organato session was revoked.",
-  );
-  clearSessionCookies(context);
-  return context.json({ ok: true });
-});
+apiRoutes.post(
+  "/sessions/revoke-all",
+  requireRecentSession(),
+  async (context) => {
+    await context.env.DB.prepare(
+      "UPDATE session SET revoked_at = ? WHERE email_normalized = ? AND revoked_at IS NULL",
+    )
+      .bind(new Date().toISOString(), context.get("user").email)
+      .run();
+    await closeCanvasViewer(context.env, context.get("user").workspaceId);
+    await recordSecurityEvent(
+      context.env.DB,
+      "sessions_revoked",
+      context.get("user").email,
+      "Every active Organato session was revoked.",
+    );
+    clearSessionCookies(context);
+    return context.json({ ok: true });
+  },
+);
 
-apiRoutes.get("/diagnostic", async (context) => {
+apiRoutes.get("/diagnostic", requireRecentSession(), async (context) => {
   const [itemCount, subjectCount, integrations, recentRuns] =
     await context.env.DB.batch([
       context.env.DB.prepare(

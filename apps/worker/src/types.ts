@@ -13,6 +13,7 @@ export interface Env {
   CANVAS_DISPLAY_NAME?: string;
   SCHEDULER_TOKEN?: string;
   SCHEDULER_MODE?: "cloudflare" | "local";
+  STUDATO_ISSUER?: string;
   DEMO_MODE?: string;
 }
 

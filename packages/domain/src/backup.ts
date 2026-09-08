@@ -9,11 +9,15 @@ const localDateOrNull = z
   .nullable();
 
 export function isTrustedCanvasItemUrl(value: string): boolean {
+  // Any https URL without embedded credentials: the server recomputes
+  // Canvas identity per installation on restore, so the URL itself is only
+  // ever rendered as a display link. Pinning a single host here rejected
+  // valid multi-install backups.
   try {
     const url = new URL(value);
     return (
       url.protocol === "https:" &&
-      url.origin === "https://emanuel.instructure.com" &&
+      Boolean(url.hostname) &&
       !url.username &&
       !url.password
     );
@@ -249,7 +253,16 @@ const savedViewSchema = z
 
 const settingsSchema = z
   .object({
-    timezone: z.string(),
+    timezone: z.string().refine((value) => {
+      try {
+        new Intl.DateTimeFormat("en-AU", { timeZone: value }).format(
+          new Date(),
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    }, "Backup has an invalid IANA timezone."),
     dateFormat: z.string(),
     timeFormat: z.enum(["12h", "24h"]),
     firstDayOfWeek: z.union([z.literal(0), z.literal(1)]),
@@ -261,12 +274,12 @@ const settingsSchema = z
     highContrast: z.boolean(),
     underlineExternalLinks: z.boolean(),
     calendarDefaultView: z.enum(["month", "week", "agenda"]),
-    upcomingAssignmentCount: z.number().int().min(1).max(20),
-    upcomingCheckpointCount: z.number().int().min(1).max(20),
+    upcomingAssignmentCount: z.number().int().min(1).max(50),
+    upcomingCheckpointCount: z.number().int().min(1).max(50),
     completedVisibility: z.enum(["end_of_day", "seven_days", "immediately"]),
     dailyDigestEnabled: z.boolean(),
     digestHour: z.number().int().min(0).max(23),
-    reminderWindowDays: z.number().int().min(1).max(30),
+    reminderWindowDays: z.number().int().min(1).max(90),
     immediateImportAlert: z.boolean(),
     naturalTodoParsing: z.boolean(),
     autoExpandClassification: z.boolean().default(true),

@@ -421,18 +421,22 @@ export async function googleIntegrationCallback(
     .first<{ metadata_json: string }>();
   let previousCalendarId: string | undefined;
   let previousRecipients: string[] = [];
+  let previousSyncToken: string | undefined;
   try {
     const metadata = JSON.parse(previous?.metadata_json ?? "{}") as {
       calendarId?: string;
       recipients?: string[];
+      syncToken?: string;
     };
     previousCalendarId = metadata.calendarId;
     previousRecipients = Array.isArray(metadata.recipients)
       ? metadata.recipients
       : [];
+    previousSyncToken = metadata.syncToken;
   } catch {
     previousCalendarId = undefined;
     previousRecipients = [];
+    previousSyncToken = undefined;
   }
   const calendarId = await calendar.ensureOrganatoCalendar(previousCalendarId);
   const encrypted = await encryptSecret(
@@ -469,6 +473,9 @@ export async function googleIntegrationCallback(
         email,
         calendarId,
         recipients: previousRecipients.length ? previousRecipients : [email],
+        // Keep the incremental sync token across reconnects so Google does
+        // not force a full calendar re-pull every time credentials refresh.
+        ...(previousSyncToken ? { syncToken: previousSyncToken } : {}),
       }),
       now,
     )

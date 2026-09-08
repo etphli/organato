@@ -3,10 +3,19 @@ import { Hono } from "hono";
 import { listItems, listSubjects } from "./db";
 import type { Env } from "./types";
 
-const studatoIssuer = "https://knmsrsjfnqdgkdtbvcnb.supabase.co/auth/v1";
-const studatoJwks = createRemoteJWKSet(
-  new URL(`${studatoIssuer}/.well-known/jwks.json`),
-);
+const defaultStudatoIssuer = "https://knmsrsjfnqdgkdtbvcnb.supabase.co/auth/v1";
+const studatoJwksCache = new Map<
+  string,
+  ReturnType<typeof createRemoteJWKSet>
+>();
+
+function studatoJwks(issuer: string) {
+  const cached = studatoJwksCache.get(issuer);
+  if (cached) return cached;
+  const client = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`));
+  studatoJwksCache.set(issuer, client);
+  return client;
+}
 
 type VerifiedStudatoIdentity = {
   email: string;
@@ -26,9 +35,10 @@ type FeedDependencies = {
 
 export async function verifyStudatoAccessToken(
   token: string,
+  issuer: string = defaultStudatoIssuer,
 ): Promise<VerifiedStudatoIdentity> {
-  const { payload } = await jwtVerify(token, studatoJwks, {
-    issuer: studatoIssuer,
+  const { payload } = await jwtVerify(token, studatoJwks(issuer), {
+    issuer,
     audience: "authenticated",
   });
   if (
@@ -96,11 +106,17 @@ export function projectStudatoSources(
 }
 
 export function createStudatoFeedRoutes(dependencies: FeedDependencies = {}) {
-  const verify = dependencies.verify ?? verifyStudatoAccessToken;
-  const load = dependencies.load ?? loadUserScopedFeed;
   const routes = new Hono<{ Bindings: Env }>();
 
   routes.get("/feeds/study-sources", async (context) => {
+    const verify =
+      dependencies.verify ??
+      ((token: string) =>
+        verifyStudatoAccessToken(
+          token,
+          context.env.STUDATO_ISSUER ?? defaultStudatoIssuer,
+        ));
+    const load = dependencies.load ?? loadUserScopedFeed;
     const authorization = context.req.header("Authorization") ?? "";
     const token = authorization.startsWith("Bearer ")
       ? authorization.slice("Bearer ".length)

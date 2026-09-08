@@ -21,13 +21,17 @@ import {
 } from "./canvas-connection";
 import { GoogleConnectionError } from "./google-connection";
 import {
+  isDemoMode,
   rateLimit,
   recordSecurityEvent,
+  requireRecentSession,
   requireSession,
   securityHeaders,
 } from "./security";
 import {
   DigestPreviewError,
+  resolveCalendarConflict,
+  retryDueDeliveries,
   runCalendarReconciliation,
   runCanvasSync,
   runDailyDigest,
@@ -55,6 +59,37 @@ async function runHourlyForAllWorkspaces(env: Env) {
   }
   let canvasSynced = 0;
   let canvasFailed = 0;
+  let calendarFailed = 0;
+  let deliveriesRetried = 0;
+  let deliveriesSent = 0;
+  const failures: Array<{
+    workspaceId: string;
+    area: string;
+    error: string;
+  }> = [];
+  const reportFailure = async (
+    workspaceId: string,
+    area: string,
+    error: unknown,
+  ) => {
+    const message = error instanceof Error ? error.message : String(error);
+    failures.push({ workspaceId, area, error: message });
+    console.error(
+      JSON.stringify({
+        level: "error",
+        category: "scheduled_job_failure",
+        area,
+        workspaceId,
+        message,
+      }),
+    );
+    await recordSecurityEvent(
+      env.DB,
+      "scheduled_job_failed",
+      workspaceId,
+      `${area}: ${message}`.slice(0, 500),
+    ).catch(() => undefined);
+  };
   for (const [workspaceId, connected] of providers) {
     if (
       connected.has("canvas") &&
@@ -69,39 +104,99 @@ async function runHourlyForAllWorkspaces(env: Env) {
           result.createdIds,
         );
         canvasSynced += 1;
-      } catch {
+      } catch (error) {
         canvasFailed += 1;
+        await reportFailure(workspaceId, "canvas_sync", error);
       }
     }
     if (connected.has("google")) {
-      await runCalendarReconciliation(env, workspaceId).catch(() => undefined);
+      try {
+        await runCalendarReconciliation(env, workspaceId);
+      } catch (error) {
+        calendarFailed += 1;
+        await reportFailure(workspaceId, "calendar_reconciliation", error);
+      }
+      try {
+        const retry = await retryDueDeliveries(env, workspaceId);
+        deliveriesRetried += retry.retried;
+        deliveriesSent += retry.sent;
+      } catch (error) {
+        await reportFailure(workspaceId, "delivery_retry_sweep", error);
+      }
     }
   }
-  return { canvasSynced, canvasFailed, workspaces: providers.size };
+  return {
+    canvasSynced,
+    canvasFailed,
+    calendarFailed,
+    deliveriesRetried,
+    deliveriesSent,
+    failures,
+    workspaces: providers.size,
+  };
 }
 
 async function runDigestForAllWorkspaces(env: Env, now: Date) {
   const rows = await env.DB.prepare("SELECT id FROM workspace").all<{
     id: string;
   }>();
+  const outcomes: Array<{
+    workspaceId: string;
+    status: string;
+    reason: string;
+  }> = [];
   for (const row of rows.results) {
-    await runDailyDigest(env, row.id, now).catch(() => undefined);
+    try {
+      const outcome = await runDailyDigest(env, row.id, now);
+      outcomes.push({ workspaceId: row.id, ...outcome });
+      if (outcome.status === "failed") {
+        await recordSecurityEvent(
+          env.DB,
+          "scheduled_job_failed",
+          row.id,
+          `daily_digest: ${outcome.reason}`.slice(0, 500),
+        ).catch(() => undefined);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      outcomes.push({ workspaceId: row.id, status: "failed", reason: message });
+      console.error(
+        JSON.stringify({
+          level: "error",
+          category: "scheduled_job_failure",
+          area: "daily_digest",
+          workspaceId: row.id,
+          message,
+        }),
+      );
+    }
   }
   await runRetentionCleanup(env, now);
-  return { workspaces: rows.results.length };
+  return { workspaces: rows.results.length, outcomes };
 }
 
 app.use("*", securityHeaders());
 
-app.get("/health", (context) =>
-  context.json({
-    ok: true,
-    service: "organato",
-    version: "0.1.0",
-    emailTemplateVersion: EMAIL_TEMPLATE_VERSION,
-    privateData: false,
-  }),
-);
+app.get("/health", async (context) => {
+  let database: "ok" | "unavailable" = "ok";
+  try {
+    await context.env.DB.prepare("SELECT 1").first();
+  } catch {
+    database = "unavailable";
+  }
+  return context.json(
+    {
+      ok: database === "ok",
+      service: "organato",
+      version: "0.1.0",
+      emailTemplateVersion: EMAIL_TEMPLATE_VERSION,
+      schedulerMode: context.env.SCHEDULER_MODE ?? "local",
+      database,
+      privateData: false,
+    },
+    database === "ok" ? 200 : 503,
+  );
+});
 
 app.route("/api/auth", authRoutes);
 
@@ -285,7 +380,7 @@ app.post("/api/integrations/google/test-email", async (context) => {
       429,
     );
   }
-  if (context.env.DEMO_MODE === "true") {
+  if (isDemoMode(context.env)) {
     return context.json({ ok: true, simulated: true });
   }
   try {
@@ -378,39 +473,113 @@ app.post("/api/integrations/google/retry-latest", async (context) => {
   }
 });
 
-app.post("/api/integrations/google/rebuild", async (context) => {
-  await context.env.DB.prepare(
-    `UPDATE item SET calendar_sync_state = 'pending'
-     WHERE workspace_id = ? AND calendar_enabled = 1 AND archived_at IS NULL`,
-  )
-    .bind(context.get("user").workspaceId)
-    .run();
-  try {
-    await runCalendarReconciliation(
-      context.env,
-      context.get("user").workspaceId,
-    );
+app.post(
+  "/api/integrations/google/rebuild",
+  requireRecentSession(),
+  async (context) => {
+    if (
+      !(await rateLimit(
+        context,
+        `calendar-rebuild:${context.get("user").email.toLowerCase()}`,
+        3,
+        60,
+      ))
+    ) {
+      return context.json(
+        { error: "Rebuild limit reached. Try again in an hour." },
+        429,
+      );
+    }
+    await context.env.DB.prepare(
+      `UPDATE item SET calendar_sync_state = 'pending'
+       WHERE workspace_id = ? AND calendar_enabled = 1 AND archived_at IS NULL`,
+    )
+      .bind(context.get("user").workspaceId)
+      .run();
+    try {
+      await runCalendarReconciliation(
+        context.env,
+        context.get("user").workspaceId,
+      );
+      return context.json({ ok: true });
+    } catch {
+      return context.json(
+        {
+          error:
+            "Calendar rebuild was queued, but reconciliation needs attention. Existing items are unchanged.",
+        },
+        502,
+      );
+    }
+  },
+);
+
+app.post(
+  "/api/integrations/google/clear-sync-token",
+  requireRecentSession(),
+  async (context) => {
+    if (
+      !(await rateLimit(
+        context,
+        `calendar-clear-token:${context.get("user").email.toLowerCase()}`,
+        3,
+        60,
+      ))
+    ) {
+      return context.json(
+        { error: "Limit reached. Try again in an hour." },
+        429,
+      );
+    }
+    await context.env.DB.prepare(
+      `UPDATE integration_connection
+       SET metadata_json = json_remove(metadata_json, '$.syncToken'),
+           updated_at = ?
+       WHERE workspace_id = ? AND provider = 'google'`,
+    )
+      .bind(new Date().toISOString(), context.get("user").workspaceId)
+      .run();
     return context.json({ ok: true });
-  } catch {
+  },
+);
+
+app.post("/api/integrations/google/resolve-conflict", async (context) => {
+  const user = context.get("user");
+  if (
+    !(await rateLimit(
+      context,
+      `calendar-resolve:${user.email.toLowerCase()}`,
+      30,
+      60,
+    ))
+  ) {
+    return context.json({ error: "Limit reached. Try again shortly." }, 429);
+  }
+  const body = (await context.req.json().catch(() => null)) as {
+    itemId?: unknown;
+    strategy?: unknown;
+  } | null;
+  if (
+    typeof body?.itemId !== "string" ||
+    (body.strategy !== "mine" && body.strategy !== "theirs")
+  ) {
     return context.json(
-      {
-        error:
-          "Calendar rebuild was queued, but reconciliation needs attention. Existing items are unchanged.",
-      },
-      502,
+      { error: "Provide an itemId and a strategy of mine or theirs." },
+      400,
     );
   }
-});
-
-app.post("/api/integrations/google/clear-sync-token", async (context) => {
-  await context.env.DB.prepare(
-    `UPDATE integration_connection
-     SET metadata_json = json_remove(metadata_json, '$.syncToken'),
-         updated_at = ?
-     WHERE workspace_id = ? AND provider = 'google'`,
-  )
-    .bind(new Date().toISOString(), context.get("user").workspaceId)
-    .run();
+  const { resolved } = await resolveCalendarConflict(
+    context.env,
+    user.workspaceId,
+    body.itemId,
+    body.strategy,
+  );
+  if (!resolved) {
+    return context.json(
+      { error: "That item is not waiting for conflict resolution." },
+      404,
+    );
+  }
   return context.json({ ok: true });
 });
 
@@ -425,7 +594,10 @@ app.onError((error, context) => {
     JSON.stringify({
       level: "error",
       category: "unhandled_request",
-      message: error instanceof Error ? error.name : "unknown",
+      name: error instanceof Error ? error.name : "unknown",
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack?.slice(0, 2000) : undefined,
+      path: context.req.path,
     }),
   );
   return context.json(

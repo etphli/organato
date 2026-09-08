@@ -209,22 +209,44 @@ export async function createSession(
   const now = new Date();
   const idle = new Date(now.getTime() + sessionIdleDays * 86_400_000);
   const absolute = new Date(now.getTime() + sessionAbsoluteDays * 86_400_000);
-  await context.env.DB.prepare(
-    `INSERT INTO session
-      (id_hash, email_normalized, csrf_hash, user_agent, created_at, last_activity_at, idle_expires_at, absolute_expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      await sha256(sessionId),
-      email.toLowerCase(),
-      await sha256(csrfToken),
-      userAgent.slice(0, 255),
-      now.toISOString(),
-      now.toISOString(),
-      idle.toISOString(),
-      absolute.toISOString(),
+  // Tolerate databases that have not applied migration 0005 yet: fall back
+  // to a legacy insert without the column so deploys never break sign-in.
+  try {
+    await context.env.DB.prepare(
+      `INSERT INTO session
+        (id_hash, email_normalized, csrf_hash, user_agent, created_at, last_activity_at, idle_expires_at, absolute_expires_at, authenticated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run();
+      .bind(
+        await sha256(sessionId),
+        email.toLowerCase(),
+        await sha256(csrfToken),
+        userAgent.slice(0, 255),
+        now.toISOString(),
+        now.toISOString(),
+        idle.toISOString(),
+        absolute.toISOString(),
+        now.toISOString(),
+      )
+      .run();
+  } catch {
+    await context.env.DB.prepare(
+      `INSERT INTO session
+        (id_hash, email_normalized, csrf_hash, user_agent, created_at, last_activity_at, idle_expires_at, absolute_expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        await sha256(sessionId),
+        email.toLowerCase(),
+        await sha256(csrfToken),
+        userAgent.slice(0, 255),
+        now.toISOString(),
+        now.toISOString(),
+        idle.toISOString(),
+        absolute.toISOString(),
+      )
+      .run();
+  }
   setCookie(context, sessionCookie, sessionId, {
     secure: new URL(context.env.APP_ORIGIN).protocol === "https:",
     httpOnly: true,
@@ -276,12 +298,16 @@ export async function getOrCreateCsrfToken(
   return csrfToken;
 }
 
+export function isDemoMode(env: Pick<Env, "DEMO_MODE">): boolean {
+  return env.DEMO_MODE === "true";
+}
+
 export function requireSession(): MiddlewareHandler<{
   Bindings: Env;
   Variables: Variables;
 }> {
   return async (context, next) => {
-    if (context.env.DEMO_MODE === "true") {
+    if (isDemoMode(context.env)) {
       context.set("user", {
         email: "owner@example.com",
         workspaceId: "owner@example.com",
@@ -297,26 +323,44 @@ export function requireSession(): MiddlewareHandler<{
     if (!sessionId)
       return context.json({ error: "Authentication required." }, 401);
     const sessionHash = await sha256(sessionId);
-    const row = await context.env.DB.prepare(
-      `SELECT s.id_hash, s.csrf_hash, s.created_at, s.idle_expires_at,
-              s.absolute_expires_at,
-              i.email_normalized, i.workspace_id, i.display_name, i.enabled
-       FROM session s
-       JOIN allowed_identity i ON i.email_normalized = s.email_normalized
-       WHERE s.id_hash = ? AND s.revoked_at IS NULL`,
-    )
-      .bind(sessionHash)
-      .first<{
-        id_hash: string;
-        csrf_hash: string;
-        created_at: string;
-        idle_expires_at: string;
-        absolute_expires_at: string;
-        email_normalized: string;
-        workspace_id: string;
-        display_name: string;
-        enabled: number;
-      }>();
+    const columns = `s.id_hash, s.csrf_hash,
+            COALESCE(s.authenticated_at, s.created_at) AS authenticated_at,
+            s.idle_expires_at, s.absolute_expires_at`;
+    let row: {
+      id_hash: string;
+      csrf_hash: string;
+      authenticated_at: string;
+      idle_expires_at: string;
+      absolute_expires_at: string;
+      email_normalized: string;
+      workspace_id: string;
+      display_name: string;
+      enabled: number;
+    } | null;
+    try {
+      row = await context.env.DB.prepare(
+        `SELECT ${columns},
+                i.email_normalized, i.workspace_id, i.display_name, i.enabled
+         FROM session s
+         JOIN allowed_identity i ON i.email_normalized = s.email_normalized
+         WHERE s.id_hash = ? AND s.revoked_at IS NULL`,
+      )
+        .bind(sessionHash)
+        .first<NonNullable<typeof row>>();
+    } catch {
+      // Pre-migration-0005 database: fall back to creation time as the
+      // authentication stamp.
+      row = await context.env.DB.prepare(
+        `SELECT s.id_hash, s.csrf_hash, s.created_at AS authenticated_at,
+                s.idle_expires_at, s.absolute_expires_at,
+                i.email_normalized, i.workspace_id, i.display_name, i.enabled
+         FROM session s
+         JOIN allowed_identity i ON i.email_normalized = s.email_normalized
+         WHERE s.id_hash = ? AND s.revoked_at IS NULL`,
+      )
+        .bind(sessionHash)
+        .first<NonNullable<typeof row>>();
+    }
     if (
       !row ||
       !row.enabled ||
@@ -332,7 +376,7 @@ export function requireSession(): MiddlewareHandler<{
       displayName: row.display_name,
       csrfToken,
       sessionIdHash: row.id_hash,
-      authenticatedAt: row.created_at,
+      authenticatedAt: row.authenticated_at,
     };
     context.set("user", user);
     if (!["GET", "HEAD", "OPTIONS"].includes(context.req.method)) {
@@ -371,7 +415,7 @@ export function requireRecentSession(
 ): MiddlewareHandler<{ Bindings: Env; Variables: Variables }> {
   return async (context, next) => {
     if (
-      context.env.DEMO_MODE !== "true" &&
+      !isDemoMode(context.env) &&
       !hasRecentAuthentication(
         context.get("user").authenticatedAt,
         new Date(),
@@ -403,14 +447,12 @@ export async function rateLimit(
     0,
   );
   const windowStart = date.toISOString();
-  await context.env.DB.prepare(
-    `INSERT INTO rate_limit (key, window_start, count) VALUES (?, ?, 1)
-     ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1`,
-  )
-    .bind(key, windowStart)
-    .run();
+  // Single-statement increment-and-read so concurrent requests cannot
+  // undercount and over-allow.
   const row = await context.env.DB.prepare(
-    "SELECT count FROM rate_limit WHERE key = ? AND window_start = ?",
+    `INSERT INTO rate_limit (key, window_start, count) VALUES (?, ?, 1)
+     ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1
+     RETURNING count`,
   )
     .bind(key, windowStart)
     .first<{ count: number }>();

@@ -42,6 +42,7 @@ export interface DigestInput {
   lastCanvasSync: string;
   lastCalendarSync: string;
   timezone?: string;
+  truncated?: boolean;
 }
 
 export interface RenderedDigest {
@@ -132,6 +133,7 @@ export function renderDigest(input: DigestInput): RenderedDigest | null {
         </td></tr>
         <tr><td align="center" style="padding:14px 18px 0;color:#817b89;font-size:11px;line-height:1.65">
           Canvas synced ${escapeHtml(input.lastCanvasSync)} &nbsp;•&nbsp; Calendar reconciled ${escapeHtml(input.lastCalendarSync)}<br>
+          ${input.truncated ? "Showing the first 1,000 items — open Organato for the full list.<br>" : ""}
           A private digest from Organato. No tracking pixels or third-party images.
         </td></tr>
       </table>
@@ -148,7 +150,12 @@ export function renderDigest(input: DigestInput): RenderedDigest | null {
         const subjectName = item.subjectId
           ? subjects.get(item.subjectId)?.displayName
           : undefined;
-        return `- ${item.displayName} · ${typeLabel(item)}${subjectName ? ` · ${subjectName}` : ""}\n  ${input.appOrigin}/items/${encodeURIComponent(item.id)}${item.canvasHtmlUrl ? `\n  Canvas: ${item.canvasHtmlUrl}` : ""}`;
+        const due = itemDeadline(item)?.toLocaleString("en-AU", {
+          timeZone: input.timezone ?? "Australia/Sydney",
+          dateStyle: "medium",
+          ...(item.dueHasExplicitTime ? { timeStyle: "short" as const } : {}),
+        });
+        return `- ${item.displayName} · ${typeLabel(item)}${subjectName ? ` · ${subjectName}` : ""}${due ? ` · due ${due}` : ""}\n  ${input.appOrigin}/items/${encodeURIComponent(item.id)}${item.canvasHtmlUrl ? `\n  Canvas: ${item.canvasHtmlUrl}` : ""}`;
       }),
       "",
     ]),

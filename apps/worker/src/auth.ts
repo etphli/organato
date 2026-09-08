@@ -62,6 +62,18 @@ class GoogleSignInError extends Error {
   }
 }
 
+/**
+ * Client-facing sign-in message. Only the allow-list rejection keeps its
+ * specific wording (needed so new owners know to request approval); every
+ * other failure maps to one generic message so error texts cannot be used
+ * to probe allow-list membership, disabled identities, or token state. The
+ * precise reason is always kept in the server-side security event.
+ */
+function clientSignInMessage(error: GoogleSignInError): string {
+  if (error.reason === "email_not_allowed") return error.message;
+  return "Google sign-in could not finish. Please try again.";
+}
+
 export async function provisionPersonalWorkspace(
   db: D1Database,
   identity: { email: string; displayName: string; googleSubject: string },
@@ -391,7 +403,7 @@ authRoutes.get("/google/callback", async (context) => {
         error.actorEmail,
         `${error.message} (${error.reason})`,
       );
-      return context.text(error.message, error.status);
+      return context.text(clientSignInMessage(error), error.status);
     }
     throw error;
   }
@@ -402,6 +414,26 @@ authRoutes.post("/google/exchange", async (context) => {
     return context.json(
       { error: "Expected an application/json request." },
       415,
+    );
+  }
+  if (!requestMatchesOrigin(context.req.raw, context.env.APP_ORIGIN)) {
+    return context.json({ error: "Request origin was rejected." }, 403);
+  }
+  const exchangeAddress =
+    context.req.header("CF-Connecting-IP") ??
+    context.req.header("X-Forwarded-For")?.split(",")[0]?.trim() ??
+    "unknown";
+  if (
+    !(await rateLimit(
+      context,
+      `auth-exchange:${await sha256(exchangeAddress)}`,
+      20,
+      60,
+    ))
+  ) {
+    return context.json(
+      { error: "Too many sign-in attempts. Try again later." },
+      429,
     );
   }
   const body = await context.req
@@ -427,7 +459,7 @@ authRoutes.post("/google/exchange", async (context) => {
         error.actorEmail,
         `${error.message} (${error.reason})`,
       );
-      return context.json({ error: error.message }, error.status);
+      return context.json({ error: clientSignInMessage(error) }, error.status);
     }
     throw error;
   }
