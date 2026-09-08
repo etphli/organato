@@ -322,7 +322,6 @@ async function launchPersistentBrowser({
   profileDir,
   executablePath,
   display,
-  launchUrl,
 }) {
   const { chromium } = await import("playwright-core");
   return chromium.launchPersistentContext(profileDir, {
@@ -338,17 +337,15 @@ async function launchPersistentBrowser({
       "autofill.credit_card_enabled": false,
       "download.prompt_for_download": false,
       "download.directory_upgrade": false,
-      "session.restore_on_startup": 4,
-      "session.startup_urls": [launchUrl],
     },
     env: { ...process.env, DISPLAY: display },
-    args: chromiumLaunchArguments(launchUrl),
+    args: chromiumLaunchArguments(),
   });
 }
 
-export function chromiumLaunchArguments(launchUrl) {
+export function chromiumLaunchArguments() {
   return [
-    `--app=${launchUrl}`,
+    "--kiosk",
     "--window-size=1280,900",
     "--no-first-run",
     "--disable-default-apps",
@@ -818,7 +815,6 @@ export class CanvasBrowserAdapter {
         profileDir: this.profileDir,
         executablePath: executable,
         display: this.display,
-        launchUrl: `${this.baseUrl.origin}/`,
       });
     } catch (error) {
       throw new CanvasBrowserError(
