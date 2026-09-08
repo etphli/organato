@@ -1,9 +1,9 @@
 {
-  "DeveloperToolsAvailability": 2,
   "DownloadRestrictions": 3,
   "PasswordManagerEnabled": false,
   "AutofillAddressEnabled": false,
   "AutofillCreditCardEnabled": false,
   "SyncDisabled": true,
+  "RemoteDebuggingAllowed": true,
   "URLBlocklist": ["chrome://*", "chrome-extension://*", "devtools://*"]
 }

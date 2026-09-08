@@ -58,4 +58,6 @@ test("managed browser policy does not blanket-block Chromium startup pages", asy
   assert.equal(policy.URLBlocklist.includes("*"), false);
   assert.ok(policy.URLBlocklist.includes("chrome://*"));
   assert.equal("URLAllowlist" in policy, false);
+  assert.equal("DeveloperToolsAvailability" in policy, false);
+  assert.equal(policy.RemoteDebuggingAllowed, true);
 });

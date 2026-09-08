@@ -273,6 +273,10 @@ windows are closed, and main-page navigation permits only Canvas and Emanuel's
 sign-in provider. Required school assets remain available. The loading bar is an
 estimate and completes only when the remote display handshake finishes.
 
+The managed browser policy explicitly permits Chromium's private debugging pipe
+because Playwright uses it to control the browser. Organato does not expose a
+debugging port. Internal Chromium and DevTools pages remain blocked.
+
 ## 9. Troubleshooting
 
 ### Repair the Xvfb lock-file restart loop

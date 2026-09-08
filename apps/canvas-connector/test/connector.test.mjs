@@ -44,6 +44,11 @@ test("Chromium starts without a launch mode that blocks browser control", () => 
     args.some((argument) => argument.startsWith("--app=")),
     false,
   );
+  assert.equal(args.includes("--disable-devtools"), false);
+  assert.equal(
+    args.some((argument) => argument.includes("DeveloperToolsAvailability")),
+    false,
+  );
 });
 
 async function withTempDirectory(callback) {

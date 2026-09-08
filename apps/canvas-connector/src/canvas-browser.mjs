@@ -350,10 +350,9 @@ export function chromiumLaunchArguments() {
     "--disable-default-apps",
     "--disable-extensions",
     "--disable-background-networking",
-    "--disable-devtools",
     "--disable-save-password-bubble",
     "--disable-password-generation",
-    "--disable-features=DeveloperToolsAvailability,PasswordManagerOnboarding",
+    "--disable-features=PasswordManagerOnboarding",
   ];
 }
 
