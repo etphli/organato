@@ -139,9 +139,14 @@ const savedViewSchema = z.object({
   page: z.enum(["assignments", "checkpoints", "todo", "archive"]),
   name: z.string().min(1).max(100),
   filters: z.record(z.string().max(80), z.unknown()).default({}),
-  sort: z.array(z.record(z.string().max(80), z.unknown())).max(20).default([]),
+  sort: z
+    .array(z.record(z.string().max(80), z.unknown()))
+    .max(20)
+    .default([]),
   columns: z.array(z.string().max(80)).max(30).default([]),
-  columnWidths: z.record(z.string().max(80), z.number().positive().max(2_000)).default({}),
+  columnWidths: z
+    .record(z.string().max(80), z.number().positive().max(2_000))
+    .default({}),
   isDefault: z.boolean().default(false),
 });
 const workspaceSettingsPatchSchema = z
