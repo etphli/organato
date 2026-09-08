@@ -822,9 +822,67 @@ button:disabled {
 }
 
 input[type="checkbox"] {
-  accent-color: var(--focus);
-  height: 15px;
-  width: 15px;
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--secondary);
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-grid;
+  flex-shrink: 0;
+  height: 17px;
+  margin: 0;
+  place-content: center;
+  position: relative;
+  transition: background var(--motion);
+  width: 17px;
+}
+
+input[type="checkbox"]::after {
+  border: solid var(--text);
+  border-width: 0 2px 2px 0;
+  content: "";
+  display: none;
+  height: 9px;
+  transform: rotate(45deg) translate(-1px, -1px);
+  width: 5px;
+}
+
+input[type="checkbox"]:checked {
+  background: color-mix(in srgb, var(--focus) 65%, var(--surface));
+  border-color: var(--focus);
+}
+
+input[type="checkbox"]:checked::after {
+  display: block;
+}
+
+input[type="checkbox"]:indeterminate {
+  background: color-mix(in srgb, var(--focus) 65%, var(--surface));
+  border-color: var(--focus);
+}
+
+input[type="checkbox"]:indeterminate::after {
+  border: none;
+  background: var(--text);
+  border-radius: 1px;
+  display: block;
+  height: 2px;
+  transform: none;
+  width: 9px;
+}
+
+input[type="checkbox"]:hover {
+  border-color: var(--text);
+}
+
+input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .home-upcoming {
@@ -1546,13 +1604,33 @@ kbd {
 
 .todo-check {
   align-items: center;
+  background: transparent;
   border: 1px solid var(--secondary);
   border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
   display: inline-flex;
   height: 17px;
   justify-content: center;
   justify-self: center;
+  margin: 0;
+  padding: 0;
+  transition: background var(--motion);
   width: 17px;
+}
+
+.todo-check:hover {
+  border-color: var(--text);
+}
+
+.todo-check:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.todo-record.completed .todo-check {
+  background: color-mix(in srgb, var(--focus) 65%, var(--surface));
+  border-color: var(--focus);
 }
 
 .todo-name {

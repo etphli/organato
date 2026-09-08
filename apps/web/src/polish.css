@@ -1396,7 +1396,6 @@ textarea::placeholder {
 }
 
 .archive-row > input {
-  accent-color: var(--focus);
   flex: 0 0 auto;
 }
 
