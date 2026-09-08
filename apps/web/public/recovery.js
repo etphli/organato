@@ -1,4 +1,4 @@
-/* global caches, console, HTMLLinkElement, HTMLScriptElement, navigator, sessionStorage, window */
+/* global console, HTMLLinkElement, HTMLScriptElement, sessionStorage, window */
 
 (function () {
   "use strict";
@@ -83,27 +83,10 @@
     }
   });
 
-  window.__organatoRecovery = (async function () {
-    if (!("serviceWorker" in navigator)) return;
-    var registrations = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(
-      registrations.map(function (registration) {
-        return registration.unregister();
-      }),
-    );
-    if ("caches" in window) {
-      var cacheNames = await caches.keys();
-      await Promise.all(
-        cacheNames
-          .filter(function (name) {
-            return name.startsWith("organato-shell-");
-          })
-          .map(function (name) {
-            return caches.delete(name);
-          }),
-      );
-    }
-  })().catch(function () {
+  // NOTE: this script used to unregister every service worker and delete
+  // the app-shell caches on each load. That permanently defeated offline
+  // support, so it now only keeps the stale-asset reload budget above.
+  window.__organatoRecovery = Promise.resolve().catch(function () {
     /* Recovery must never block the app. */
   });
 })();

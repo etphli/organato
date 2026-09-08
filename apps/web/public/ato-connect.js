@@ -86,6 +86,15 @@
     }
     send(state);
   }
-  const timer = window.setInterval(report, 1500);
+  // Poll only while visible and give up after ~10 minutes so a blocked
+  // opener or background tab cannot poll /api/session indefinitely.
+  const startedAt = Date.now();
+  const timer = window.setInterval(() => {
+    if (Date.now() - startedAt > 600000) {
+      window.clearInterval(timer);
+      return;
+    }
+    if (document.visibilityState === "visible") void report();
+  }, 1500);
   void report();
 })();

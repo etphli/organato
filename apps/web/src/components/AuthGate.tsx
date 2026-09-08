@@ -5,6 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { SESSION_RETRY_DELAY_MS } from "../lib/timing";
 import { BrandMark } from "./BrandMark";
 
 interface SessionOwner {
@@ -126,7 +127,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
         });
         if (response.ok || attempt === 1) break;
         if (response.status === 401 || response.status === 403) break;
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        await new Promise((resolve) =>
+          setTimeout(resolve, SESSION_RETRY_DELAY_MS),
+        );
       }
       if (!response || !response.ok) throw new Error("signed_out");
       const session = (await response.json()) as SessionResponse;

@@ -8,6 +8,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
+import { API_TIMEOUT_MS } from "../lib/timing";
 import type {
   AttachmentLink,
   Classification,
@@ -764,7 +765,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
       const timeout = window.setTimeout(() => {
         timedOut = true;
         controller.abort();
-      }, 15_000);
+      }, API_TIMEOUT_MS);
       const abortFromCaller = () => controller.abort(init.signal?.reason);
       if (init.signal?.aborted) abortFromCaller();
       else
@@ -812,14 +813,20 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
           },
         );
       }
+      // Partial hydration: a single failing slice (views, integrations,
+      // …) no longer blocks the whole workspace. Only items are critical.
       const [active, archived, subjects, settings, integrations, views] =
         await Promise.all([
           apiRequest<{ items: OrganatoItem[] }>("/api/items?limit=2000"),
           options?.includeArchived
             ? archivedRequest.current
             : Promise.resolve(null),
-          apiRequest<{ subjects: Subject[] }>("/api/subjects"),
-          apiRequest<{ settings: WorkspaceSettings }>("/api/settings"),
+          apiRequest<{ subjects: Subject[] }>("/api/subjects").catch(
+            () => null,
+          ),
+          apiRequest<{ settings: WorkspaceSettings }>("/api/settings").catch(
+            () => null,
+          ),
           apiRequest<{
             integrations: Array<{
               provider: "canvas" | "google";
@@ -829,9 +836,15 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
               last_error_category: string | null;
               reconnect_needed: number;
             }>;
-          }>("/api/integrations"),
-          apiRequest<{ views: SavedView[] }>("/api/views"),
+          }>("/api/integrations").catch(() => null),
+          apiRequest<{ views: SavedView[] }>("/api/views").catch(() => null),
         ]);
+      const degraded = [
+        !subjects && "subjects",
+        !settings && "settings",
+        !integrations && "integrations",
+        !views && "views",
+      ].filter(Boolean) as string[];
       detailedItemRequest.current = null;
       lastDetailedItem.current = null;
       serverVersions.current = new Map(
@@ -842,7 +855,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
       );
       const integrationHealth = seedIntegrations.map((fallback) => {
         const provider = fallback.provider === "canvas" ? "canvas" : "google";
-        const connection = integrations.integrations.find(
+        const connection = integrations?.integrations.find(
           (entry) => entry.provider === provider,
         );
         if (!connection) {
@@ -867,13 +880,19 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
       baseDispatch({
         type: "hydrate",
         items: archived ? [...active.items, ...archived.items] : active.items,
-        subjects: subjects.subjects,
-        settings: { ...seedSettings, ...settings.settings },
+        subjects: subjects?.subjects ?? [],
+        settings: { ...seedSettings, ...settings?.settings },
         integrations: integrationHealth,
-        views: views.views,
+        views: views?.views ?? [],
         preserveArchived: archived === null,
         ...(archived ? { archivedReady: true } : {}),
       });
+      if (degraded.length) {
+        baseDispatch({
+          type: "toast",
+          message: `Some workspace data (${degraded.join(", ")}) could not load. Core work is available; reload to retry.`,
+        });
+      }
     },
     [apiRequest],
   );
@@ -882,13 +901,16 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
     baseDispatch({ type: "bootStarted" });
     try {
       await refresh();
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
       baseDispatch({
         type: "bootFailed",
         message:
           typeof navigator !== "undefined" && !navigator.onLine
             ? "Reconnect to load your private workspace, then try again."
-            : "One or more workspace requests failed. Your data is safe; try again.",
+            : /session|authentication|sign-in/i.test(message)
+              ? "Your sign-in expired. Sign in again to reload your workspace."
+              : "One or more workspace requests failed. Your data is safe; try again.",
       });
     }
   }, [refresh]);
@@ -1378,10 +1400,13 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
       subjectsById,
     ],
   );
-  const selectedItem =
-    state.selectedItemDetail ??
-    state.items.find((item) => item.id === state.selectedItemId) ??
-    null;
+  const selectedItem = useMemo(
+    () =>
+      state.selectedItemDetail ??
+      state.items.find((item) => item.id === state.selectedItemId) ??
+      null,
+    [state.items, state.selectedItemDetail, state.selectedItemId],
+  );
   const uiValue = useMemo<UiContextValue>(
     () => ({
       selectedItemId: state.selectedItemId,

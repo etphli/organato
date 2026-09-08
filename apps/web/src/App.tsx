@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import {
   Navigate,
   Route,
@@ -11,18 +11,31 @@ import { AppShell } from "./components/AppShell";
 import { RouteErrorBoundary } from "./components/AppErrorBoundary";
 import { DeferredOverlays } from "./components/DeferredOverlays";
 import { NetworkStatus } from "./components/NetworkStatus";
-import { SetupWizard } from "./components/setup/SetupWizard";
+import { PwaUpdateNotice } from "./components/PwaUpdateNotice";
 import { Toast } from "./components/Toast";
-import CalendarPage from "./pages/CalendarPage";
-import HomePage from "./pages/HomePage";
-import SettingsPage from "./pages/SettingsPage";
-import TodoPage from "./pages/TodoPage";
-import WorkPage from "./pages/WorkPage";
 import {
   useOrganatoActions,
   useOrganatoItems,
   useOrganatoWorkspace,
 } from "./state/OrganatoProvider";
+import { KEY_SEQUENCE_TIMEOUT_MS } from "./lib/timing";
+
+// Route-split: each page (and the one-shot wizard) loads on demand instead
+// of inflating the first paint for every route.
+const CalendarPage = lazy(() => import("./pages/CalendarPage"));
+const HomePage = lazy(() => import("./pages/HomePage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const TodoPage = lazy(() => import("./pages/TodoPage"));
+const WorkPage = lazy(() => import("./pages/WorkPage"));
+const SetupWizard = lazy(() =>
+  import("./components/setup/SetupWizard").then((module) => ({
+    default: module.SetupWizard,
+  })),
+);
+
+function RouteFallback() {
+  return <div className="route-loading" aria-label="Loading page" />;
+}
 
 function AssignmentsRoute() {
   return <WorkPage page="assignments" />;
@@ -45,7 +58,11 @@ function ItemDeepLink() {
     if (item) dispatch({ type: "select", id: item.id });
     else
       dispatch({ type: "toast", message: "That item is no longer available" });
-    navigate("/", { replace: true });
+    // Preserve shareable URLs and back-button history: step back when the
+    // deep link was opened inside the app, replace only on direct loads.
+    const historyIndex = (window.history.state as { idx?: number } | null)?.idx;
+    if (typeof historyIndex === "number" && historyIndex > 0) navigate(-1);
+    else navigate("/", { replace: true });
   }, [dispatch, id, items, navigate, ready]);
 
   if (!ready)
@@ -106,10 +123,11 @@ export function App() {
         return;
       }
       if (event.key === "Escape") {
-        if (typing) return;
-        dispatch({ type: "select", id: null });
+        // Escape always dismisses global overlays — even while typing in
+        // them — and only clears selection when focus is elsewhere.
         dispatch({ type: "command", open: false });
         dispatch({ type: "search", open: false });
+        if (!typing) dispatch({ type: "select", id: null });
         return;
       }
       if (typing) return;
@@ -136,7 +154,7 @@ export function App() {
       sequenceTimeout.current = window.setTimeout(() => {
         sequence.current = "";
         sequenceTimeout.current = null;
-      }, 800);
+      }, KEY_SEQUENCE_TIMEOUT_MS);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
@@ -151,15 +169,10 @@ export function App() {
     <>
       <NetworkStatus />
       <AppShell>
-        {showSetup ? (
-          <SetupWizard
-            onDismiss={() => {
-              sessionStorage.setItem("organato_setup_dismissed", "true");
-              setSetupDismissed(true);
-            }}
-          />
-        ) : (
-          <RouteErrorBoundary>
+        {/* The wizard overlays instead of replacing routes so deep links
+            and settings stay reachable until onboarding is dismissed. */}
+        <RouteErrorBoundary>
+          <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/assignments" element={<AssignmentsRoute />} />
@@ -170,11 +183,29 @@ export function App() {
               <Route path="/items/:id" element={<ItemDeepLink />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
-          </RouteErrorBoundary>
-        )}
+          </Suspense>
+        </RouteErrorBoundary>
+        {showSetup ? (
+          <div
+            className="setup-overlay"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Set up your workspace"
+          >
+            <Suspense fallback={<RouteFallback />}>
+              <SetupWizard
+                onDismiss={() => {
+                  sessionStorage.setItem("organato_setup_dismissed", "true");
+                  setSetupDismissed(true);
+                }}
+              />
+            </Suspense>
+          </div>
+        ) : null}
       </AppShell>
       <DeferredOverlays />
       <Toast />
+      <PwaUpdateNotice />
       <Analytics />
     </>
   );

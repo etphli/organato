@@ -66,8 +66,12 @@ export function CommandPalette() {
         : [],
     [commandOpen, dispatch, settings.theme, syncNow],
   );
-  const filtered = commands.filter((command) =>
-    command.label.toLowerCase().includes(query.toLowerCase()),
+  const filtered = useMemo(
+    () =>
+      commands.filter((command) =>
+        command.label.toLowerCase().includes(query.toLowerCase()),
+      ),
+    [commands, query],
   );
 
   useEffect(() => {

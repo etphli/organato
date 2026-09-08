@@ -1,86 +1,9 @@
 /*
  * Organato's shared product language.
  *
- * The original stylesheet still owns component-specific layout. This layer
- * deliberately centralises the visual decisions that every surface shares:
- * typography, spacing, chrome, controls, responsive hierarchy, and focus.
+ * Design tokens now live canonically in styles.css :root. This layer must
+ * not redeclare :root values — it owns component polish that consumes them.
  */
-
-:root {
-  font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
-    "Segoe UI", ui-sans-serif, system-ui, sans-serif;
-  font-size: calc(15px * var(--font-scale, 1));
-  line-height: 1.45;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  --bg: #0b0b0c;
-  --sidebar: #151517;
-  --surface: #151517;
-  --surface-hover: #1b1b1e;
-  --surface-active: #202024;
-  --text: #f2f2f3;
-  --secondary: #aaaab1;
-  --muted: #77777f;
-  --border: rgba(255, 255, 255, 0.085);
-  --border-strong: rgba(255, 255, 255, 0.145);
-  --focus: #9a86ff;
-  --focus-soft: rgba(154, 134, 255, 0.11);
-  --danger: #ef7777;
-  --success: #77bd84;
-  --warning: #d2aa66;
-  --sidebar-width: 224px;
-  --sidebar-inset: 16px;
-  --header-height: 72px;
-  --control-height: 36px;
-  --radius-control: 7px;
-  --radius-panel: 12px;
-  --motion: 150ms cubic-bezier(0.2, 0, 0, 1);
-
-  /* Ato suite semantic contract. Legacy aliases remain for existing CSS. */
-  --ato-bg: var(--bg);
-  --ato-sidebar: var(--sidebar);
-  --ato-surface: var(--surface);
-  --ato-surface-hover: var(--surface-hover);
-  --ato-surface-active: var(--surface-active);
-  --ato-text: var(--text);
-  --ato-text-secondary: var(--secondary);
-  --ato-text-muted: var(--muted);
-  --ato-border: var(--border);
-  --ato-border-strong: var(--border-strong);
-  --ato-accent: var(--focus);
-  --ato-accent-soft: var(--focus-soft);
-  --ato-danger: var(--danger);
-  --ato-success: var(--success);
-  --ato-warning: var(--warning);
-  --ato-space-1: 4px;
-  --ato-space-2: 8px;
-  --ato-space-3: 12px;
-  --ato-space-4: 16px;
-  --ato-space-5: 24px;
-  --ato-space-6: 32px;
-  --ato-space-8: 48px;
-  --ato-control-height: var(--control-height);
-  --ato-radius-control: var(--radius-control);
-  --ato-radius-panel: var(--radius-panel);
-  --ato-motion: var(--motion);
-}
-
-:root[data-theme="pure_black"] {
-  --bg: #000;
-  --sidebar: #101011;
-  --surface: #121214;
-  --surface-hover: #19191b;
-  --surface-active: #1e1e21;
-}
-
-:root[data-theme="soft_dark"] {
-  --bg: #141416;
-  --sidebar: #1b1b1e;
-  --surface: #1f1f22;
-  --surface-hover: #252529;
-  --surface-active: #2b2b30;
-}
 
 body {
   background: var(--bg);
@@ -117,20 +40,23 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 
-/* Mouse/programmatic focus should not leave rectangular chrome behind after
-   navigation. Keyboard users still get a clear underline, while form fields
-   retain the stronger outline they need for data entry. */
+/* Keyboard focus keeps both the underline accent and a real outline:
+   the underline alone is too subtle to meet visible-focus expectations. */
 button:focus-visible,
 a:focus-visible {
   box-shadow: inset 0 -2px 0 var(--focus);
-  outline: none;
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
-/* The skip link deliberately focuses main, but page-sized browser focus chrome
-   looks like a random blue box. Interactive controls retain their own focus UI. */
-.main-content:focus,
-.main-content:focus-visible {
+/* The skip link moves focus to main on activation: give it a subtle outline
+   so sighted keyboard users can see where they landed. */
+.main-content:focus {
   outline: none;
+}
+.main-content:focus-visible {
+  outline: 2px dashed var(--focus);
+  outline-offset: -2px;
 }
 
 .create-work-backdrop {
@@ -760,7 +686,15 @@ textarea::placeholder {
   height: 28px;
   justify-content: center;
   padding: 0;
+  position: relative;
   width: 28px;
+}
+
+/* 44px touch target without changing the visible 28px buttons. */
+.mini-calendar header button::after {
+  content: "";
+  inset: -8px;
+  position: absolute;
 }
 
 .mini-calendar header button:has(.mini-today-label) {

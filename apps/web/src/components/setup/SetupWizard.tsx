@@ -42,7 +42,10 @@ const setupSteps: Array<{
 
 export function SetupWizard({ onDismiss }: SetupWizardProps) {
   const { dispatch, refresh } = useOrganatoActions();
-  const [step, setStep] = useState<SetupStep>(1);
+  const [step, setStep] = useState<SetupStep>(() => {
+    const saved = Number(sessionStorage.getItem("organato_setup_step"));
+    return saved === 2 || saved === 3 || saved === 4 ? saved : 1;
+  });
   const [canvas, setCanvas] = useState<CanvasConnectorStatus | null>(null);
   const [google, setGoogle] = useState<GoogleDeliverySettings | null>(null);
   const [busy, setBusy] = useState<"load" | "google" | "reauthenticate" | null>(
@@ -51,7 +54,21 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
   const [error, setError] = useState<string | null>(null);
   const [needsReauthentication, setNeedsReauthentication] = useState(false);
   const [canvasMessage, setCanvasMessage] = useState<string | null>(null);
-  const [emailReady, setEmailReady] = useState(false);
+  const [emailReady, setEmailReady] = useState(
+    () => sessionStorage.getItem("organato_setup_email_ready") === "true",
+  );
+
+  // A reload mid-setup resumes where the user left off instead of forcing
+  // the email test (and its recipient entry) to be redone.
+  useEffect(() => {
+    sessionStorage.setItem("organato_setup_step", String(step));
+  }, [step]);
+  useEffect(() => {
+    sessionStorage.setItem(
+      "organato_setup_email_ready",
+      emailReady ? "true" : "false",
+    );
+  }, [emailReady]);
 
   const handleCanvasStatus = useCallback(
     (nextStatus: CanvasConnectorStatus) => {
@@ -267,8 +284,9 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
               <div className="setup-step__form">
                 <h2>Connect Calendar & Gmail</h2>
                 <p>
-                  Use your personal Gmail account for the private Organato
-                  calendar and outgoing reminders.
+                  Use the same Google account you signed in with for the private
+                  Organato calendar and outgoing reminders — Google requires the
+                  match.
                 </p>
                 {google?.connected ? (
                   <div className="setup-step__connected">

@@ -520,6 +520,12 @@
     font-size: 0.78rem;
   }
 
+  /* Keep the active step's label readable on small screens; the rest stay
+     icon-only to fit. aria-current already exposes progress to SR users. */
+  .setup-wizard__steps button.is-active {
+    font-size: 0.78rem;
+  }
+
   .setup-step {
     gap: 34px;
   }

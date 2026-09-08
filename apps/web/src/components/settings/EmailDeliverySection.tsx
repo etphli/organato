@@ -9,6 +9,16 @@ import {
 } from "../../lib/integrationApi";
 import "./EmailDeliverySection.css";
 
+function parseRecipients(value: string): string[] {
+  const seen = new Set<string>();
+  for (const part of value.split(",")) {
+    const normalized = part.trim().toLowerCase();
+    if (normalized) seen.add(normalized);
+    if (seen.size >= 5) break;
+  }
+  return [...seen];
+}
+
 interface EmailDeliverySectionProps {
   variant?: "settings" | "setup";
   onReady?: () => void;
@@ -34,7 +44,9 @@ export function EmailDeliverySection({
       "/api/integrations/google/settings",
     );
     setSettings(next);
-    setRecipient(next.recipients[0] ?? next.sender ?? "");
+    setRecipient(
+      next.recipients.length ? next.recipients.join(", ") : (next.sender ?? ""),
+    );
     return next;
   }, []);
 
@@ -61,8 +73,8 @@ export function EmailDeliverySection({
   };
 
   const saveRecipient = async () => {
-    const normalized = recipient.trim().toLowerCase();
-    if (!normalized) return null;
+    const recipients = parseRecipients(recipient);
+    if (!recipients.length) return null;
     setBusy("save");
     setError(null);
     setMessage(null);
@@ -71,12 +83,12 @@ export function EmailDeliverySection({
         "/api/integrations/google/recipients",
         {
           method: "PUT",
-          body: JSON.stringify({ recipients: [normalized] }),
+          body: JSON.stringify({ recipients }),
         },
       );
       setSettings(next);
-      setRecipient(next.recipients[0] ?? normalized);
-      setMessage(`Reminders will go to ${normalized}.`);
+      setRecipient(next.recipients.join(", "));
+      setMessage(`Reminders will go to ${recipients.join(", ")}.`);
       return next;
     } catch (requestError) {
       handleError(requestError);
@@ -87,21 +99,22 @@ export function EmailDeliverySection({
   };
 
   const sendTest = async () => {
-    const normalized = recipient.trim().toLowerCase();
-    if (!normalized) return;
+    const recipients = parseRecipients(recipient);
+    if (!recipients.length) return;
     setBusy("test");
     setError(null);
     setMessage(null);
     try {
-      const savedRecipient = settings?.recipients[0]?.trim().toLowerCase();
+      const saved = parseRecipients(settings?.recipients.join(", ") ?? "");
       const next =
-        savedRecipient === normalized
+        saved.length === recipients.length &&
+        saved.every((entry, index) => entry === recipients[index])
           ? settings
           : await integrationRequest<GoogleDeliverySettings>(
               "/api/integrations/google/recipients",
               {
                 method: "PUT",
-                body: JSON.stringify({ recipients: [normalized] }),
+                body: JSON.stringify({ recipients }),
               },
             );
       await integrationRequest<{ ok: true; messageId: string }>(
@@ -112,7 +125,7 @@ export function EmailDeliverySection({
         },
       );
       if (next) setSettings(next);
-      setMessage(`Reminder preview sent to ${normalized}.`);
+      setMessage(`Reminder preview sent to ${recipients.join(", ")}.`);
       await onWorkspaceRefresh?.().catch(() => undefined);
       onReady?.();
     } catch (requestError) {
@@ -215,14 +228,14 @@ export function EmailDeliverySection({
           autoComplete="email"
           id="email-delivery-recipient"
           inputMode="email"
-          placeholder="you@school.edu.au"
-          type="email"
+          placeholder="you@school.edu.au, parent@example.com"
+          type="text"
           value={recipient}
           onChange={(event) => setRecipient(event.target.value)}
         />
         <small id="email-delivery-recipient-help">
-          Use any valid email address, including a school address that cannot
-          sign in to Organato.
+          Up to five addresses, separated by commas. Use any valid email,
+          including a school address that cannot sign in to Organato.
         </small>
       </div>
       {error ? (
@@ -242,7 +255,7 @@ export function EmailDeliverySection({
           onClick={() => void saveRecipient()}
           type="button"
         >
-          {busy === "save" ? "Saving…" : "Save recipient"}
+          {busy === "save" ? "Saving…" : "Save recipients"}
         </button>
         <button
           className="email-delivery__primary"

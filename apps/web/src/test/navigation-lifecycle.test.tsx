@@ -11,7 +11,7 @@ describe("primary navigation lifecycle", () => {
   });
   afterEach(cleanup);
 
-  it("keeps routing in-app through more than 20 consecutive clicks", () => {
+  it("keeps routing in-app through more than 20 consecutive clicks", async () => {
     render(
       <MemoryRouter>
         <OrganatoProvider>
@@ -33,8 +33,9 @@ describe("primary navigation lifecycle", () => {
       fireEvent.click(
         screen.getAllByRole("link", { name: destination.name })[0]!,
       );
+      // Routes are code-split; await each page instead of asserting sync.
       expect(
-        screen.getByRole("heading", { name: destination.heading }),
+        await screen.findByRole("heading", { name: destination.heading }),
       ).toBeVisible();
     }
   }, 60_000);

@@ -22,6 +22,55 @@ import {
 } from "./OrganatoControls";
 import { SubjectDot } from "./SubjectDot";
 import { useDialogFocus } from "./useDialogFocus";
+import {
+  IntegrationRequestError,
+  resolveCalendarConflict,
+} from "../lib/integrationApi";
+
+function ConflictBanner({ itemId }: { itemId: string }) {
+  const { dispatch, refresh } = useOrganatoActions();
+  const [resolving, setResolving] = useState<"mine" | "theirs" | null>(null);
+  const resolve = async (strategy: "mine" | "theirs") => {
+    setResolving(strategy);
+    try {
+      await resolveCalendarConflict(itemId, strategy);
+      await refresh();
+    } catch (error) {
+      dispatch({
+        type: "toast",
+        message:
+          error instanceof IntegrationRequestError
+            ? error.message
+            : "The conflict could not be resolved.",
+      });
+      setResolving(null);
+    }
+  };
+  return (
+    <div className="conflict-banner" role="alert">
+      <p>
+        <strong>Edited in both places.</strong> This item changed in Organato
+        and in Google Calendar. Choose which version wins.
+      </p>
+      <div>
+        <button
+          type="button"
+          disabled={resolving !== null}
+          onClick={() => void resolve("mine")}
+        >
+          {resolving === "mine" ? "Keeping…" : "Keep Organato"}
+        </button>
+        <button
+          type="button"
+          disabled={resolving !== null}
+          onClick={() => void resolve("theirs")}
+        >
+          {resolving === "theirs" ? "Keeping…" : "Use Google"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 const statusOptions = [
   "not_started",
@@ -106,6 +155,7 @@ export function Inspector() {
   const item = selectedItem ?? retainedItemRef.current;
   const inspectorRef = useRef<HTMLElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const notesRef = useRef<HTMLTextAreaElement>(null);
   const [nameDraft, setNameDraft] = useState("");
   const [addingLink, setAddingLink] = useState(false);
   const [linkLabel, setLinkLabel] = useState("");
@@ -115,7 +165,19 @@ export function Inspector() {
   const [linkType, setLinkType] = useState<
     "reference" | "brief" | "rubric" | "working_document" | "other"
   >("other");
-  const close = () => dispatch({ type: "select", id: null });
+  const close = () => {
+    // Flush unsaved notes before closing: an un-blurred textarea would
+    // otherwise silently drop the edit.
+    const draft = notesRef.current?.value;
+    if (item && draft !== undefined && draft !== item.notesMarkdown) {
+      dispatch({
+        type: "patchItem",
+        id: item.id,
+        patch: { notesMarkdown: draft },
+      });
+    }
+    dispatch({ type: "select", id: null });
+  };
   useDialogFocus(
     Boolean(selectedItem),
     inspectorRef,
@@ -243,6 +305,9 @@ export function Inspector() {
             <X size={18} />
           </button>
         </header>
+        {item.calendarSyncState === "conflict" ? (
+          <ConflictBanner itemId={item.id} />
+        ) : null}
         <div className="inspector-scroll">
           <OrganatoSelect
             className={`plain-select status-${status}`}
@@ -457,6 +522,7 @@ export function Inspector() {
             <h2>Notes</h2>
             <textarea
               aria-label="Notes"
+              ref={notesRef}
               defaultValue={item.notesMarkdown}
               onBlur={(event) => {
                 if (event.target.value !== item.notesMarkdown) {
@@ -646,7 +712,10 @@ export function Inspector() {
               await navigator.clipboard.writeText(url);
               dispatch({ type: "toast", message: "Link copied" });
             } catch {
-              dispatch({ type: "toast", message: url });
+              dispatch({
+                type: "toast",
+                message: "Link copy failed — copy it from the address bar",
+              });
             }
           }}
         >

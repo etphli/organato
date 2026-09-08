@@ -6,20 +6,22 @@ import { installClientDiagnostics } from "./clientDiagnostics";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { AuthGate } from "./components/AuthGate";
 import { OrganatoProvider } from "./state/OrganatoProvider";
+import { registerServiceWorker } from "./sw-register";
 import "./styles.css";
 import "./polish.css";
 
 installClientDiagnostics();
+registerServiceWorker();
 
 createRoot(document.getElementById("root")!).render(
-  <AppErrorBoundary>
-    <BrowserRouter useTransitions={false}>
+  <BrowserRouter useTransitions={false}>
+    <AppErrorBoundary>
       <AuthGate>
         <OrganatoProvider>
           <App />
         </OrganatoProvider>
       </AuthGate>
-    </BrowserRouter>
-    <SpeedInsights />
-  </AppErrorBoundary>,
+      <SpeedInsights />
+    </AppErrorBoundary>
+  </BrowserRouter>,
 );

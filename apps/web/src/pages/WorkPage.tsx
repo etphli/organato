@@ -193,6 +193,13 @@ export default function WorkPage({
         header: ({ table }) => (
           <input
             aria-label="Select all visible items"
+            aria-checked={
+              table.getIsSomePageRowsSelected()
+                ? "mixed"
+                : table.getIsAllPageRowsSelected()
+                  ? "true"
+                  : "false"
+            }
             type="checkbox"
             checked={table.getIsAllPageRowsSelected()}
             ref={(element) => {

@@ -8,6 +8,7 @@ import {
   RotateCcw,
   Upload,
 } from "lucide-react";
+import { POST_RESTORE_RELOAD_DELAY_MS } from "../lib/timing";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
@@ -322,6 +323,55 @@ function DeliveryHistory() {
   );
 }
 
+/**
+ * Accessible two-step confirmation replacing window.confirm: the action
+ * button becomes an explicit Confirm/Cancel pair so keyboard and
+ * screen-reader users get a real form instead of a blocking native dialog.
+ */
+function ConfirmAction({
+  label,
+  confirmLabel,
+  onConfirm,
+  busy = false,
+  danger = false,
+}: {
+  label: string;
+  confirmLabel: string;
+  onConfirm(): void | Promise<void>;
+  busy?: boolean;
+  danger?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button
+        className={danger ? "danger-text" : undefined}
+        onClick={() => setOpen(true)}
+      >
+        {label}
+      </button>
+    );
+  }
+  return (
+    <span
+      className="button-row"
+      role="group"
+      aria-label={`${label} confirmation`}
+    >
+      <button
+        className={danger ? "danger-button" : "new-button"}
+        disabled={busy}
+        onClick={() => void onConfirm()}
+      >
+        {confirmLabel}
+      </button>
+      <button disabled={busy} onClick={() => setOpen(false)}>
+        Cancel
+      </button>
+    </span>
+  );
+}
+
 export default function SettingsPage() {
   const { pathname } = useLocation();
   const active =
@@ -334,6 +384,8 @@ export default function SettingsPage() {
   const [pendingImport, setPendingImport] = useState<WorkspaceSnapshot | null>(
     null,
   );
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restoreConfirmation, setRestoreConfirmation] = useState("");
   const [connectionBusy, setConnectionBusy] = useState<string | null>(null);
   const [connectionNeedsReauth, setConnectionNeedsReauth] = useState(false);
   const [addingSubject, setAddingSubject] = useState(false);
@@ -612,11 +664,12 @@ export default function SettingsPage() {
   };
   const applyImport = async () => {
     if (!pendingImport) return;
-    const confirmation = window.prompt(
-      "Type RESTORE ORGANATO to create a pre-restore backup and merge this file.",
-    );
-    if (confirmation !== "RESTORE ORGANATO") {
-      setImportSummary("Restore cancelled. Nothing was changed.");
+    // Inline typed confirmation (replaces the blocking window.prompt so
+    // screen-reader and keyboard users get a real form with an error state).
+    if (restoreConfirmation !== "RESTORE") {
+      setImportSummary(
+        "Type RESTORE below to confirm, or cancel. Nothing was changed.",
+      );
       return;
     }
     setConnectionBusy("restore");
@@ -669,7 +722,7 @@ export default function SettingsPage() {
         },
         body: JSON.stringify({
           backup: pendingImport,
-          confirmation,
+          confirmation: "RESTORE ORGANATO",
         }),
       });
       const result = (await response.json().catch(() => ({}))) as {
@@ -680,10 +733,15 @@ export default function SettingsPage() {
         throw new Error(result.error ?? "Restore could not be applied.");
       }
       setPendingImport(null);
+      setRestoreOpen(false);
+      setRestoreConfirmation("");
       setImportSummary(
         `Restored · ${result.merged.items} items · ${result.merged.subjects} subjects · ${result.merged.savedViews} views`,
       );
-      window.setTimeout(() => window.location.reload(), 700);
+      window.setTimeout(
+        () => window.location.reload(),
+        POST_RESTORE_RELOAD_DELAY_MS,
+      );
     } catch (error) {
       setImportSummary(
         error instanceof Error
@@ -731,8 +789,6 @@ export default function SettingsPage() {
     window.location.reload();
   };
   const revokeAllSessions = async () => {
-    if (!window.confirm("Revoke every Organato session, including this one?"))
-      return;
     await protectedPost("/api/sessions/revoke-all");
     if (import.meta.env.VITE_DEMO_MODE === "true") {
       dispatch({ type: "toast", message: "All demo sessions revoked" });
@@ -776,7 +832,6 @@ export default function SettingsPage() {
   const runAdvancedAction = async (label: string) => {
     if (label === "Clear non-secret device preferences") {
       localStorage.removeItem("organato_recent_searches");
-      sessionStorage.removeItem("organato_recent_commands");
       dispatch({
         type: "toast",
         message: "Non-secret device preferences cleared",
@@ -952,6 +1007,7 @@ export default function SettingsPage() {
                   max="1.2"
                   step=".05"
                   value={settings.fontScale}
+                  aria-valuetext={`${Math.round(settings.fontScale * 100)} percent`}
                   onChange={(event) =>
                     dispatch({
                       type: "settings",
@@ -1500,14 +1556,59 @@ export default function SettingsPage() {
                 {importSummary ? (
                   <p className="import-summary">{importSummary}</p>
                 ) : null}
-                {pendingImport ? (
+                {pendingImport && !restoreOpen ? (
                   <button
                     className="new-button"
                     disabled={connectionBusy === "restore"}
-                    onClick={() => void applyImport()}
+                    onClick={() => {
+                      setRestoreOpen(true);
+                      setRestoreConfirmation("");
+                    }}
                   >
                     Apply validated merge
                   </button>
+                ) : null}
+                {pendingImport && restoreOpen ? (
+                  <div className="delete-confirmation">
+                    <label>
+                      <span>
+                        A pre-restore backup downloads first. Type RESTORE to
+                        merge this file.
+                      </span>
+                      <input
+                        autoComplete="off"
+                        value={restoreConfirmation}
+                        onChange={(event) =>
+                          setRestoreConfirmation(event.target.value)
+                        }
+                        placeholder="RESTORE"
+                      />
+                    </label>
+                    <div className="button-row">
+                      <button
+                        className="new-button"
+                        disabled={
+                          restoreConfirmation !== "RESTORE" ||
+                          connectionBusy === "restore"
+                        }
+                        onClick={() => void applyImport()}
+                      >
+                        Confirm restore
+                      </button>
+                      <button
+                        disabled={connectionBusy === "restore"}
+                        onClick={() => {
+                          setRestoreOpen(false);
+                          setRestoreConfirmation("");
+                          setImportSummary(
+                            "Restore cancelled. Nothing was changed.",
+                          );
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
                 ) : null}
               </div>
               <div className="settings-block danger-zone">
@@ -1619,9 +1720,11 @@ export default function SettingsPage() {
                 <button onClick={() => void reauthenticate()}>
                   Reauthenticate now
                 </button>
-                <button onClick={() => void revokeAllSessions()}>
-                  Revoke all sessions
-                </button>
+                <ConfirmAction
+                  label="Revoke all sessions"
+                  confirmLabel="Revoke everything, including this session"
+                  onConfirm={() => void revokeAllSessions()}
+                />
                 <button onClick={() => void downloadDiagnostic()}>
                   Download sanitized diagnostic
                 </button>
@@ -1757,13 +1860,6 @@ export default function SettingsPage() {
       }
     };
     const disconnectGoogle = async () => {
-      if (
-        !window.confirm(
-          "Disconnect Calendar and Gmail from Organato? Existing Organato data stays in place.",
-        )
-      ) {
-        return;
-      }
       setConnectionBusy("google-disconnect");
       try {
         await protectedPost("/api/integrations/google/disconnect");
@@ -1835,12 +1931,12 @@ export default function SettingsPage() {
           >
             {provider === "gmail" ? "Send preview" : "Reconcile now"}
           </button>
-          <button
-            disabled={Boolean(connectionBusy) || !connected}
-            onClick={() => void disconnectGoogle()}
-          >
-            Disconnect Google
-          </button>
+          <ConfirmAction
+            label="Disconnect Google"
+            confirmLabel="Disconnect (Organato data stays)"
+            onConfirm={() => void disconnectGoogle()}
+            busy={Boolean(connectionBusy)}
+          />
         </div>
       </div>
     );

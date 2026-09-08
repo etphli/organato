@@ -4,7 +4,7 @@ import {
   ExternalLink,
   MoreHorizontal,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   addDays,
@@ -31,7 +31,36 @@ import { SubjectDot } from "../components/SubjectDot";
 import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
 
 function useToday() {
-  return useMemo(() => new Date(), []);
+  // Rolls over at local midnight so an overnight session never shows a
+  // stale "today" in the calendar, lists, and workload strip.
+  const [today, setToday] = useState(() => new Date());
+  useEffect(() => {
+    let timer = 0;
+    let cancelled = false;
+    const schedule = () => {
+      const now = new Date();
+      const midnight = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 1,
+      );
+      timer = window.setTimeout(
+        () => {
+          if (!cancelled) {
+            setToday(new Date());
+            schedule();
+          }
+        },
+        Math.max(1000, midnight.getTime() - now.getTime()),
+      );
+    };
+    schedule();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
+  return today;
 }
 
 function itemDueDate(
@@ -66,7 +95,14 @@ function ClassificationInbox() {
         : canvas?.state === "action_needed"
           ? "Nothing to classify. Reshet needs attention in Settings."
           : "Nothing to classify. Reshet has no new work waiting.";
-    return <p className="classification-empty">{message}</p>;
+    return (
+      <p className="classification-empty">
+        {message}{" "}
+        {canvas?.state === "disconnected" ? (
+          <a href="/settings/canvas">Connect</a>
+        ) : null}
+      </p>
+    );
   }
   const classify = (classification: Classification) =>
     dispatch({ type: "classify", id: active.id, classification });
@@ -370,7 +406,9 @@ function TodayList() {
         </div>
       ))}
       {!todos.length ? (
-        <p className="home-empty-state">Nothing needs attention today.</p>
+        <p className="home-empty-state">
+          Nothing needs attention today. <a href="/todo">Plan something</a>
+        </p>
       ) : null}
     </section>
   );

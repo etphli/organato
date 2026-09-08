@@ -37,15 +37,25 @@ export async function integrationRequest<T>(
     headers,
     credentials: "same-origin",
   });
-  const result = (await response.json().catch(() => ({}))) as T & {
-    error?: string;
-    code?: string;
-  };
+  const text = await response.text().catch(() => "");
+  let result: T & { error?: string; code?: string };
+  try {
+    result = (text ? JSON.parse(text) : {}) as T & {
+      error?: string;
+      code?: string;
+    };
+  } catch {
+    result = {} as T & { error?: string; code?: string };
+  }
   if (!response.ok) {
-    throw new IntegrationRequestError(
-      result.error ?? "The connection could not be updated.",
-      result.code,
-    );
+    // Keep the server message when present, but always include the status
+    // so outages (502/HTML from the edge) stay diagnosable in the UI.
+    const detail =
+      result.error ??
+      (text.trim()
+        ? `Request failed (${response.status}): ${text.trim().slice(0, 160)}`
+        : `Request failed (${response.status}).`);
+    throw new IntegrationRequestError(detail, result.code);
   }
   return result;
 }
@@ -75,4 +85,17 @@ export async function reauthenticate(
   // cookie on success, and if the user abandons the Google round-trip the
   // existing session stays valid instead of dropping them to the starter page.
   window.location.assign(result.authorizationUrl);
+}
+
+export async function resolveCalendarConflict(
+  itemId: string,
+  strategy: "mine" | "theirs",
+): Promise<void> {
+  await integrationRequest<{ ok: true }>(
+    "/api/integrations/google/resolve-conflict",
+    {
+      method: "POST",
+      body: JSON.stringify({ itemId, strategy }),
+    },
+  );
 }

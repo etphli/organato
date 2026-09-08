@@ -1,4 +1,10 @@
-import { useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import {
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+} from "react";
 import { format } from "date-fns";
 import { CalendarEvent } from "./CalendarEvent";
 import {
@@ -55,6 +61,16 @@ export function MonthView({
     0,
   );
   const selectedEntries = entries.get(selectedDateKey) ?? [];
+  // O(1) drag-drop lookup instead of flattening every entry on each drop.
+  const entryByItemId = useMemo(() => {
+    const index = new Map<string, CalendarEntry>();
+    for (const dayEntries of entries.values()) {
+      for (const entry of dayEntries) {
+        if (!index.has(entry.item.id)) index.set(entry.item.id, entry);
+      }
+    }
+    return index;
+  }, [entries]);
 
   const focusDate = (
     event: KeyboardEvent<HTMLButtonElement>,
@@ -115,9 +131,7 @@ export function MonthView({
                 const itemId = event.dataTransfer.getData(
                   "application/x-organato-item",
                 );
-                const entry = Array.from(entries.values())
-                  .flat()
-                  .find((candidate) => candidate.item.id === itemId);
+                const entry = entryByItemId.get(itemId);
                 if (entry) onMoveEntry(entry, dateKey);
               }}
             >

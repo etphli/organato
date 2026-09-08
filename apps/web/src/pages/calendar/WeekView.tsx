@@ -182,7 +182,10 @@ export function WeekView({
                   onCreate(dateKey, minutes);
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") {
+                  if (event.key === "Enter" || event.key === " ") {
+                    // Ignore Space/Enter from nested event buttons so
+                    // activating an event does not also create a todo.
+                    if (event.target !== event.currentTarget) return;
                     event.preventDefault();
                     onSelectDate(dateKey);
                     onCreate(dateKey, 9 * 60);

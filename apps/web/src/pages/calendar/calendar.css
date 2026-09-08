@@ -116,7 +116,7 @@
   background: color-mix(in srgb, var(--focus) 18%, transparent);
   border-radius: 8px;
   color: var(--focus);
-  font-size: 0.58rem;
+  font-size: 0.625rem;
   font-weight: 600;
   min-width: 17px;
   padding: 2px 5px;
@@ -163,7 +163,7 @@
 
 .oc-filter-popover h3 {
   color: var(--muted);
-  font-size: 0.58rem;
+  font-size: 0.625rem;
   font-weight: 560;
   letter-spacing: 0.065em;
   margin: 0 8px 5px;
@@ -355,6 +355,13 @@
   top: 8px;
   transition: opacity var(--motion);
   width: 24px;
+}
+
+/* 44px touch target without changing the visible 24px button. */
+.oc-day-add::after {
+  content: "";
+  inset: -10px;
+  position: absolute;
 }
 
 .oc-month-day:hover .oc-day-add,
@@ -700,7 +707,7 @@
 .oc-week__all-day > span {
   align-self: start;
   color: var(--muted);
-  font-size: 0.58rem;
+  font-size: 0.625rem;
   padding: 10px 8px;
   text-align: right;
   text-transform: uppercase;
@@ -739,7 +746,7 @@
 
 .oc-week__time-axis span {
   color: var(--muted);
-  font-size: 0.56rem;
+  font-size: 0.625rem;
   position: absolute;
   right: 9px;
   top: var(--oc-hour-position);
@@ -1181,10 +1188,11 @@
   }
 
   .oc-filter-popover {
-    max-height: calc(100vh - 170px);
+    bottom: calc(66px + env(safe-area-inset-bottom) + 8px);
+    max-height: calc(100vh - 220px);
     position: fixed;
     right: 12px;
-    top: 112px;
+    top: auto;
     width: min(280px, calc(100vw - 24px));
   }
 
@@ -1202,7 +1210,7 @@
   }
 
   .oc-month__weekdays span {
-    font-size: 0.53rem;
+    font-size: 0.625rem;
     padding: 5px 1px 7px;
     text-align: center;
   }
@@ -1320,7 +1328,7 @@
   }
 
   .oc-week__header > button span {
-    font-size: 0.51rem;
+    font-size: 0.625rem;
   }
 
   .oc-week__header > button strong {

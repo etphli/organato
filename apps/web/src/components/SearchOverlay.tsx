@@ -58,28 +58,31 @@ export function SearchOverlay() {
     const needle = deferredQuery.trim().toLowerCase();
     if (!needle) return items.filter((item) => !item.archivedAt).slice(0, 6);
     const tokens = needle.split(/\s+/);
-    return items
-      .filter((item) => {
-        const subject = item.subjectId
-          ? subjectsById.get(item.subjectId)?.displayName
-          : "";
-        const text = `${item.displayName} ${subject} ${
-          settings.searchNotes ? item.notesMarkdown : ""
-        } ${visibleStatus(item)}`.toLowerCase();
-        return tokens.every((token) => {
-          if (token.startsWith("subject:"))
-            return subject?.toLowerCase().includes(token.slice(8));
-          if (token.startsWith("priority:"))
-            return item.priority === token.slice(9);
-          if (token.startsWith("status:"))
-            return visibleStatus(item) === token.slice(7);
-          return (
-            text.includes(token) ||
-            (settings.fuzzySearch && fuzzyIncludes(text, token))
-          );
-        });
-      })
-      .slice(0, 12);
+    // Collect top hits with early exit instead of scanning everything.
+    const collected: typeof items = [];
+    for (const item of items) {
+      if (collected.length >= 12) break;
+      const subject = item.subjectId
+        ? subjectsById.get(item.subjectId)?.displayName
+        : "";
+      const text = `${item.displayName} ${subject} ${
+        settings.searchNotes ? item.notesMarkdown : ""
+      } ${visibleStatus(item)}`.toLowerCase();
+      const hit = tokens.every((token) => {
+        if (token.startsWith("subject:"))
+          return subject?.toLowerCase().includes(token.slice(8));
+        if (token.startsWith("priority:"))
+          return item.priority === token.slice(9);
+        if (token.startsWith("status:"))
+          return visibleStatus(item) === token.slice(7);
+        return (
+          text.includes(token) ||
+          (settings.fuzzySearch && fuzzyIncludes(text, token))
+        );
+      });
+      if (hit) collected.push(item);
+    }
+    return collected;
   }, [
     deferredQuery,
     items,

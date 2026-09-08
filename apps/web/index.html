@@ -10,13 +10,41 @@
     />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link
+      rel="icon"
+      href="/icons/icon-192.png"
+      sizes="192x192"
+      type="image/png"
+    />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
     <link rel="mask-icon" href="/icons/icon-monochrome.svg" color="#0b0b0c" />
     <link rel="stylesheet" href="/boot.css" />
     <title>Organato</title>
   </head>
   <body>
+    <noscript>
+      <p style="padding: 32px; text-align: center">
+        Organato needs JavaScript to open your workspace.
+      </p>
+    </noscript>
     <div id="root">
       <div class="boot-shell" role="status" aria-label="Opening Organato">
+        <span
+          style="
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+          "
+          >Opening Organato</span
+        >
         <aside class="boot-rail" aria-hidden="true">
           <span class="boot-mark"><i></i></span>
           <span class="boot-nav boot-nav-active"></span>

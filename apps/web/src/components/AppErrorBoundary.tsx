@@ -18,7 +18,8 @@ class AppErrorBoundaryClass extends Component<
   }
 
   componentDidCatch(error: Error) {
-    console.error("Organato render failure", error);
+    // Reporting goes through the diagnostic channel only, so render
+    // failures (which can include item content) never land in the console.
     reportClientDiagnostic("react_error", {
       message: error.message.slice(0, 240),
       stack: error.stack?.slice(0, 800) ?? null,
@@ -60,8 +61,11 @@ class AppErrorBoundaryClass extends Component<
 }
 
 export function AppErrorBoundary({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
   return (
-    <AppErrorBoundaryClass locationKey="">{children}</AppErrorBoundaryClass>
+    <AppErrorBoundaryClass locationKey={pathname}>
+      {children}
+    </AppErrorBoundaryClass>
   );
 }
 
