@@ -92,6 +92,15 @@ export const connectorResultSchema = z.discriminatedUnion("status", [
       commandId: id,
       status: z.literal("error"),
       error: z.enum(["login_required", "network_error", "read_failed"]),
+      diagnostic: z
+        .enum([
+          "profile_in_use",
+          "display_unavailable",
+          "browser_control_blocked",
+          "browser_launch_timeout",
+          "browser_launch_failed",
+        ])
+        .optional(),
     })
     .strict(),
 ]);

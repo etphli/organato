@@ -20,7 +20,13 @@ function resultForError(error) {
   )
     ? code
     : "read_failed";
-  return { status: "error", error: safeCode };
+  return {
+    status: "error",
+    error: safeCode,
+    ...(error instanceof CanvasBrowserError && error.diagnostic
+      ? { diagnostic: error.diagnostic }
+      : {}),
+  };
 }
 
 export class ConnectorService {

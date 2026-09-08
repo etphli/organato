@@ -37,10 +37,11 @@ function isIsoDateTime(value) {
 }
 
 export class CanvasBrowserError extends Error {
-  constructor(code, message = code) {
+  constructor(code, message = code, diagnostic) {
     super(message);
     this.name = "CanvasBrowserError";
     this.code = code;
+    this.diagnostic = diagnostic;
   }
 }
 
@@ -299,6 +300,22 @@ export async function findChromiumExecutable(configured) {
     "read_failed",
     "Chromium executable was not found.",
   );
+}
+
+export function browserLaunchDiagnostic(error) {
+  const message = error instanceof Error ? error.message : "";
+  if (/SingletonLock|ProcessSingleton|profile.*in use/i.test(message))
+    return "profile_in_use";
+  if (
+    /Missing X server|cannot open display|unable to open.*display/i.test(
+      message,
+    )
+  )
+    return "display_unavailable";
+  if (/remote debugging.*disabled|DevTools.*disallowed/i.test(message))
+    return "browser_control_blocked";
+  if (/timeout|timed out/i.test(message)) return "browser_launch_timeout";
+  return "browser_launch_failed";
 }
 
 async function launchPersistentBrowser({
@@ -782,8 +799,12 @@ export class CanvasBrowserAdapter {
         executablePath: executable,
         display: this.display,
       });
-    } catch {
-      throw new CanvasBrowserError("read_failed");
+    } catch (error) {
+      throw new CanvasBrowserError(
+        "read_failed",
+        "Browser launch failed",
+        browserLaunchDiagnostic(error),
+      );
     }
     try {
       if (typeof context.addInitScript === "function") {

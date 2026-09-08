@@ -413,13 +413,33 @@ export class CanvasConnector {
       this.diagnostic(state, "command_result", {
         command: command.kind,
         status: result.status,
-        ...(result.status === "error" ? { error: result.error } : {}),
+        ...(result.status === "error"
+          ? {
+              error: result.error,
+              ...(result.diagnostic ? { diagnostic: result.diagnostic } : {}),
+            }
+          : {}),
       });
       if (result.status === "error") {
         state.error =
           result.error === "login_required"
             ? "Canvas needs you to sign in again."
             : "Canvas could not be read. Try again shortly.";
+        if (result.diagnostic) {
+          const messages = {
+            profile_in_use:
+              "The Pi browser profile is already in use. Restart the connector service.",
+            display_unavailable:
+              "Chromium cannot open the Pi display. Check the Xvfb service.",
+            browser_control_blocked:
+              "Chromium policy blocked the connector's browser control connection.",
+            browser_launch_timeout:
+              "Chromium did not respond to the connector before startup timed out.",
+            browser_launch_failed:
+              "Chromium could not start on the Pi. Check the connector service journal.",
+          };
+          state.error = messages[result.diagnostic];
+        }
         state.phase =
           result.error === "login_required" ? "login_required" : "error";
         state.nextSyncAt = Date.now() + 5 * 60_000;

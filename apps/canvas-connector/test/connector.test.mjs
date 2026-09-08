@@ -762,3 +762,45 @@ test("CanvasBrowserAdapter returns to Canvas before reading a session completed 
     assert.deepEqual(navigations, [`${CANVAS_BASE}/`]);
   });
 });
+
+test("browser startup errors reach the server as a category without private launch output", async () => {
+  await withTempDirectory(async (directory) => {
+    const executable = path.join(directory, "chromium");
+    await fs.writeFile(executable, "browser");
+    const browser = new CanvasBrowserAdapter({
+      canvasBaseUrl: CANVAS_BASE,
+      profileDir: path.join(directory, "profile"),
+      executablePath: executable,
+      lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+      browserLauncher: async () => {
+        throw new Error("Timeout launching with private-cookie-value");
+      },
+    });
+    let uploaded;
+    const service = new ConnectorService({
+      browser,
+      client: {
+        async saveResult(_id, result) {
+          uploaded = result;
+        },
+        async flushPending() {
+          return true;
+        },
+      },
+    });
+    await service.processCommand({
+      id: "login-test",
+      kind: "login",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    assert.deepEqual(uploaded, {
+      status: "error",
+      error: "read_failed",
+      diagnostic: "browser_launch_timeout",
+    });
+    assert.equal(
+      JSON.stringify(uploaded).includes("private-cookie-value"),
+      false,
+    );
+  });
+});

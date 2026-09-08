@@ -271,7 +271,11 @@ Organato records display handshake, timeout, disconnect, and display dimensions
 in its existing diagnostic store. The server also records socket connections,
 the first data packet in each direction, close codes, and command results.
 These events contain no screen contents, keystrokes, cookies, or view tickets.
-An operator with access to the production Cloudflare account can inspect them:
+New connector packages also report a fixed startup-failure category, such as
+`browser_launch_timeout`, `profile_in_use`, or `display_unavailable`. Upgrade
+the Pi using section 7 to enable these categories. Raw Chromium launch output
+stays in the Pi journal. An operator with access to the production Cloudflare
+account can inspect the server events:
 
 ```sh
 pnpm dlx wrangler@4.114.0 d1 execute organato-production --remote --command "SELECT category, summary, created_at FROM security_event WHERE category IN ('canvas_connector', 'client_canvas_viewer') ORDER BY created_at DESC LIMIT 30"
