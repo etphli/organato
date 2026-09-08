@@ -10,6 +10,7 @@ import {
   CanvasBrowserAdapter,
   CanvasBrowserError,
   MAX_CANVAS_RESULT_BYTES,
+  chromiumLaunchArguments,
   normalizeCanvasIdentity,
   normalizeCanvasSyncResult,
   syncInPage,
@@ -34,6 +35,12 @@ const API_BASE = "https://api.example.org";
 const CANVAS_BASE = "https://canvas.example.org";
 const TOKEN = "a".repeat(64);
 const ISO_NOW = "2026-09-06T00:00:00.000Z";
+
+test("Chromium starts in one Canvas app window", () => {
+  const args = chromiumLaunchArguments(`${CANVAS_BASE}/`);
+  assert.ok(args.includes(`--app=${CANVAS_BASE}/`));
+  assert.equal(args.includes("--kiosk"), false);
+});
 
 async function withTempDirectory(callback) {
   const directory = await fs.mkdtemp(
@@ -647,13 +654,17 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
   await withTempDirectory(async (directory) => {
     const executable = path.join(directory, "chromium");
     await fs.writeFile(executable, "browser");
+    const navigations = [];
     const fakePage = {
       on() {},
-      async goto() {},
+      async goto(url) {
+        navigations.push(url);
+      },
       async bringToFront() {},
     };
     let routeHandler;
     let onPage;
+    let launchOptions;
     const context = {
       async addInitScript() {},
       async route(_pattern, handler) {
@@ -672,9 +683,14 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
       profileDir: path.join(directory, "profile"),
       executablePath: executable,
       lookup: async () => [{ address: "93.184.216.34", family: 4 }],
-      browserLauncher: async () => context,
+      browserLauncher: async (options) => {
+        launchOptions = options;
+        return context;
+      },
     });
-    await adapter.ensureContext();
+    await adapter.openLogin();
+    assert.equal(launchOptions.launchUrl, `${CANVAS_BASE}/`);
+    assert.deepEqual(navigations, [`${CANVAS_BASE}/`]);
     let popupClosed = false;
     onPage({
       async close() {

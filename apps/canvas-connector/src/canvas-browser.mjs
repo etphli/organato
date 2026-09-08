@@ -322,6 +322,7 @@ async function launchPersistentBrowser({
   profileDir,
   executablePath,
   display,
+  launchUrl,
 }) {
   const { chromium } = await import("playwright-core");
   return chromium.launchPersistentContext(profileDir, {
@@ -337,20 +338,27 @@ async function launchPersistentBrowser({
       "autofill.credit_card_enabled": false,
       "download.prompt_for_download": false,
       "download.directory_upgrade": false,
+      "session.restore_on_startup": 4,
+      "session.startup_urls": [launchUrl],
     },
     env: { ...process.env, DISPLAY: display },
-    args: [
-      "--window-size=1280,900",
-      "--no-first-run",
-      "--disable-default-apps",
-      "--disable-extensions",
-      "--disable-background-networking",
-      "--disable-devtools",
-      "--disable-save-password-bubble",
-      "--disable-password-generation",
-      "--disable-features=DeveloperToolsAvailability,PasswordManagerOnboarding",
-    ],
+    args: chromiumLaunchArguments(launchUrl),
   });
+}
+
+export function chromiumLaunchArguments(launchUrl) {
+  return [
+    `--app=${launchUrl}`,
+    "--window-size=1280,900",
+    "--no-first-run",
+    "--disable-default-apps",
+    "--disable-extensions",
+    "--disable-background-networking",
+    "--disable-devtools",
+    "--disable-save-password-bubble",
+    "--disable-password-generation",
+    "--disable-features=DeveloperToolsAvailability,PasswordManagerOnboarding",
+  ];
 }
 
 const BLOCK_CLIPBOARD_SCRIPT = `(() => {
@@ -810,6 +818,7 @@ export class CanvasBrowserAdapter {
         profileDir: this.profileDir,
         executablePath: executable,
         display: this.display,
+        launchUrl: `${this.baseUrl.origin}/`,
       });
     } catch (error) {
       throw new CanvasBrowserError(
@@ -881,7 +890,7 @@ export class CanvasBrowserAdapter {
 
   async openLogin() {
     await this.ensureContext();
-    const target = new URL("/login", this.baseUrl).href;
+    const target = new URL("/", this.baseUrl).href;
     try {
       await this.page.goto(target, {
         waitUntil: "domcontentloaded",
