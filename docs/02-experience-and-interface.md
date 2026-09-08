@@ -361,6 +361,21 @@ Version one attachments are secure links with:
 
 This satisfies cross-device attachment access without introducing a paid or card-gated file-hosting dependency. Future file uploads must pass the same free-only review before inclusion.
 
+### File uploads (approved: Cloudflare R2 free tier)
+
+File uploads passed free-only review via R2 (10 GB storage, no card):
+
+- Formats: PDF, Word (.doc/.docx), text, PNG, JPEG. Cap: 10 MB per file.
+- `POST /api/items/:id/attachments/upload` (multipart, rate-limited) stores
+  under `<workspace>/<item>/<uuid>.<ext>` and records an `r2://` link row;
+  on DB failure the stored object is removed again.
+- Files serve same-origin at `GET /api/attachments/:id/file`,
+  workspace-scoped — external URLs never pass through that route.
+- Deleting the link best-effort deletes the object.
+- Ops: create the bucket once with
+  `wrangler r2 bucket create organato-attachments`; without the binding the
+  routes answer 501 and links keep working.
+
 ## 11. Statistics
 
 Statistics are private and derived from existing records:

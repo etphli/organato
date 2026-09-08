@@ -1,3 +1,5 @@
+import type { OrganatoItem } from "@organato/domain";
+
 export interface GoogleDeliverySettings {
   connected: boolean;
   sender: string | null;
@@ -98,4 +100,48 @@ export async function resolveCalendarConflict(
       body: JSON.stringify({ itemId, strategy }),
     },
   );
+}
+
+/** Display href for an attachment: stored files resolve to the authed route. */
+export function attachmentHref(attachment: {
+  id: string;
+  url: string;
+}): string {
+  if (attachment.url.startsWith("r2://")) {
+    return `/api/attachments/${attachment.id}/file`;
+  }
+  return attachment.url;
+}
+
+export async function uploadAttachment(
+  itemId: string,
+  file: File,
+  label: string,
+  linkType: string,
+): Promise<{ item: OrganatoItem }> {
+  const form = new FormData();
+  form.set("file", file);
+  form.set("label", label);
+  form.set("linkType", linkType);
+  const response = await fetch(
+    `/api/items/${encodeURIComponent(itemId)}/attachments/upload`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "X-CSRF-Token": sessionStorage.getItem("organato_csrf") ?? "",
+      },
+      body: form,
+    },
+  );
+  const result = (await response.json().catch(() => ({}))) as {
+    item?: OrganatoItem;
+    error?: string;
+  };
+  if (!response.ok || !result.item) {
+    throw new IntegrationRequestError(
+      result.error ?? `Upload failed (${response.status}).`,
+    );
+  }
+  return { item: result.item };
 }

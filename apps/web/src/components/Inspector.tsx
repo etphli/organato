@@ -24,7 +24,9 @@ import { SubjectDot } from "./SubjectDot";
 import { useDialogFocus } from "./useDialogFocus";
 import {
   IntegrationRequestError,
+  attachmentHref,
   resolveCalendarConflict,
+  uploadAttachment,
 } from "../lib/integrationApi";
 
 function ConflictBanner({ itemId }: { itemId: string }) {
@@ -165,6 +167,39 @@ export function Inspector() {
   const [linkType, setLinkType] = useState<
     "reference" | "brief" | "rubric" | "working_document" | "other"
   >("other");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const uploadFile = async (file: File) => {
+    if (!item || uploading) return;
+    if (file.size > 10_000_000) {
+      dispatch({
+        type: "toast",
+        message: "That file is over the 10 MB limit.",
+      });
+      return;
+    }
+    setUploading(true);
+    try {
+      const { item: updated } = await uploadAttachment(
+        item.id,
+        file,
+        file.name,
+        linkType,
+      );
+      dispatch({ type: "replaceItem", item: updated });
+      dispatch({ type: "toast", message: "File attached" });
+    } catch (error) {
+      dispatch({
+        type: "toast",
+        message:
+          error instanceof IntegrationRequestError
+            ? error.message
+            : "The file could not be attached.",
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
   const close = () => {
     // Flush unsaved notes before closing: an un-blurred textarea would
     // otherwise silently drop the edit.
@@ -543,7 +578,7 @@ export function Inspector() {
                 <a
                   className="attachment-row"
                   key={attachment.id}
-                  href={attachment.url}
+                  href={attachmentHref(attachment)}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -613,12 +648,33 @@ export function Inspector() {
                 </div>
               </form>
             ) : (
-              <button
-                className="text-button"
-                onClick={() => setAddingLink(true)}
-              >
-                + Add a secure link
-              </button>
+              <>
+                <button
+                  className="text-button"
+                  onClick={() => setAddingLink(true)}
+                >
+                  + Add a secure link
+                </button>
+                <button
+                  className="text-button"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {uploading ? "Uploading…" : "+ Upload PDF / Word"}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  hidden
+                  accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  aria-label="Upload a file attachment"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) void uploadFile(file);
+                  }}
+                />
+              </>
             )}
           </section>
           <section className="toggle-lines" aria-label="Automation">

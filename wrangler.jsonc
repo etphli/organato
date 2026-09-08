@@ -23,6 +23,12 @@
       { "name": "CANVAS_CONNECTOR", "class_name": "CanvasConnector" },
     ],
   },
+  "r2_buckets": [
+    {
+      "binding": "ATTACHMENTS",
+      "bucket_name": "organato-attachments",
+    },
+  ],
   "migrations": [
     { "tag": "canvas-connector-v1", "new_sqlite_classes": ["CanvasConnector"] },
   ],

@@ -1053,7 +1053,172 @@ apiRoutes.post(
   },
 );
 
+const ATTACHMENT_MAX_BYTES = 10_000_000;
+const ATTACHMENT_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+  "image/png",
+  "image/jpeg",
+]);
+
+export function attachmentExtension(filename: string, mime: string): string {
+  const fromName = filename.split(".").pop()?.toLowerCase() ?? "";
+  if (["pdf", "doc", "docx", "txt", "png", "jpg", "jpeg"].includes(fromName)) {
+    return fromName === "jpg" ? "jpeg" : fromName;
+  }
+  if (mime === "application/pdf") return "pdf";
+  if (mime === "application/msword") return "doc";
+  if (
+    mime ===
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    return "docx";
+  }
+  if (mime === "text/plain") return "txt";
+  if (mime === "image/png") return "png";
+  return "jpeg";
+}
+
+apiRoutes.post("/items/:id/attachments/upload", async (context) => {
+  const bucket = context.env.ATTACHMENTS;
+  if (!bucket) {
+    return context.json(
+      { error: "File uploads are not configured on this deployment." },
+      501,
+    );
+  }
+  if (
+    !(await rateLimit(
+      context,
+      `attachment-upload:${context.get("user").email.toLowerCase()}`,
+      20,
+      60,
+    ))
+  ) {
+    return context.json(
+      { error: "Upload limit reached. Try again shortly." },
+      429,
+    );
+  }
+  const item = await getItem(
+    context.env.DB,
+    context.get("user").workspaceId,
+    context.req.param("id"),
+  );
+  if (!item) return context.json({ error: "Item not found." }, 404);
+  const form = await context.req.formData().catch(() => null);
+  const file = form?.get("file");
+  const rawLabel = form?.get("label");
+  const rawLinkType = form?.get("linkType");
+  if (!(file instanceof File) || file.size === 0) {
+    return context.json({ error: "Choose a file to upload." }, 400);
+  }
+  if (file.size > ATTACHMENT_MAX_BYTES) {
+    return context.json({ error: "Files must be 10 MB or smaller." }, 413);
+  }
+  const mime = file.type || "application/octet-stream";
+  if (!ATTACHMENT_MIME_TYPES.has(mime)) {
+    return context.json(
+      { error: "Only PDF, Word, text, PNG, and JPEG files can be attached." },
+      415,
+    );
+  }
+  const label =
+    typeof rawLabel === "string" && rawLabel.trim()
+      ? rawLabel.trim().slice(0, 200)
+      : file.name.slice(0, 200) || "Attached file";
+  const linkType =
+    rawLinkType === "reference" ||
+    rawLinkType === "brief" ||
+    rawLinkType === "rubric" ||
+    rawLinkType === "working_document"
+      ? rawLinkType
+      : "other";
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const key = `${context.get("user").workspaceId}/${item.id}/${id}.${attachmentExtension(file.name, mime)}`;
+  await bucket.put(key, await file.arrayBuffer(), {
+    httpMetadata: { contentType: mime },
+  });
+  try {
+    await context.env.DB.batch([
+      context.env.DB.prepare(
+        `INSERT INTO attachment_link
+          (id, item_id, workspace_id, label, url, link_type, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        id,
+        item.id,
+        context.get("user").workspaceId,
+        label,
+        `r2://${key}`,
+        linkType,
+        now,
+      ),
+      context.env.DB.prepare(
+        `INSERT INTO item_history
+          (id, item_id, workspace_id, actor_type, actor_identity, action, summary, created_at)
+         VALUES (?, ?, ?, 'user', ?, 'attachment_added', 'Added file attachment', ?)`,
+      ).bind(
+        crypto.randomUUID(),
+        item.id,
+        context.get("user").workspaceId,
+        context.get("user").email,
+        now,
+      ),
+    ]);
+  } catch (error) {
+    await bucket.delete(key).catch(() => undefined);
+    throw error;
+  }
+  return context.json(
+    {
+      item: await getItem(
+        context.env.DB,
+        context.get("user").workspaceId,
+        item.id,
+      ),
+    },
+    201,
+  );
+});
+
+apiRoutes.get("/attachments/:attachmentId/file", async (context) => {
+  const bucket = context.env.ATTACHMENTS;
+  if (!bucket) return context.json({ error: "Not found." }, 404);
+  const row = await context.env.DB.prepare(
+    `SELECT url FROM attachment_link WHERE id = ? AND workspace_id = ?`,
+  )
+    .bind(context.req.param("attachmentId"), context.get("user").workspaceId)
+    .first<{ url: string }>();
+  if (!row || !row.url.startsWith("r2://")) {
+    return context.json({ error: "Not found." }, 404);
+  }
+  const object = await bucket.get(row.url.slice("r2://".length));
+  if (!object) return context.json({ error: "Not found." }, 404);
+  return new Response(object.body, {
+    headers: {
+      "Content-Type":
+        object.httpMetadata?.contentType ?? "application/octet-stream",
+      "Content-Length": String(object.size),
+      "Cache-Control": "private, max-age=3600",
+    },
+  });
+});
+
 apiRoutes.delete("/items/:id/attachments/:attachmentId", async (context) => {
+  const existing = await context.env.DB.prepare(
+    `SELECT url FROM attachment_link
+     WHERE id = ? AND item_id = ? AND workspace_id = ?`,
+  )
+    .bind(
+      context.req.param("attachmentId"),
+      context.req.param("id"),
+      context.get("user").workspaceId,
+    )
+    .first<{ url: string }>();
   await context.env.DB.prepare(
     "DELETE FROM attachment_link WHERE id = ? AND item_id = ? AND workspace_id = ?",
   )
@@ -1063,6 +1228,12 @@ apiRoutes.delete("/items/:id/attachments/:attachmentId", async (context) => {
       context.get("user").workspaceId,
     )
     .run();
+  // Best-effort removal of the stored file; the link row is the record.
+  if (existing?.url.startsWith("r2://")) {
+    await context.env.ATTACHMENTS?.delete(
+      existing.url.slice("r2://".length),
+    ).catch(() => undefined);
+  }
   return context.json({
     item: await getItem(
       context.env.DB,
