@@ -31,6 +31,12 @@ The goal is to minimize both:
 
 The public sign-in response must not reveal whether a guessed email is allow-listed.
 
+Implemented: only the allow-list rejection keeps its specific client wording
+(needed for onboarding); every other sign-in failure returns one generic
+message, with the precise reason kept in the server-side security event.
+Both the redirect callback and the JSON exchange endpoint enforce origin
+checks and per-IP rate limits.
+
 ## 4. Authorization
 
 All application routes are denied by default.
@@ -56,6 +62,16 @@ The Worker, not the client, enforces authorization on every request.
 - Revoke all sessions after an encryption-key or allow-list security incident.
 - Do not put tokens or private assignment data in JWT browser payloads.
 
+Implemented deltas (code over this text where they differ):
+
+- Lifetimes are 180-day absolute / 30-day idle sliding.
+- Each session stores `authenticated_at` (migration 0005), stamped at
+  interactive login; step-up checks measure from it, so a fresh Google
+  sign-in restores privileged actions without disturbing the session.
+- Session revoke, diagnostics, calendar rebuild, and token-clear endpoints
+  require recent authentication; a stolen-but-stale session cannot persist
+  itself or scrape integration health.
+
 ## 6. CSRF and request protection
 
 - Same-site cookie policy.
@@ -65,6 +81,11 @@ The Worker, not the client, enforces authorization on every request.
 - Reject unexpected content types.
 - Set body-size limits per route.
 - Rate-limit authentication, sync-now, test-email, import, and destructive operations.
+- The rate limiter increments and reads in a single `INSERT … RETURNING`
+  statement so concurrent requests cannot undercount.
+- Restore refuses item-less backups over non-empty workspaces without an
+  explicit empty-restore flag, commits small restores atomically in one D1
+  batch, and logs the failing group for large restores.
 
 ## 7. Secret storage
 

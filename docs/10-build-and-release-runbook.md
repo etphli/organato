@@ -26,16 +26,25 @@ The committed Vite development profile enables redacted demo data only for `vite
 ## Required production values
 
 - Pinned Canvas HTTPS origin (`https://emanuel.instructure.com` for this deployment).
-- Initial normalized Google owner email allow-list.
-- Google integration-owner email.
-- Digest recipients chosen from allowed owner identities.
+- Explicit Google owner email allow-list (`ALLOWED_GOOGLE_EMAILS`, no wildcard).
+- Google integration-owner email (must match the signed-in account).
 - Google OAuth client ID and secret.
-- Random 32-byte session secret.
-- Random base64url 32-byte AES-GCM key.
+- Random base64url 32-byte AES-GCM key (`DATA_ENCRYPTION_KEY`).
 - Random local-scheduler bearer token.
-- Production D1 database ID.
+- Production D1 database ID (already in `wrangler.jsonc`).
+- Optional Studato issuer override (`STUDATO_ISSUER`; defaults to the pinned Supabase project).
+
+Digest recipients live in the Google integration metadata (Settings → Email),
+not in environment. There is no `SESSION_SECRET` — session and CSRF tokens
+are random per session and only SHA-256 hashes are stored.
 
 Set secrets with `wrangler secret put`; do not place them in `wrangler.jsonc`.
+
+Apply D1 migrations before deploying Worker code that depends on them:
+
+```bash
+pnpm dlx wrangler@4.114.0 d1 migrations apply organato-production --remote --config wrangler.jsonc
+```
 
 ## Google configuration
 
@@ -61,6 +70,10 @@ Official references:
 - https://developers.google.com/workspace/gmail/api/reference/quota
 
 ## Canvas setup
+
+When a Raspberry Pi connector is paired, cookie import is rejected — pair
+and manage Canvas in Settings → Canvas / Reshet instead. The cookie steps
+below apply only to workspaces without a paired Pi.
 
 1. Open Settings → Canvas / Reshet.
 2. Paste the session cookie of a signed-in Reshet browser tab (see

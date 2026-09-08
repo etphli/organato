@@ -311,6 +311,11 @@ The calendar header includes:
 
 Direct Google edits are displayed in Organato after reconciliation with a small `Edited in Google Calendar` history entry.
 
+When both sides changed since the last push, the item is parked in
+conflict instead of either side winning silently. The Inspector shows a
+banner with **Keep Organato** / **Use Google**; the calendar marks the
+event with a warning icon until resolved.
+
 ## 8. Search
 
 `Cmd/Ctrl + K` opens the command palette. `/` focuses search when no field is active.

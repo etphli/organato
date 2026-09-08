@@ -16,6 +16,11 @@
 
 ### Setup
 
+> Two connection paths exist. The Raspberry Pi browser connector is the
+> preferred path (see `docs/13-raspberry-pi-setup.md`); when a Pi is paired,
+> direct cookie import is rejected with `409 Disconnect Pi first`. The cookie
+> flow below applies only to workspaces without a paired Pi.
+
 The Emanuel School installation is pinned server-side to
 `https://emanuel.instructure.com`. The ordinary owner flow asks only for the
 browser session cookie of an already signed-in Reshet tab — no personal API
@@ -79,7 +84,11 @@ If Canvas returns an upcoming assignment without a due date, import it as unsche
 
 ### Hourly schedule
 
-The production Cron Trigger runs on the hour. A lock prevents overlapping full syncs.
+There is no Cloudflare cron in `wrangler.jsonc` (`SCHEDULER_MODE: local`).
+The hourly tick comes from the Mac `launchd` agents installed by
+`scripts/install-launchd.mjs`, which call `POST /api/internal/schedule`.
+If the Mac is asleep or off, hourly sync, digests, and cleanup do not run.
+A lock prevents overlapping full syncs.
 
 Recommended sequence:
 
@@ -220,13 +229,24 @@ At the end of Canvas sync and before the morning digest:
 
 ### Conflict policy
 
-When both sides changed since the last successful sync:
+When Google changed (etag differs) and the item also changed locally since
+the last successful push (item version differs from the pushed version), the
+pair is parked in `conflict` — neither side is overwritten. Resolution is
+explicit, per item:
 
-- Google wins for event summary and due date/time because that is the chosen policy.
+- **Keep Organato** (`POST /api/integrations/google/resolve-conflict`,
+  strategy `mine`): re-queues the local version for push. A concurrent
+  Google edit re-flags the conflict instead of being overwritten.
+- **Use Google** (strategy `theirs`): aligns the pushed-version marker so
+  the next pull adopts the Google event.
+
+The Inspector shows a conflict banner with both actions; the calendar shows
+a warning icon. Conflicts are never auto-pushed.
+
 - Organato retains protected Canvas source metadata and source link.
 - Notes are split into a generated protected section and an owner-editable calendar section.
 - Status, priority, classification, and attachments remain Organato-owned.
-- The history states which values came from Google.
+- The history states which values came from Google and which resolution won.
 
 ### Google deletion policy
 
@@ -289,18 +309,19 @@ Within each group:
 
 1. Urgent, High, Medium, Low, Blank.
 2. Due time.
-3. Subject.
-4. Name.
+
+(Subject and name tiebreaks are intentionally absent: ordering within equal
+priority and due time follows retrieval order.)
 
 Days one, two, three, and seven receive explicit reminder styling. The remaining days appear because the owner requested a daily seven-day summary.
 
 ### Subject template
 
-Examples:
+Examples (colon separator, as implemented):
 
-- `Organato · 2 due today, 6 this week`
-- `Organato · 1 overdue, 4 coming up`
-- `Organato · 3 coming up this week`
+- `Organato: 2 due today, 6 this week`
+- `Organato: 1 overdue, 4 coming up`
+- `Organato: 3 coming up this week`
 
 ### HTML template
 
@@ -328,9 +349,13 @@ After an hourly Canvas sync:
 
 Retries use the same key and cannot duplicate a confirmed send.
 
+The 10-per-day send cap applies per delivery type, so urgent-import bursts
+can never suppress the morning digest (and vice versa).
+
 ### Delivery failure
 
-- Retry transient errors with capped exponential backoff.
+- Retry transient errors with capped exponential backoff (`next_attempt_at`,
+  consumed automatically by the hourly retry sweep, up to 3 attempts).
 - Never retry permanent authorization failure indefinitely.
 - Display a Home/settings warning.
 - Preserve the rendered message metadata so the owner can see what was missed.
@@ -355,15 +380,15 @@ No paid security assessment is planned or appropriate for this personal app. If 
 
 | Automation              | Schedule                        | Idempotency unit               |
 | ----------------------- | ------------------------------- | ------------------------------ |
-| Canvas full sync        | Hourly                          | Provider + scheduled hour      |
+| Canvas full sync        | Hourly (Mac launchd)            | Provider + scheduled hour      |
 | Manual Canvas sync      | On demand                       | Requested run ID               |
 | Calendar reconciliation | After sync and before digest    | Connection + sync token        |
-| Calendar retry          | Capped backoff                  | Item version                   |
-| Daily digest            | 6:00 AM Sydney                  | Local date + recipient set     |
+| Calendar retry          | Hourly sweep of due retries     | Delivery/item key              |
+| Daily digest            | 6:00 AM Sydney (Mac launchd)    | Local date + recipient set     |
 | Urgent import email     | After qualifying sync           | Canvas sync run ID             |
 | Archive confirmation    | After two successful full syncs | Canvas item ID + missing epoch |
-| History cleanup         | Weekly                          | Week                           |
-| Health check            | Daily                           | Local date                     |
+| History cleanup         | Daily, inside the digest job    | Day                            |
+| Health check            | None — use `/health` (D1-aware) | n/a                            |
 
 ## 8. Integration health
 

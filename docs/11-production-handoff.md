@@ -21,8 +21,10 @@ same-origin `/api/*` rewrite terminates at the Cloudflare Worker.
 - Created and pushed the private GitHub repository.
 - Connected GitHub to Vercel for automatic deployments.
 - Deployed the production PWA to Vercel with demo mode disabled.
-- Created the Oceania D1 database and applied `0001_initial.sql` and
-  `0002_reminder_retry.sql`.
+- Created the Oceania D1 database and applied migrations through
+  `0005_session_auth_stamp.sql` (re-run the D1 migrations command in
+  Operations after pulling; code tolerates a not-yet-migrated database but
+  new session stamps and link error categories need 0005).
 - Registered the `etphli.workers.dev` account subdomain.
 - Deployed the Worker with D1, production origin, owner allow-list, and
   observability attached.
@@ -36,10 +38,12 @@ same-origin `/api/*` rewrite terminates at the Cloudflare Worker.
 - Installed and loaded the hourly Canvas and 6:00 AM Sydney digest LaunchAgents.
   Their token is stored locally in `~/.config/organato/scheduler.env` with mode
   `0600`.
-- Configured the Google sign-in allow-list wildcard so any verified Google
-  account can create a private personal workspace. Workspace records,
-  assignments, settings, sessions, integrations, sync jobs, reminders, backups,
-  and diagnostics are tenant-scoped by the verified account.
+- Locked the Google sign-in allow-list to the owner's accounts
+  (`ALLOWED_GOOGLE_EMAILS` in `wrangler.jsonc`) per the private-instance
+  constraint — open signup is off. Additional owner accounts join by explicit
+  allow-list entry, never by wildcard. Workspace records, assignments,
+  settings, sessions, integrations, sync jobs, reminders, backups, and
+  diagnostics are tenant-scoped by the verified account.
 - Verified authenticated session reads and authenticated item create, read, and
   archive requests against production, then removed the smoke-test item and
   revoked its temporary sessions.
