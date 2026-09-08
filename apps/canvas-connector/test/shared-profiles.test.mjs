@@ -44,7 +44,7 @@ test("shared Pi profiles render separate users, state, display authentication an
   );
 });
 
-test("managed browser policy uses exact hosts and blocks internal browser pages", async () => {
+test("managed browser policy does not blanket-block Chromium startup pages", async () => {
   const { readFile } = await import("node:fs/promises");
   const policy = JSON.parse(
     await readFile(
@@ -55,12 +55,7 @@ test("managed browser policy uses exact hosts and blocks internal browser pages"
       "utf8",
     ),
   );
-  assert.ok(policy.URLBlocklist.includes("*"));
+  assert.equal(policy.URLBlocklist.includes("*"), false);
   assert.ok(policy.URLBlocklist.includes("chrome://*"));
-  assert.ok(policy.URLAllowlist.includes("https://.emanuel.instructure.com"));
-  assert.ok(
-    policy.URLAllowlist.every(
-      (value) => value.startsWith("https://.") && !value.includes("*"),
-    ),
-  );
+  assert.equal("URLAllowlist" in policy, false);
 });

@@ -341,7 +341,6 @@ async function launchPersistentBrowser({
     env: { ...process.env, DISPLAY: display },
     args: [
       "--window-size=1280,900",
-      "--kiosk",
       "--no-first-run",
       "--disable-default-apps",
       "--disable-extensions",

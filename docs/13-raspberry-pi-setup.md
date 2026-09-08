@@ -266,10 +266,10 @@ and erases only their saved browser profile when their connector next polls.
 The Pi owner can stop that profile with
 `sudo systemctl stop organato-canvas-profile-alex-connector`.
 
-The remote browser opens fullscreen without a general-purpose address bar.
-Extra tabs and windows are closed. Main-page navigation permits Canvas and
-Emanuel's sign-in provider; required school assets remain available. The loading
-bar is an estimate and completes only when the remote display handshake finishes.
+The connector keeps one controlled Canvas window open. Extra tabs and windows
+are closed, and main-page navigation permits only Canvas and Emanuel's sign-in
+provider. Required school assets remain available. The loading bar is an estimate
+and completes only when the remote display handshake finishes.
 
 ## 9. Troubleshooting
 
