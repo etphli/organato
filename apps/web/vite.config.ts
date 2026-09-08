@@ -10,7 +10,17 @@ export default defineConfig({
   optimizeDeps: { esbuildOptions: { target: "es2022" } },
   build: {
     target: "es2022",
-    sourcemap: true,
+    sourcemap: false,
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom", "react-router-dom"],
+          table: ["@tanstack/react-table"],
+          dates: ["date-fns"],
+        },
+      },
+    },
   },
   test: {
     environment: "jsdom",

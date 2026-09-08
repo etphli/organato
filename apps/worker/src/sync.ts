@@ -804,10 +804,10 @@ export async function runCalendarReconciliation(
               await env.DB.batch([
                 env.DB.prepare(
                   `INSERT INTO calendar_link
-                    (item_id, google_calendar_id, google_event_id, google_etag,
+                    (item_id, workspace_id, google_calendar_id, google_event_id, google_etag,
                      last_google_updated_at, last_pushed_item_version,
                      sync_state, last_synced_at)
-                   VALUES (?, ?, ?, ?, ?, ?, 'synced', ?)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', ?)
                    ON CONFLICT(item_id) DO UPDATE SET
                      google_event_id = excluded.google_event_id,
                      google_etag = excluded.google_etag,
@@ -817,6 +817,7 @@ export async function runCalendarReconciliation(
                      last_synced_at = excluded.last_synced_at`,
                 ).bind(
                   item.id,
+                  workspaceId,
                   calendarId,
                   event.id,
                   event.etag ?? null,
@@ -932,10 +933,10 @@ export async function runCalendarReconciliation(
         await env.DB.batch([
           env.DB.prepare(
             `INSERT INTO calendar_link
-              (item_id, google_calendar_id, google_event_id, google_etag,
+              (item_id, workspace_id, google_calendar_id, google_event_id, google_etag,
                last_google_updated_at, last_pushed_item_version, sync_state,
                last_synced_at)
-             VALUES (?, ?, ?, ?, ?, ?, 'synced', ?)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', ?)
              ON CONFLICT(item_id) DO UPDATE SET
                google_event_id = excluded.google_event_id,
                google_etag = excluded.google_etag,
@@ -945,6 +946,7 @@ export async function runCalendarReconciliation(
                last_synced_at = excluded.last_synced_at`,
           ).bind(
             item.id,
+            workspaceId,
             calendarId,
             event.id,
             event.etag ?? null,

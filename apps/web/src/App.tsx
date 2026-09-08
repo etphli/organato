@@ -35,17 +35,20 @@ function CheckpointsRoute() {
 function ItemDeepLink() {
   const { id } = useParams();
   const { items } = useOrganatoItems();
+  const { ready } = useOrganatoWorkspace();
   const { dispatch } = useOrganatoActions();
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (!ready) return;
     const item = items.find((entry) => entry.id === id);
     if (item) dispatch({ type: "select", id: item.id });
     else
       dispatch({ type: "toast", message: "That item is no longer available" });
     navigate("/", { replace: true });
-  }, [dispatch, id, items, navigate]);
+  }, [dispatch, id, items, navigate, ready]);
 
+  if (!ready) return <div className="route-loading" aria-label="Loading item" />;
   return null;
 }
 

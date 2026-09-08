@@ -7,7 +7,7 @@ import {
 
 export function Toast() {
   const { settings } = useOrganatoWorkspace();
-  const { toast, undo } = useOrganatoUi();
+  const { toast, toastSeq, undo } = useOrganatoUi();
   const { dispatch } = useOrganatoActions();
   useEffect(() => {
     if (!toast) return;
@@ -16,7 +16,7 @@ export function Toast() {
       5000,
     );
     return () => window.clearTimeout(timeout);
-  }, [dispatch, toast]);
+  }, [dispatch, toast, toastSeq]);
   return toast ? (
     <div
       className="toast"

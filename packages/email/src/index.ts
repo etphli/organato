@@ -148,7 +148,7 @@ export function renderDigest(input: DigestInput): RenderedDigest | null {
         const subjectName = item.subjectId
           ? subjects.get(item.subjectId)?.displayName
           : undefined;
-        return `- ${item.displayName} · ${typeLabel(item)}${subjectName ? ` · ${subjectName}` : ""}\n  ${input.appOrigin}/items/${item.id}${item.canvasHtmlUrl ? `\n  Canvas: ${item.canvasHtmlUrl}` : ""}`;
+        return `- ${item.displayName} · ${typeLabel(item)}${subjectName ? ` · ${subjectName}` : ""}\n  ${input.appOrigin}/items/${encodeURIComponent(item.id)}${item.canvasHtmlUrl ? `\n  Canvas: ${item.canvasHtmlUrl}` : ""}`;
       }),
       "",
     ]),

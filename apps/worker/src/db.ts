@@ -169,7 +169,10 @@ export async function listItems(
   const archivedClause =
     (options.archived ? "archived_at IS NOT NULL" : "archived_at IS NULL") +
     (options.ids ? " AND id IN (SELECT value FROM json_each(?))" : "");
-  const limit = Math.min(options.limit ?? 500, 2_000);
+  const rawLimit = options.limit ?? 500;
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(Math.floor(rawLimit), 1), 2_000)
+    : 500;
   const itemScope = options.all
     ? `SELECT id FROM item WHERE workspace_id = ? AND ${archivedClause}`
     : `SELECT id FROM item WHERE workspace_id = ? AND ${archivedClause}

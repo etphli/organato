@@ -36,7 +36,7 @@ import {
   sendTestEmail,
   sendUrgentImport,
 } from "./sync";
-import { sha256 } from "./security";
+import { sha256, safeEqual } from "./security";
 import type { Env, Variables } from "./types";
 import { studatoFeedRoutes } from "./studato-feed";
 
@@ -122,7 +122,10 @@ app.post("/api/internal/schedule", async (context) => {
   if (
     !context.env.SCHEDULER_TOKEN ||
     !supplied ||
-    (await sha256(supplied)) !== (await sha256(context.env.SCHEDULER_TOKEN))
+    !safeEqual(
+      await sha256(supplied),
+      await sha256(context.env.SCHEDULER_TOKEN),
+    )
   ) {
     return context.json({ error: "Not found." }, 404);
   }
