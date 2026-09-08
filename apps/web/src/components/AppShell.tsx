@@ -10,7 +10,11 @@ import {
 } from "lucide-react";
 import type { IntegrationHealth } from "@organato/domain";
 import { NavLink, type NavLinkRenderProps } from "react-router-dom";
-import { useOrganatoUi, useOrganatoWorkspace } from "../state/OrganatoProvider";
+import {
+  useOrganatoActions,
+  useOrganatoUi,
+  useOrganatoWorkspace,
+} from "../state/OrganatoProvider";
 import { useAuthOwner } from "./AuthGate";
 import { BrandMark } from "./BrandMark";
 
@@ -77,17 +81,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   const owner = useAuthOwner();
   const { integrations } = useOrganatoWorkspace();
   const { syncing } = useOrganatoUi();
+  const { dispatch } = useOrganatoActions();
+  const closeInspector = () => dispatch({ type: "select", id: null });
   const displayName = owner?.displayName || owner?.email || "Owner";
   const syncStatus = getShellSyncStatus(integrations, syncing);
-  const initials = displayName
-    .trim()
-    .split(/[\s@._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2) || "O";
+  const initials =
+    displayName
+      .trim()
+      .split(/[\s@._-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2) || "O";
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -118,6 +125,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               to={to}
               end={to === "/"}
               aria-label={label}
+              onClick={closeInspector}
               className={({ isActive }: NavLinkRenderProps) =>
                 `nav-item${isActive ? " active" : ""}`
               }
@@ -173,6 +181,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             to={to}
             end={to === "/"}
             aria-label={label}
+            onClick={closeInspector}
             className={({ isActive }: NavLinkRenderProps) =>
               isActive ? "active" : ""
             }

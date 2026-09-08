@@ -106,6 +106,9 @@ type Action =
       dueHasExplicitTime?: boolean;
       subjectId?: string | null;
       priority?: OrganatoItem["priority"];
+      recurrenceRule?: OrganatoItem["recurrenceRule"];
+      calendarEnabled?: boolean;
+      remindersEnabled?: boolean;
     }
   | {
       type: "addWork";
@@ -593,6 +596,10 @@ function baseReducer(state: State, action: Action): State {
   if (action.type === "addTodo" || action.type === "addWork") {
     const now = new Date().toISOString();
     const isTodo = action.type === "addTodo";
+    const recurrenceRule =
+      isTodo && "recurrenceRule" in action
+        ? (action.recurrenceRule ?? null)
+        : null;
     const todo: OrganatoItem = {
       id: crypto.randomUUID(),
       version: 1,
@@ -616,10 +623,20 @@ function baseReducer(state: State, action: Action): State {
       completedAt: null,
       submittedAt: null,
       notesMarkdown: "",
-      recurrenceRule: null,
-      recurrenceSeriesId: null,
-      calendarEnabled: isTodo ? state.settings.todoCalendarDefault : true,
-      remindersEnabled: isTodo ? state.settings.todoRemindersDefault : true,
+      recurrenceRule,
+      recurrenceSeriesId: recurrenceRule?.seriesId ?? null,
+      calendarEnabled:
+        "calendarEnabled" in action && action.calendarEnabled !== undefined
+          ? action.calendarEnabled
+          : isTodo
+            ? state.settings.todoCalendarDefault
+            : true,
+      remindersEnabled:
+        "remindersEnabled" in action && action.remindersEnabled !== undefined
+          ? action.remindersEnabled
+          : isTodo
+            ? state.settings.todoRemindersDefault
+            : true,
       calendarSyncState:
         action.dueAt || action.dueDateLocal ? "pending" : "synced",
       calendarNote: "",
@@ -1086,13 +1103,24 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                       : Boolean(action.dueAt),
                   subjectId: action.subjectId ?? null,
                   priority: action.priority ?? null,
-                  recurrenceRule: null,
-                  calendarEnabled: isTodo
-                    ? currentState.settings.todoCalendarDefault
-                    : true,
-                  remindersEnabled: isTodo
-                    ? currentState.settings.todoRemindersDefault
-                    : true,
+                  recurrenceRule:
+                    isTodo && "recurrenceRule" in action
+                      ? (action.recurrenceRule ?? null)
+                      : null,
+                  calendarEnabled:
+                    "calendarEnabled" in action &&
+                    action.calendarEnabled !== undefined
+                      ? action.calendarEnabled
+                      : isTodo
+                        ? currentState.settings.todoCalendarDefault
+                        : true,
+                  remindersEnabled:
+                    "remindersEnabled" in action &&
+                    action.remindersEnabled !== undefined
+                      ? action.remindersEnabled
+                      : isTodo
+                        ? currentState.settings.todoRemindersDefault
+                        : true,
                 }),
               },
             );

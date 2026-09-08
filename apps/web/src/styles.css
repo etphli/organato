@@ -2141,6 +2141,75 @@ kbd {
   z-index: 50;
 }
 
+.inspector-backdrop {
+  inset: 0;
+  position: fixed;
+  z-index: 40;
+}
+
+.inspector-backdrop .inspector {
+  position: absolute;
+}
+
+.create-work-switch {
+  align-items: center;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  display: flex;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.create-work-switch > span {
+  color: var(--secondary);
+  font-size: 0.77rem;
+}
+
+.create-work-switch input[type="checkbox"] {
+  appearance: none;
+  background: var(--surface-active);
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  cursor: pointer;
+  height: 19px;
+  margin: 0;
+  position: relative;
+  transition: background var(--motion);
+  width: 34px;
+}
+
+.create-work-switch input[type="checkbox"]::after {
+  background: var(--secondary);
+  border: none;
+  border-radius: 50%;
+  content: "";
+  display: block;
+  height: 13px;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  transform: none;
+  transition: transform var(--motion);
+  width: 13px;
+}
+
+.create-work-switch input[type="checkbox"]:checked {
+  background: color-mix(in srgb, var(--focus) 65%, var(--surface));
+}
+
+.create-work-switch input[type="checkbox"]:checked::after {
+  background: var(--text);
+  display: block;
+  transform: translateX(15px);
+}
+
+.create-work-switch input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .inspector > header {
   align-items: center;
   border-bottom: 1px solid var(--border);
@@ -2181,15 +2250,17 @@ kbd {
 
 .property-list {
   border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
   margin: 0 0 22px;
-  padding-bottom: 12px;
+  padding-bottom: 16px;
 }
 
 .property-list > div {
   align-items: center;
   display: grid;
   grid-template-columns: 112px 1fr;
-  min-height: 34px;
+  min-height: 40px;
 }
 
 .property-list dt {
@@ -2201,7 +2272,7 @@ kbd {
   align-items: center;
   display: flex;
   font-size: 0.72rem;
-  gap: 5px;
+  gap: 8px;
   margin: 0;
   min-width: 0;
 }
@@ -2209,7 +2280,7 @@ kbd {
 .due-inputs {
   display: grid;
   flex: 1;
-  gap: 4px;
+  gap: 8px;
   grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.85fr);
   min-width: 0;
 }
@@ -2238,6 +2309,12 @@ kbd {
   border-bottom: 1px solid var(--border);
   margin-bottom: 17px;
   padding-bottom: 17px;
+}
+
+.inspector-manage {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
 }
 
 .inspector-section h2 {
