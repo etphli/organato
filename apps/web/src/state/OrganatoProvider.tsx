@@ -110,6 +110,8 @@ type Action =
       recurrenceRule?: OrganatoItem["recurrenceRule"];
       calendarEnabled?: boolean;
       remindersEnabled?: boolean;
+      notesMarkdown?: string;
+      calendarNote?: string;
     }
   | {
       type: "addWork";
@@ -120,6 +122,8 @@ type Action =
       dueHasExplicitTime?: boolean;
       subjectId?: string | null;
       priority?: OrganatoItem["priority"];
+      notesMarkdown?: string;
+      calendarNote?: string;
     }
   | { type: "settings"; patch: Partial<WorkspaceSettings> }
   | { type: "command"; open: boolean }
@@ -623,7 +627,8 @@ function baseReducer(state: State, action: Action): State {
       workingStatus: "not_started",
       completedAt: null,
       submittedAt: null,
-      notesMarkdown: "",
+      notesMarkdown:
+        "notesMarkdown" in action ? (action.notesMarkdown ?? "") : "",
       recurrenceRule,
       recurrenceSeriesId: recurrenceRule?.seriesId ?? null,
       calendarEnabled:
@@ -640,7 +645,7 @@ function baseReducer(state: State, action: Action): State {
             : true,
       calendarSyncState:
         action.dueAt || action.dueDateLocal ? "pending" : "synced",
-      calendarNote: "",
+      calendarNote: "calendarNote" in action ? (action.calendarNote ?? "") : "",
       pinned: false,
       sortRank: 0,
       archivedAt: null,
@@ -1125,6 +1130,12 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                       : Boolean(action.dueAt),
                   subjectId: action.subjectId ?? null,
                   priority: action.priority ?? null,
+                  notesMarkdown:
+                    "notesMarkdown" in action
+                      ? (action.notesMarkdown ?? "")
+                      : "",
+                  calendarNote:
+                    "calendarNote" in action ? (action.calendarNote ?? "") : "",
                   recurrenceRule:
                     isTodo && "recurrenceRule" in action
                       ? (action.recurrenceRule ?? null)

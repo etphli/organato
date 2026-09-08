@@ -2210,6 +2210,12 @@ kbd {
   justify-items: start;
 }
 
+.inspector-manage h2 {
+  /* Align the heading text with the text-button labels below it
+     (buttons carry 12px horizontal padding; the heading had none). */
+  padding-left: var(--ato-space-3, 12px);
+}
+
 .inspector-section h2 {
   color: var(--secondary);
   font-size: 0.68rem;

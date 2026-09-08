@@ -742,6 +742,8 @@ export function Inspector() {
                   recurrenceRule: item.recurrenceRule,
                   calendarEnabled: item.calendarEnabled,
                   remindersEnabled: item.remindersEnabled,
+                  notesMarkdown: item.notesMarkdown,
+                  calendarNote: item.calendarNote,
                 });
               } else {
                 dispatch({
@@ -756,6 +758,8 @@ export function Inspector() {
                   dueHasExplicitTime: item.dueHasExplicitTime,
                   subjectId: item.subjectId,
                   priority: item.priority,
+                  notesMarkdown: item.notesMarkdown,
+                  calendarNote: item.calendarNote,
                 });
               }
               close();

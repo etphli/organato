@@ -197,4 +197,66 @@ describe("server-backed item mutations", () => {
     );
     expect(screen.queryByText("Failed assignment")).not.toBeInTheDocument();
   }, 30_000);
+
+  it("carries notes through add actions so Duplicate keeps them", async () => {
+    vi.stubEnv("VITE_DEMO_MODE", "false");
+    let posted: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init: RequestInit = {}) => {
+        const path = String(input);
+        if (path === "/api/items" && init.method === "POST") {
+          posted = JSON.parse(String(init.body)) as Record<string, unknown>;
+          const template = seedItems.find((item) => item.kind === "todo")!;
+          return json(
+            {
+              item: {
+                ...template,
+                id: "duplicated-todo",
+                displayName: posted.displayName,
+                notesMarkdown: posted.notesMarkdown,
+                calendarNote: posted.calendarNote,
+              },
+            },
+            201,
+          );
+        }
+        if (path.startsWith("/api/items?")) return json({ items: [] });
+        if (path === "/api/subjects") return json({ subjects: seedSubjects });
+        if (path === "/api/settings") return json({ settings: seedSettings });
+        if (path === "/api/integrations") return json({ integrations: [] });
+        if (path === "/api/views") return json({ views: [] });
+        return json({ error: "Unexpected request" }, 500);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { OrganatoProvider, useOrganatoActions } =
+      await import("../state/OrganatoProvider");
+    const { useEffect } = await import("react");
+
+    function DuplicateProbe() {
+      const { dispatch } = useOrganatoActions();
+      useEffect(() => {
+        dispatch({
+          type: "addTodo",
+          name: "Duplicated todo",
+          notesMarkdown: "Keep these notes",
+          calendarNote: "Keep this note",
+        });
+      }, [dispatch]);
+      return null;
+    }
+
+    render(
+      <OrganatoProvider>
+        <DuplicateProbe />
+      </OrganatoProvider>,
+    );
+
+    await waitFor(() => expect(posted).not.toBeNull());
+    expect(posted).toMatchObject({
+      displayName: "Duplicated todo",
+      notesMarkdown: "Keep these notes",
+      calendarNote: "Keep this note",
+    });
+  }, 30_000);
 });
