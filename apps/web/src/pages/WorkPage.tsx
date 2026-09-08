@@ -23,7 +23,7 @@ import {
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   daysRemainingLabel,
   itemDeadline,
@@ -105,6 +105,10 @@ export default function WorkPage({
   const mobileActionsRef = useRef<HTMLDetailsElement>(null);
   const itemNoun = page === "assignments" ? "assignment" : "checkpoint";
   const now = useMemo(() => new Date(), []);
+  // Filtering to a smaller set must not strand the table on an empty page.
+  useEffect(() => {
+    setPagination((current) => ({ ...current, pageIndex: 0 }));
+  }, [query, priorityFilter, activeView, page]);
   const closeMobileActions = () => {
     if (mobileActionsRef.current) mobileActionsRef.current.open = false;
   };

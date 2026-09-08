@@ -483,7 +483,8 @@ function CreateTodoFormComponent({
           ) : null}
           <div className="create-work-field">
             <span>Calendar</span>
-            <label className="toggle-lines">
+            <label className="create-work-switch">
+              <span>Add to Google Calendar</span>
               <input
                 type="checkbox"
                 checked={calendarEnabled}
@@ -494,7 +495,8 @@ function CreateTodoFormComponent({
           </div>
           <div className="create-work-field">
             <span>Reminders</span>
-            <label className="toggle-lines">
+            <label className="create-work-switch">
+              <span>Email reminders</span>
               <input
                 type="checkbox"
                 checked={remindersEnabled}

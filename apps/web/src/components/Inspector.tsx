@@ -652,8 +652,62 @@ export function Inspector() {
         >
           Copy link
         </button>
-        <section className="inspector-section" aria-label="Danger zone">
+        <section
+          className="inspector-section inspector-manage"
+          aria-label="Danger zone"
+        >
           <h2>Manage</h2>
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => {
+              if (item.kind === "todo") {
+                dispatch({
+                  type: "addTodo",
+                  name: `${item.displayName} (copy)`,
+                  dueAt: item.dueAt,
+                  dueDateLocal: item.dueDateLocal,
+                  dueHasExplicitTime: item.dueHasExplicitTime,
+                  subjectId: item.subjectId,
+                  priority: item.priority,
+                  recurrenceRule: item.recurrenceRule,
+                  calendarEnabled: item.calendarEnabled,
+                  remindersEnabled: item.remindersEnabled,
+                });
+              } else {
+                dispatch({
+                  type: "addWork",
+                  name: `${item.displayName} (copy)`,
+                  classification:
+                    item.classification === "unclassified"
+                      ? "assignment"
+                      : item.classification,
+                  dueAt: item.dueAt,
+                  dueDateLocal: item.dueDateLocal,
+                  dueHasExplicitTime: item.dueHasExplicitTime,
+                  subjectId: item.subjectId,
+                  priority: item.priority,
+                });
+              }
+              close();
+            }}
+          >
+            Duplicate
+          </button>
+          <button
+            className="text-button"
+            type="button"
+            aria-pressed={item.pinned}
+            onClick={() =>
+              dispatch({
+                type: "patchItem",
+                id: item.id,
+                patch: { pinned: !item.pinned },
+              })
+            }
+          >
+            {item.pinned ? "Unpin" : "Pin to top"}
+          </button>
           {item.archivedAt ? (
             <button
               className="text-button"

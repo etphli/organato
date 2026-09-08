@@ -150,14 +150,10 @@ export default function CalendarPage() {
   }, [setPreferences]);
   const movePeriod = useCallback(
     (amount: number) => {
-      setPreferences((current) => {
-        const anchorKey = moveAnchor(current.anchorKey, current.view, amount);
-        return {
-          ...current,
-          anchorKey,
-          selectedDateKey: anchorKey,
-        };
-      });
+      setPreferences((current) => ({
+        ...current,
+        anchorKey: moveAnchor(current.anchorKey, current.view, amount),
+      }));
     },
     [setPreferences],
   );
