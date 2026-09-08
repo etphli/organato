@@ -22,6 +22,7 @@ import {
   daysRemainingLabel,
   isInView,
   localDateKey,
+  visibleStatus,
   type Classification,
   type OrganatoItem,
 } from "@organato/domain";
@@ -406,7 +407,14 @@ function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
         })
         .toSorted((a, b) => compareItems(a, b, today))
         .slice(0, limit),
-    [items, limit, page, settings.includeBothInPanels, settings.timezone, today],
+    [
+      items,
+      limit,
+      page,
+      settings.includeBothInPanels,
+      settings.timezone,
+      today,
+    ],
   );
   return (
     <section className="upcoming-list">
@@ -460,6 +468,52 @@ function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
   );
 }
 
+function OverdueList() {
+  const { items, subjectsById, settings } = useOrganatoData();
+  const { dispatch } = useOrganatoActions();
+  const today = useToday();
+  const overdue = useMemo(
+    () =>
+      items
+        .filter(
+          (item) =>
+            !item.archivedAt && visibleStatus(item, today) === "overdue",
+        )
+        .toSorted((a, b) => compareItems(a, b, today))
+        .slice(0, 8),
+    [items, today],
+  );
+  if (!overdue.length) return null;
+  return (
+    <section className="upcoming-list overdue-list" aria-label="Overdue">
+      <h2>Overdue · {overdue.length}</h2>
+      {overdue.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          onClick={() => dispatch({ type: "select", id: item.id })}
+          aria-haspopup="dialog"
+        >
+          <span className="upcoming-name">
+            <SubjectDot subjectId={item.subjectId} />
+            {item.displayName}
+          </span>
+          <span>{subjectsById.get(item.subjectId ?? "")?.displayName}</span>
+          <span>
+            <strong className="danger-text">
+              {daysRemainingLabel(
+                itemDueDate(item, settings.timezone),
+                today,
+                settings.timezone,
+              )}
+            </strong>
+          </span>
+        </button>
+      ))}
+    </section>
+  );
+}
+
 function WorkloadStrip() {
   const { items, settings } = useOrganatoData();
   const today = useToday();
@@ -508,6 +562,7 @@ export default function HomePage() {
     <div className="page home-page">
       <PageHeader title="Home" meta={format(today, "EEEE, d MMMM")} />
       <ClassificationInbox />
+      <OverdueList />
       <div
         className={`home-middle${settings.showMiniCalendar ? "" : " single"}`}
       >

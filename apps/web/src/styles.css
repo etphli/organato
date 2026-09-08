@@ -2141,6 +2141,16 @@ kbd {
   z-index: 50;
 }
 
+.inspector-backdrop {
+  inset: 0;
+  position: fixed;
+  z-index: 40;
+}
+
+.inspector-backdrop .inspector {
+  position: absolute;
+}
+
 .inspector > header {
   align-items: center;
   border-bottom: 1px solid var(--border);

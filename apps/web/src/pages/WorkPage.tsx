@@ -104,7 +104,7 @@ export default function WorkPage({
   );
   const mobileActionsRef = useRef<HTMLDetailsElement>(null);
   const itemNoun = page === "assignments" ? "assignment" : "checkpoint";
-  const now = useMemo(() => new Date(), [page]);
+  const now = useMemo(() => new Date(), []);
   const closeMobileActions = () => {
     if (mobileActionsRef.current) mobileActionsRef.current.open = false;
   };
@@ -375,6 +375,7 @@ export default function WorkPage({
     ],
     [
       dispatch,
+      now,
       settings.inlineEditing,
       settings.showSourceIcons,
       itemNoun,

@@ -48,7 +48,8 @@ function ItemDeepLink() {
     navigate("/", { replace: true });
   }, [dispatch, id, items, navigate, ready]);
 
-  if (!ready) return <div className="route-loading" aria-label="Loading item" />;
+  if (!ready)
+    return <div className="route-loading" aria-label="Loading item" />;
   return null;
 }
 
@@ -105,6 +106,7 @@ export function App() {
         return;
       }
       if (event.key === "Escape") {
+        if (typing) return;
         dispatch({ type: "select", id: null });
         dispatch({ type: "command", open: false });
         dispatch({ type: "search", open: false });
@@ -124,6 +126,7 @@ export function App() {
       };
       const path = paths[sequence.current];
       if (path) {
+        dispatch({ type: "select", id: null });
         navigate(path);
         sequence.current = "";
       }

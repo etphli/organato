@@ -5,8 +5,7 @@ import {
   Plus,
   Repeat2,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format } from "date-fns";
 import {
   compareItems,
@@ -18,42 +17,104 @@ import { PageHeader } from "../components/PageHeader";
 import { OrganatoSelect } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
 import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
+import { CreateTodoControl, type NewTodoItem } from "./CreateWorkForm";
 
 const todoPageSize = 50;
+const todoShowCompletedKey = "organato-todo-show-completed-v1";
+
+function loadShowCompletedPreference(): boolean {
+  try {
+    return localStorage.getItem(todoShowCompletedKey) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function findSubjectId(
+  subjects: {
+    id: string;
+    displayName: string;
+    shortName: string | null;
+    sourceName: string | null;
+  }[],
+  raw: string | null,
+): string | null {
+  if (!raw) return null;
+  const needle = raw.toLowerCase();
+  const exact = subjects.find((entry) =>
+    [entry.displayName, entry.shortName, entry.sourceName]
+      .filter(Boolean)
+      .some((value) => value?.toLowerCase() === needle),
+  );
+  if (exact) return exact.id;
+  const partial = subjects.find((entry) =>
+    [entry.displayName, entry.shortName, entry.sourceName]
+      .filter(Boolean)
+      .some((value) => value?.toLowerCase().includes(needle)),
+  );
+  return partial?.id ?? null;
+}
 
 function parseQuickTodo(input: string) {
   const priorityMatch = input.match(/!(low|medium|high|urgent)\b/i);
   const subjectMatch = input.match(/#([\w-]+)/);
+  const today = /\btoday\b/i.test(input) && !/\btomorrow\b/i.test(input);
   const tomorrow = /\btomorrow\b/i.test(input);
-  const tomorrowKey = format(addDays(new Date(), 1), "yyyy-MM-dd");
+  const dueDateLocal = tomorrow
+    ? format(addDays(new Date(), 1), "yyyy-MM-dd")
+    : today
+      ? format(new Date(), "yyyy-MM-dd")
+      : null;
   const cleaned = input
     .replace(/!(low|medium|high|urgent)\b/gi, "")
     .replace(/#([\w-]+)/g, "")
     .replace(/\btomorrow\b/gi, "")
+    .replace(/\btoday\b/gi, "")
     .trim();
   return {
     name: cleaned,
     priority: priorityMatch?.[1]?.toLowerCase() ?? null,
     subject: subjectMatch?.[1] ?? null,
-    dueDateLocal: tomorrow ? tomorrowKey : null,
+    dueDateLocal,
   };
 }
 
 export default function TodoPage() {
   const { items, subjects, subjectsById, settings } = useOrganatoData();
   const { dispatch } = useOrganatoActions();
-  const [searchParams, setSearchParams] = useSearchParams();
   const quickAddRef = useRef<HTMLInputElement>(null);
   const [entry, setEntry] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
+  const [showCompleted, setShowCompleted] = useState(
+    loadShowCompletedPreference,
+  );
   const [preview, setPreview] = useState<ReturnType<
     typeof parseQuickTodo
   > | null>(null);
+  const openItem = useCallback(
+    (id: string) => dispatch({ type: "select", id }),
+    [dispatch],
+  );
   const todos = useMemo(
     () =>
       items
-        .filter((item) => item.kind === "todo" && !item.archivedAt)
+        .filter((item) => {
+          if (item.kind !== "todo" || item.archivedAt) return false;
+          if (!showCompleted && item.workingStatus === "completed")
+            return false;
+          return true;
+        })
         .toSorted((a, b) => compareItems(a, b, new Date())),
+    [items, showCompleted],
+  );
+  const activeCount = useMemo(
+    () =>
+      items.filter(
+        (item) =>
+          item.kind === "todo" &&
+          !item.archivedAt &&
+          item.workingStatus !== "completed",
+      ).length,
     [items],
   );
   const pageCount = Math.max(1, Math.ceil(todos.length / todoPageSize));
@@ -64,13 +125,35 @@ export default function TodoPage() {
   useEffect(() => {
     setPageIndex((current) => Math.min(current, pageCount - 1));
   }, [pageCount]);
-  useEffect(() => {
-    if (searchParams.get("new") !== "1") return;
-    quickAddRef.current?.focus();
-    const next = new URLSearchParams(searchParams);
-    next.delete("new");
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
+  const toggleCompleted = () => {
+    setShowCompleted((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(todoShowCompletedKey, String(next));
+      } catch {
+        // The list still works when browser storage is unavailable.
+      }
+      return next;
+    });
+  };
+  const createFromDialog = useCallback(
+    (item: NewTodoItem) => {
+      dispatch({
+        type: "addTodo",
+        name: item.name,
+        dueAt: item.dueAt,
+        dueDateLocal: item.dueDateLocal,
+        dueHasExplicitTime: item.dueHasExplicitTime,
+        subjectId: item.subjectId,
+        priority: item.priority,
+        recurrenceRule: item.recurrenceRule,
+        calendarEnabled: item.calendarEnabled,
+        remindersEnabled: item.remindersEnabled,
+      });
+      setPageIndex(0);
+    },
+    [dispatch],
+  );
   const submit = () => {
     const parsed = parseQuickTodo(entry);
     if (!parsed.name) return;
@@ -82,38 +165,40 @@ export default function TodoPage() {
       setPreview(parsed);
       return;
     }
-    const subject = subjects.find(
-      (entry) =>
-        parsed.subject &&
-        [entry.displayName, entry.shortName, entry.sourceName]
-          .filter(Boolean)
-          .some(
-            (value) => value?.toLowerCase() === parsed.subject?.toLowerCase(),
-          ),
-    );
     dispatch({
       type: "addTodo",
       name: parsed.name,
       dueDateLocal: parsed.dueDateLocal,
       dueHasExplicitTime: false,
-      subjectId: subject?.id ?? null,
+      subjectId: findSubjectId(subjects, parsed.subject),
       priority: parsed.priority as "low" | "medium" | "high" | "urgent" | null,
     });
     setEntry("");
     setPreview(null);
+    setPageIndex(0);
   };
   return (
     <div className="page todo-page">
       <PageHeader
         title="Todo"
-        meta={`${todos.length} active`}
+        meta={`${activeCount} active${showCompleted ? ` · ${todos.length} shown` : ""}`}
         actions={
-          <button
-            className="new-button"
-            onClick={() => quickAddRef.current?.focus()}
-          >
-            <Plus size={16} /> New
-          </button>
+          <>
+            <button
+              type="button"
+              aria-pressed={showCompleted}
+              onClick={toggleCompleted}
+            >
+              {showCompleted ? "Hide completed" : "Show completed"}
+            </button>
+            <CreateTodoControl
+              subjects={subjects}
+              timezone={settings.timezone}
+              calendarDefault={settings.todoCalendarDefault}
+              remindersDefault={settings.todoRemindersDefault}
+              onCreate={createFromDialog}
+            />
+          </>
         }
       />
       <section className="todo-quick">
@@ -140,7 +225,10 @@ export default function TodoPage() {
         {preview ? (
           <div className="parse-preview" role="status">
             <span>
-              Create “{preview.name}”{preview.dueDateLocal ? " · tomorrow" : ""}
+              Create “{preview.name}”
+              {preview.dueDateLocal
+                ? ` · ${preview.dueDateLocal === format(new Date(), "yyyy-MM-dd") ? "today" : "tomorrow"}`
+                : ""}
               {preview.subject ? ` · #${preview.subject}` : ""}
               {preview.priority ? ` · ${preview.priority}` : ""}?
             </span>
@@ -190,12 +278,18 @@ export default function TodoPage() {
               </button>
               <button
                 className="todo-name"
-                onClick={() => dispatch({ type: "select", id: todo.id })}
+                type="button"
+                aria-haspopup="dialog"
+                onClick={() => openItem(todo.id)}
               >
                 {todo.displayName}
               </button>
               <span className={status === "overdue" ? "danger-text" : ""}>
-                {daysRemainingLabel(itemDeadline(todo), new Date(), settings.timezone)}
+                {daysRemainingLabel(
+                  itemDeadline(todo),
+                  new Date(),
+                  settings.timezone,
+                )}
                 <small>
                   {itemDeadline(todo)
                     ? itemDeadline(todo)!.toLocaleDateString("en-AU", {
@@ -260,8 +354,10 @@ export default function TodoPage() {
               </span>
               <button
                 className="row-menu"
-                onClick={() => dispatch({ type: "select", id: todo.id })}
+                type="button"
+                onClick={() => openItem(todo.id)}
                 aria-label={`More actions for ${todo.displayName}`}
+                aria-haspopup="dialog"
               >
                 <MoreHorizontal size={16} />
               </button>
