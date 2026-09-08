@@ -42,6 +42,7 @@ interface State {
   searchOpen: boolean;
   syncing: boolean;
   toast: string | null;
+  toastSeq: number;
   undo: {
     kind: "patch" | "classify" | "archive" | "restore";
     item: OrganatoItem;
@@ -175,6 +176,7 @@ function initialState(): State {
           searchOpen: false,
           syncing: false,
           toast: null,
+          toastSeq: 0,
           undo: null,
         };
       }
@@ -197,6 +199,7 @@ function initialState(): State {
     searchOpen: false,
     syncing: false,
     toast: null,
+    toastSeq: 0,
     undo: null,
   };
 }
@@ -209,23 +212,27 @@ function listItem(item: OrganatoItem): OrganatoItem {
   return demoMode ? item : { ...item, attachments: [], history: [] };
 }
 
-function reducer(state: State, action: Action): State {
+function baseReducer(state: State, action: Action): State {
   if (action.type === "hydrate") {
+    const nextItems = action.preserveArchived
+      ? [
+          ...action.items.filter((item) => !item.archivedAt),
+          ...state.items.filter((item) => item.archivedAt),
+        ]
+      : action.items;
+    const selectedStillExists =
+      state.selectedItemId != null &&
+      nextItems.some((item) => item.id === state.selectedItemId);
     return persist({
       ...state,
-      items: action.preserveArchived
-        ? [
-            ...action.items.filter((item) => !item.archivedAt),
-            ...state.items.filter((item) => item.archivedAt),
-          ]
-        : action.items,
+      items: nextItems,
       subjects: action.subjects,
       settings: action.settings,
       integrations: action.integrations,
       views: action.views,
       ready: true,
       archivedReady: action.archivedReady ?? state.archivedReady,
-      selectedItemDetail: null,
+      selectedItemDetail: selectedStillExists ? state.selectedItemDetail : null,
       bootError: null,
     });
   }
@@ -289,9 +296,8 @@ function reducer(state: State, action: Action): State {
       selectedItemDetail: selectedIsArchived ? null : state.selectedItemDetail,
     };
   }
-  if (isOffline() && isServerMutation(action)) {
-    return { ...state, toast: "Offline · this change was not saved" };
-  }
+  // Offline guard lives in the dispatch wrapper (which can read navigator and
+  // roll back optimistic updates). Keep the reducer pure for tests/time-travel.
   if (action.type === "resetOverride") {
     const current = state.items.find((item) => item.id === action.id);
     if (!current) return state;
@@ -652,6 +658,18 @@ function reducer(state: State, action: Action): State {
   });
 }
 
+function reducer(state: State, action: Action): State {
+  const next = baseReducer(state, action);
+  if (next.toast !== state.toast) {
+    return { ...next, toastSeq: state.toastSeq + 1 };
+  }
+  if (action.type === "toast") {
+    // Same message twice should still retrigger the auto-dismiss timer.
+    return { ...next, toastSeq: state.toastSeq + 1 };
+  }
+  return next;
+}
+
 interface ActionsContextValue {
   dispatch: React.Dispatch<Action>;
   refresh(options?: { includeArchived?: boolean }): Promise<void>;
@@ -666,7 +684,13 @@ type WorkspaceContextValue = Pick<
 > & { subjectsById: Map<string, Subject> };
 type UiContextValue = Pick<
   State,
-  "selectedItemId" | "commandOpen" | "searchOpen" | "syncing" | "toast" | "undo"
+  | "selectedItemId"
+  | "commandOpen"
+  | "searchOpen"
+  | "syncing"
+  | "toast"
+  | "toastSeq"
+  | "undo"
 > & { selectedItem: OrganatoItem | null };
 
 const OrganatoItemsContext = createContext<ItemsContextValue | null>(null);
@@ -1338,6 +1362,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
       searchOpen: state.searchOpen,
       syncing: state.syncing,
       toast: state.toast,
+      toastSeq: state.toastSeq,
       undo: state.undo,
     }),
     [
@@ -1347,6 +1372,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
       state.selectedItemId,
       state.syncing,
       state.toast,
+      state.toastSeq,
       state.undo,
     ],
   );

@@ -138,10 +138,10 @@ const savedViewSchema = z.object({
   id: z.string().min(1).max(100).optional(),
   page: z.enum(["assignments", "checkpoints", "todo", "archive"]),
   name: z.string().min(1).max(100),
-  filters: z.record(z.unknown()).default({}),
-  sort: z.array(z.record(z.unknown())).max(20).default([]),
+  filters: z.record(z.string().max(80), z.unknown()).default({}),
+  sort: z.array(z.record(z.string().max(80), z.unknown())).max(20).default([]),
   columns: z.array(z.string().max(80)).max(30).default([]),
-  columnWidths: z.record(z.number().positive().max(2_000)).default({}),
+  columnWidths: z.record(z.string().max(80), z.number().positive().max(2_000)).default({}),
   isDefault: z.boolean().default(false),
 });
 const workspaceSettingsPatchSchema = z
@@ -441,7 +441,10 @@ apiRoutes.get("/home", async (context) => {
 
 apiRoutes.get("/items", async (context) => {
   const archived = context.req.query("archived") === "true";
-  const limit = Number(context.req.query("limit") ?? 500);
+  const rawLimit = Number(context.req.query("limit") ?? 500);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(Math.floor(rawLimit), 1), 2000)
+    : 500;
   return context.json({
     items: await listItems(context.env.DB, context.get("user").workspaceId, {
       archived,
@@ -499,9 +502,15 @@ apiRoutes.post(
         ),
         context.env.DB.prepare(
           `INSERT INTO item_history
-             (id, item_id, actor_type, actor_identity, action, summary, created_at)
-             VALUES (?, ?, 'user', ?, 'created', 'Created in Organato', ?)`,
-        ).bind(crypto.randomUUID(), id, context.get("user").email, now),
+             (id, item_id, workspace_id, actor_type, actor_identity, action, summary, created_at)
+             VALUES (?, ?, ?, 'user', ?, 'created', 'Created in Organato', ?)`,
+        ).bind(
+          crypto.randomUUID(),
+          id,
+          context.get("user").workspaceId,
+          context.get("user").email,
+          now,
+        ),
       ]);
       return context.json(
         {
@@ -1003,14 +1012,28 @@ apiRoutes.post(
     await context.env.DB.batch([
       context.env.DB.prepare(
         `INSERT INTO attachment_link
-          (id, item_id, label, url, link_type, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      ).bind(id, itemId, input.label, input.url, input.linkType, now),
+          (id, item_id, workspace_id, label, url, link_type, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        id,
+        itemId,
+        context.get("user").workspaceId,
+        input.label,
+        input.url,
+        input.linkType,
+        now,
+      ),
       context.env.DB.prepare(
         `INSERT INTO item_history
-          (id, item_id, actor_type, actor_identity, action, summary, created_at)
-         VALUES (?, ?, 'user', ?, 'attachment_added', 'Added linked attachment', ?)`,
-      ).bind(crypto.randomUUID(), itemId, context.get("user").email, now),
+          (id, item_id, workspace_id, actor_type, actor_identity, action, summary, created_at)
+         VALUES (?, ?, ?, 'user', ?, 'attachment_added', 'Added linked attachment', ?)`,
+      ).bind(
+        crypto.randomUUID(),
+        itemId,
+        context.get("user").workspaceId,
+        context.get("user").email,
+        now,
+      ),
     ]);
     return context.json(
       {
@@ -1122,7 +1145,7 @@ apiRoutes.patch(
     };
     const entries = Object.entries(input);
     if (entries.length) {
-      await context.env.DB.prepare(
+      const result = await context.env.DB.prepare(
         `UPDATE subject SET ${entries.map(([key]) => `${mapping[key]} = ?`).join(", ")}, updated_at = ? WHERE id = ? AND workspace_id = ?`,
       )
         .bind(
@@ -1134,6 +1157,9 @@ apiRoutes.patch(
           context.get("user").workspaceId,
         )
         .run();
+      if ((result.meta.changes ?? 0) === 0) {
+        return context.json({ error: "Subject not found." }, 404);
+      }
     }
     return context.json({
       subjects: await listSubjects(
@@ -1211,11 +1237,20 @@ apiRoutes.post(
     const input = context.req.valid("json");
     const id = input.id ?? crypto.randomUUID();
     const now = new Date().toISOString();
+    const workspaceId = context.get("user").workspaceId;
+    const existing = await context.env.DB.prepare(
+      "SELECT workspace_id FROM saved_view WHERE id = ?",
+    )
+      .bind(id)
+      .first<{ workspace_id: string }>();
+    if (existing && existing.workspace_id !== workspaceId) {
+      return context.json({ error: "View not found." }, 404);
+    }
     if (input.isDefault) {
       await context.env.DB.prepare(
         "UPDATE saved_view SET is_default = 0, updated_at = ? WHERE workspace_id = ? AND page = ?",
       )
-        .bind(now, context.get("user").workspaceId, input.page)
+        .bind(now, workspaceId, input.page)
         .run();
     }
     await context.env.DB.prepare(
@@ -1231,11 +1266,12 @@ apiRoutes.post(
          columns_json = excluded.columns_json,
          column_widths_json = excluded.column_widths_json,
          is_default = excluded.is_default,
-         updated_at = excluded.updated_at`,
+         updated_at = excluded.updated_at
+       WHERE saved_view.workspace_id = excluded.workspace_id`,
     )
       .bind(
         id,
-        context.get("user").workspaceId,
+        workspaceId,
         input.page,
         input.name,
         JSON.stringify(input.filters),
@@ -1252,11 +1288,14 @@ apiRoutes.post(
 );
 
 apiRoutes.delete("/views/:id", async (context) => {
-  await context.env.DB.prepare(
+  const result = await context.env.DB.prepare(
     "DELETE FROM saved_view WHERE id = ? AND workspace_id = ?",
   )
     .bind(context.req.param("id"), context.get("user").workspaceId)
     .run();
+  if ((result.meta.changes ?? 0) === 0) {
+    return context.json({ error: "View not found." }, 404);
+  }
   return context.json({ ok: true });
 });
 
@@ -1810,11 +1849,12 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
       ...item.overrides.map((override) =>
         context.env.DB.prepare(
           `INSERT INTO field_override
-              (item_id, field_name, override_value_json,
+              (item_id, workspace_id, field_name, override_value_json,
                source_value_at_override_json, origin, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         ).bind(
           item.id,
+          context.get("user").workspaceId,
           override.fieldName,
           JSON.stringify(override.value),
           JSON.stringify(override.sourceValueAtOverride),
@@ -1826,11 +1866,12 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
       ...item.attachments.map((attachment) =>
         context.env.DB.prepare(
           `INSERT INTO attachment_link
-              (id, item_id, label, url, link_type, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)`,
+              (id, item_id, workspace_id, label, url, link_type, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
         ).bind(
           attachment.id,
           item.id,
+          context.get("user").workspaceId,
           attachment.label,
           attachment.url,
           attachment.linkType,
@@ -1840,12 +1881,13 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
       ...item.history.map((entry) =>
         context.env.DB.prepare(
           `INSERT INTO item_history
-              (id, item_id, actor_type, actor_identity, action, summary,
+              (id, item_id, workspace_id, actor_type, actor_identity, action, summary,
                before_json, after_json, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).bind(
           entry.id,
           item.id,
+          context.get("user").workspaceId,
           entry.actorType,
           entry.actorIdentity,
           entry.action,

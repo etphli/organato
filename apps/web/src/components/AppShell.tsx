@@ -80,11 +80,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const displayName = owner?.displayName || owner?.email || "Owner";
   const syncStatus = getShellSyncStatus(integrations, syncing);
   const initials = displayName
-    .split(/\s+/)
+    .trim()
+    .split(/[\s@._-]+/)
+    .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0])
     .join("")
-    .toUpperCase();
+    .toUpperCase()
+    .slice(0, 2) || "O";
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -99,7 +102,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {initials}
         </span>
       </NavLink>
-      <aside className="sidebar" aria-label="Primary navigation">
+      <aside className="sidebar" aria-label="Sidebar navigation">
         <NavLink
           to="/"
           className="wordmark brand-lockup"

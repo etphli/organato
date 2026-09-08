@@ -34,6 +34,13 @@ export async function exchangeGoogleCallbackIfPresent(): Promise<boolean> {
     window.location.pathname === "/api/integrations/google/callback";
   if (!isAuthenticationCallback && !isIntegrationCallback) return false;
   const query = new URLSearchParams(window.location.search);
+  const code = query.get("code");
+  const state = query.get("state");
+  if (!code || !state) {
+    throw new GoogleCallbackError(
+      "Google sign-in could not finish. Please try again.",
+    );
+  }
   const response = await fetch(
     isAuthenticationCallback
       ? "/api/auth/google/exchange"
@@ -49,10 +56,7 @@ export async function exchangeGoogleCallbackIfPresent(): Promise<boolean> {
             }
           : {}),
       },
-      body: JSON.stringify({
-        code: query.get("code"),
-        state: query.get("state"),
-      }),
+      body: JSON.stringify({ code, state }),
     },
   );
   if (!response.ok) {
@@ -67,11 +71,10 @@ export async function exchangeGoogleCallbackIfPresent(): Promise<boolean> {
   if (isAuthenticationCallback) {
     sessionStorage.setItem("organato_csrf", exchange.csrfToken);
   }
-  window.history.replaceState(
-    null,
-    "",
-    exchange.returnTo.startsWith("/") ? exchange.returnTo : "/",
-  );
+  const returnTo = exchange.returnTo ?? "/";
+  const safeReturnTo =
+    returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/";
+  window.history.replaceState(null, "", safeReturnTo);
   return true;
 }
 
@@ -122,6 +125,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           credentials: "same-origin",
         });
         if (response.ok || attempt === 1) break;
+        if (response.status === 401 || response.status === 403) break;
         await new Promise((resolve) => setTimeout(resolve, 600));
       }
       if (!response || !response.ok) throw new Error("signed_out");
@@ -167,53 +171,85 @@ export function AuthGate({ children }: { children: ReactNode }) {
             Reconnect to load private workspace data. Organato does not save or
             edit work while offline.
           </p>
+          <button onClick={() => window.location.reload()}>Retry</button>
         </section>
       </main>
     );
   }
   if (state.status === "signed_out") {
-    return (
-      <main className="auth-page">
-        <section>
-          <span className="auth-mark">
-            <BrandMark size={24} />
-          </span>
-          <h1>Organato</h1>
-          <p>Your private school work and todos, in one quiet place.</p>
-          <button
-            onClick={async () => {
-              try {
-                const response = await fetch("/api/auth/google/start", {
-                  method: "POST",
-                  credentials: "same-origin",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ returnTo: window.location.pathname }),
-                });
-                if (!response.ok) throw new Error("start_failed");
-                const result = (await response.json()) as {
-                  authorizationUrl: string;
-                };
-                window.location.assign(result.authorizationUrl);
-              } catch {
-                setState({
-                  status: "signed_out",
-                  message:
-                    "Sign-in could not start. Check the connection and try again.",
-                });
-              }
-            }}
-          >
-            Continue with Google
-          </button>
-          {state.message ? <small role="alert">{state.message}</small> : null}
-          <footer>
-            Every verified Google account receives a private workspace.
-          </footer>
-        </section>
-      </main>
-    );
+    return <SignedOutPage message={state.message} setState={setState} />;
   }
   return (
     <AuthContext.Provider value={state.owner}>{children}</AuthContext.Provider>
+  );
+}
+
+function SignedOutPage({
+  message,
+  setState,
+}: {
+  message: string | undefined;
+  setState: React.Dispatch<
+    React.SetStateAction<
+      | { status: "checking" }
+      | { status: "offline" }
+      | { status: "signed_out"; message?: string }
+      | { status: "signed_in"; owner: SessionOwner }
+    >
+  >;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <main className="auth-page">
+      <section>
+        <span className="auth-mark">
+          <BrandMark size={24} />
+        </span>
+        <h1>Organato</h1>
+        <p>Your private school work and todos, in one quiet place.</p>
+        <button
+          disabled={busy}
+          onClick={async () => {
+            if (busy) return;
+            setBusy(true);
+            try {
+              const returnTo = `${window.location.pathname}${window.location.search}`;
+              const response = await fetch("/api/auth/google/start", {
+                method: "POST",
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ returnTo }),
+              });
+              if (!response.ok) throw new Error("start_failed");
+              const result = (await response.json()) as {
+                authorizationUrl: string;
+              };
+              if (
+                !/^https:\/\/(accounts\.google\.com|lh3\.googleusercontent\.com)/.test(
+                  result.authorizationUrl,
+                ) &&
+                !result.authorizationUrl.startsWith("/")
+              ) {
+                throw new Error("bad_url");
+              }
+              window.location.assign(result.authorizationUrl);
+            } catch {
+              setBusy(false);
+              setState({
+                status: "signed_out",
+                message:
+                  "Sign-in could not start. Check the connection and try again.",
+              });
+            }
+          }}
+        >
+          {busy ? "Starting sign-in…" : "Continue with Google"}
+        </button>
+        {message ? <small role="alert">{message}</small> : null}
+        <footer>
+          Every verified Google account receives a private workspace.
+        </footer>
+      </section>
+    </main>
   );
 }

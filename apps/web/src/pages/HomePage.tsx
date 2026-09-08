@@ -5,7 +5,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   addDays,
   addMonths,
@@ -29,7 +29,9 @@ import { PageHeader } from "../components/PageHeader";
 import { SubjectDot } from "../components/SubjectDot";
 import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
 
-const today = new Date();
+function useToday() {
+  return useMemo(() => new Date(), []);
+}
 
 function itemDueDate(
   item: Pick<OrganatoItem, "dueAt" | "dueDateLocal">,
@@ -43,6 +45,7 @@ function itemDueDate(
 function ClassificationInbox() {
   const { items, subjectsById, settings, integrations } = useOrganatoData();
   const { dispatch } = useOrganatoActions();
+  const today = useToday();
   const unclassified = items.filter(
     (item) =>
       item.kind === "work" &&
@@ -180,8 +183,9 @@ function ClassificationInbox() {
 function MiniCalendar() {
   const { items, settings, subjectsById } = useOrganatoData();
   const { dispatch } = useOrganatoActions();
-  const [monthStart, setMonthStart] = useState(() => startOfMonth(today));
-  const [selectedDate, setSelectedDate] = useState(() => today);
+  const today = useToday();
+  const [monthStart, setMonthStart] = useState(() => startOfMonth(new Date()));
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
   const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 });
   const calendarDays = Array.from({ length: 42 }, (_, index) =>
     addDays(gridStart, index),
@@ -210,7 +214,7 @@ function MiniCalendar() {
       );
     });
     return grouped;
-  }, [activeItems, settings.timezone]);
+  }, [activeItems, settings.timezone, today]);
   const selectedKey = format(selectedDate, "yyyy-MM-dd");
   const selectedItems = (itemsByDate.get(selectedKey) ?? []).slice(0, 3);
   return (
@@ -287,7 +291,7 @@ function MiniCalendar() {
         ) : (
           <span>Nothing due.</span>
         )}
-        <a href={`/calendar?date=${selectedKey}`}>Open calendar</a>
+        <Link to={`/calendar?date=${selectedKey}`}>Open calendar</Link>
       </div>
     </section>
   );
@@ -297,8 +301,10 @@ function TodayList() {
   const { items, subjectsById, settings } = useOrganatoData();
   const { dispatch } = useOrganatoActions();
   const [name, setName] = useState("");
+  const today = useToday();
   const todos = items
     .filter((item) => item.kind === "todo" && !item.archivedAt)
+    .toSorted((a, b) => compareItems(a, b, today))
     .slice(0, 3);
   const create = () => {
     if (!name.trim()) return;
@@ -354,7 +360,12 @@ function TodayList() {
             <SubjectDot subjectId={todo.subjectId} />
             {subjectsById.get(todo.subjectId ?? "")?.displayName}
           </span>
-          <MoreHorizontal size={15} aria-hidden="true" />
+          <button
+            aria-label={`Open ${todo.displayName}`}
+            onClick={() => dispatch({ type: "select", id: todo.id })}
+          >
+            <MoreHorizontal size={15} aria-hidden="true" />
+          </button>
         </div>
       ))}
       {!todos.length ? (
@@ -367,6 +378,7 @@ function TodayList() {
 function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
   const { items, subjectsById, settings } = useOrganatoData();
   const { dispatch } = useOrganatoActions();
+  const today = useToday();
   const limit =
     page === "assignments"
       ? settings.upcomingAssignmentCount
@@ -394,7 +406,7 @@ function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
         })
         .toSorted((a, b) => compareItems(a, b, today))
         .slice(0, limit),
-    [items, limit, page, settings.includeBothInPanels, settings.timezone],
+    [items, limit, page, settings.includeBothInPanels, settings.timezone, today],
   );
   return (
     <section className="upcoming-list">
@@ -443,13 +455,14 @@ function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
           No upcoming {page === "assignments" ? "assignments" : "checkpoints"}.
         </p>
       ) : null}
-      <a href={`/${page}`}>View all {page} →</a>
+      <Link to={`/${page}`}>View all {page} →</Link>
     </section>
   );
 }
 
 function WorkloadStrip() {
   const { items, settings } = useOrganatoData();
+  const today = useToday();
   const days = Array.from({ length: 7 }, (_, index) => {
     const date = addDays(today, index);
     const count = items.filter(
@@ -490,6 +503,7 @@ function WorkloadStrip() {
 
 export default function HomePage() {
   const { settings } = useOrganatoData();
+  const today = useToday();
   return (
     <div className="page home-page">
       <PageHeader title="Home" meta={format(today, "EEEE, d MMMM")} />

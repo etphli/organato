@@ -19,7 +19,6 @@ import { OrganatoSelect } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
 import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
 
-const now = new Date();
 const todoPageSize = 50;
 
 function parseQuickTodo(input: string) {
@@ -54,7 +53,7 @@ export default function TodoPage() {
     () =>
       items
         .filter((item) => item.kind === "todo" && !item.archivedAt)
-        .toSorted((a, b) => compareItems(a, b, now)),
+        .toSorted((a, b) => compareItems(a, b, new Date())),
     [items],
   );
   const pageCount = Math.max(1, Math.ceil(todos.length / todoPageSize));
@@ -159,7 +158,7 @@ export default function TodoPage() {
           <span>Recurrence</span>
         </div>
         {visibleTodos.map((todo) => {
-          const status = visibleStatus(todo, now);
+          const status = visibleStatus(todo, new Date());
           return (
             <div
               className={`todo-record${status === "completed" ? " completed" : ""}`}
@@ -196,7 +195,7 @@ export default function TodoPage() {
                 {todo.displayName}
               </button>
               <span className={status === "overdue" ? "danger-text" : ""}>
-                {daysRemainingLabel(itemDeadline(todo), now, settings.timezone)}
+                {daysRemainingLabel(itemDeadline(todo), new Date(), settings.timezone)}
                 <small>
                   {itemDeadline(todo)
                     ? itemDeadline(todo)!.toLocaleDateString("en-AU", {

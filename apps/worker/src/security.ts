@@ -190,7 +190,7 @@ export async function recordSecurityEvent(
     .run();
 }
 
-function safeEqual(a: string, b: string): boolean {
+export function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let result = 0;
   for (let index = 0; index < a.length; index += 1) {

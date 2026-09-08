@@ -42,7 +42,6 @@ import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
 import { CreateWorkControl, type NewWorkItem } from "./CreateWorkForm";
 import { DeleteWorkDialog } from "./DeleteWorkDialog";
 
-const now = new Date();
 const columnHelper = createColumnHelper<OrganatoItem>();
 const defaultPageSize = 50;
 const priorityOptions = [
@@ -105,6 +104,7 @@ export default function WorkPage({
   );
   const mobileActionsRef = useRef<HTMLDetailsElement>(null);
   const itemNoun = page === "assignments" ? "assignment" : "checkpoint";
+  const now = useMemo(() => new Date(), [page]);
   const closeMobileActions = () => {
     if (mobileActionsRef.current) mobileActionsRef.current.open = false;
   };
@@ -152,11 +152,7 @@ export default function WorkPage({
         if (priorityFilter && item.priority !== priorityFilter) return false;
         if (activeView === "active") {
           const status = visibleStatus(item, now);
-          if (
-            status === "completed" &&
-            (page !== "assignments" || !showCompleted)
-          )
-            return false;
+          if (status === "completed" && !showCompleted) return false;
           if (status === "submitted" && !settings.showSubmittedActive)
             return false;
         }
@@ -177,6 +173,7 @@ export default function WorkPage({
     [
       activeView,
       items,
+      now,
       page,
       pageViews,
       priorityFilter,
@@ -611,6 +608,8 @@ export default function WorkPage({
             ariaLabel="Filter by priority"
             options={[
               { value: "", label: "Any priority" },
+              { value: "low", label: "Low" },
+              { value: "medium", label: "Medium" },
               { value: "high", label: "High" },
               { value: "urgent", label: "Urgent" },
             ]}
