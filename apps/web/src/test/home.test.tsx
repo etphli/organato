@@ -86,6 +86,8 @@ describe("Home", () => {
     )!;
     const future = new Date(Date.now() + 5 * 86_400_000).toISOString();
     const past = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    const tomorrow = new Date(Date.now() + 20 * 3_600_000).toISOString();
+    const old = new Date(Date.now() - 4 * 86_400_000).toISOString();
     localStorage.clear();
     localStorage.setItem(
       "organato-demo-state-v1",
@@ -106,6 +108,15 @@ describe("Home", () => {
             dueAt: future,
             workingStatus: "not_started",
             completedAt: null,
+          },
+          {
+            ...template,
+            id: "stalled-risk",
+            displayName: "Stalled essay",
+            dueAt: tomorrow,
+            workingStatus: "not_started",
+            completedAt: null,
+            createdAt: old,
           },
         ],
         subjects: seedSubjects,
@@ -129,6 +140,6 @@ describe("Home", () => {
     expect(
       screen.getByRole("region", { name: "Deadline risks" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Overdue")).toBeInTheDocument();
+    expect(screen.getByText("Due soon, not started")).toBeInTheDocument();
   });
 });

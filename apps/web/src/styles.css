@@ -804,7 +804,7 @@ button:disabled {
   display: grid;
   gap: 2px;
   margin-bottom: 18px;
-  padding: 12px 14px;
+  padding: 10px 8px 8px;
 }
 
 .top-briefing h2,
@@ -813,23 +813,33 @@ button:disabled {
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.05em;
-  margin: 0 0 6px;
+  margin: 0 0 4px;
+  padding-left: var(--ato-space-3, 12px);
   text-transform: uppercase;
 }
 
+.top-briefing ol {
+  display: grid;
+  gap: 1px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
 .top-briefing > button,
+.top-briefing li > button,
 .risk-strip > button {
   align-items: center;
   border-radius: 8px;
   display: flex;
   gap: 10px;
-  min-height: 38px;
-  padding: 4px 8px;
+  min-height: 40px;
+  padding: 4px 12px;
   text-align: left;
   width: 100%;
 }
 
-.top-briefing > button:hover,
+.top-briefing li > button:hover,
 .risk-strip > button:hover {
   background: var(--surface-hover);
 }
@@ -848,6 +858,7 @@ button:disabled {
 }
 
 .top-briefing > button .top-briefing-name,
+.top-briefing li > button .top-briefing-name,
 .risk-strip > button span {
   flex: 1;
   min-width: 0;
@@ -857,10 +868,26 @@ button:disabled {
 }
 
 .top-briefing > button small,
+.top-briefing li > button small,
 .risk-strip > button small {
   color: var(--muted);
   flex: 0 0 auto;
   font-size: 0.72rem;
+}
+
+.due-chip {
+  background: var(--focus-soft);
+  border-radius: 999px;
+  color: var(--focus);
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.due-chip--overdue {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
 }
 
 .risk-strip > button small {

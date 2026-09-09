@@ -104,23 +104,30 @@ function TopBriefing() {
   return (
     <section className="top-briefing" aria-label="Top priorities">
       <h2>Start here</h2>
-      {top.map((item, index) => (
-        <button
-          key={item.id}
-          onClick={() => dispatch({ type: "select", id: item.id })}
-        >
-          <strong>{index + 1}</strong>
-          <SubjectDot subjectId={item.subjectId} />
-          <span className="top-briefing-name">{item.displayName}</span>
-          <small>
-            {daysRemainingLabel(
-              itemDueDate(item, settings.timezone),
-              today,
-              settings.timezone,
-            )}
-          </small>
-        </button>
-      ))}
+      <ol>
+        {top.map((item) => {
+          const overdue = visibleStatus(item, today) === "overdue";
+          return (
+            <li key={item.id}>
+              <button onClick={() => dispatch({ type: "select", id: item.id })}>
+                <SubjectDot subjectId={item.subjectId} />
+                <span className="top-briefing-name">{item.displayName}</span>
+                <small
+                  className={
+                    overdue ? "due-chip due-chip--overdue" : "due-chip"
+                  }
+                >
+                  {daysRemainingLabel(
+                    itemDueDate(item, settings.timezone),
+                    today,
+                    settings.timezone,
+                  )}
+                </small>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
     </section>
   );
 }
@@ -211,11 +218,11 @@ function RiskStrip() {
     const flagged: Array<{ item: OrganatoItem; reason: string }> = [];
     for (const item of items) {
       if (item.archivedAt || item.workingStatus === "completed") continue;
+      // Overdue has its own section; risks cover what is quietly going wrong.
+      if (visibleStatus(item, today) === "overdue") continue;
       const due = itemDueDate(item, settings.timezone)?.getTime();
       if (due === undefined) continue;
-      if (due < now) {
-        flagged.push({ item, reason: "Overdue" });
-      } else if (
+      if (
         due <= soon &&
         item.workingStatus === "not_started" &&
         Date.parse(item.createdAt) < stale
