@@ -867,6 +867,56 @@ button:disabled {
   color: var(--warning);
 }
 
+.forecast-strip {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  margin-bottom: 18px;
+  padding: 12px 14px;
+}
+
+.forecast-strip h2 {
+  color: var(--secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+.forecast-warning {
+  color: var(--warning);
+  font-size: 0.78rem;
+  margin: 0 0 8px;
+}
+
+.forecast-bars {
+  align-items: end;
+  display: grid;
+  grid-template-columns: repeat(14, 1fr);
+  gap: 4px;
+}
+
+.forecast-bars > div {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 60px;
+}
+
+.forecast-bars span {
+  background: var(--focus-soft);
+  border-radius: 3px;
+  display: block;
+  min-height: 2px;
+  width: 100%;
+}
+
+.forecast-bars small {
+  color: var(--muted);
+  font-size: 0.625rem;
+}
+
 .home-middle {
   display: grid;
   gap: 56px;
@@ -2284,6 +2334,106 @@ kbd {
   /* Align the heading text with the text-button labels below it
      (buttons carry 12px horizontal padding; the heading had none). */
   padding-left: var(--ato-space-3, 12px);
+}
+
+.subtask-progress {
+  background: var(--surface-hover);
+  border-radius: 999px;
+  height: 6px;
+  margin: 2px 0 8px;
+  overflow: hidden;
+}
+
+.subtask-progress > span {
+  background: var(--focus);
+  display: block;
+  height: 100%;
+}
+
+.subtask-row {
+  align-items: center;
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  min-height: 34px;
+  padding: 2px 4px;
+}
+
+.subtask-row:hover {
+  background: var(--surface-hover);
+}
+
+.subtask-row > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtask-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.subtask-form > input {
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  flex: 1;
+  min-height: 34px;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.subtask-form > button {
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  min-height: 34px;
+  padding: 0 14px;
+}
+
+.link-list {
+  display: grid;
+  gap: 2px;
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+}
+
+.link-list > li {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.link-list > li > span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.effort-row {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.effort-row > span {
+  color: var(--secondary);
+  flex: 1;
+}
+
+.effort-row > input {
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  width: 110px;
 }
 
 .inspector-section h2 {

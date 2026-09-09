@@ -118,6 +118,13 @@ const itemSchema = z
     calendarNote: z.string().max(20_000),
     pinned: z.boolean(),
     sortRank: z.number(),
+    estimatedMinutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(10_000)
+      .nullable()
+      .default(null),
     archivedAt: timestampOrNull,
     archiveReason: stringOrNull,
     sourceMissingSince: timestampOrNull,
@@ -140,12 +147,22 @@ const itemSchema = z
         z.object({
           id: z.string().min(1),
           label: z.string().min(1).max(200),
-          url: z
-            .string()
-            .url()
-            .refine((value) => new URL(value).protocol === "https:", {
-              message: "Attachment links must use HTTPS.",
-            }),
+          url: z.string().refine(
+            (value) => {
+              try {
+                const url = new URL(value);
+                return (
+                  (url.protocol === "https:" &&
+                    !url.username &&
+                    !url.password) ||
+                  value.startsWith("kv://")
+                );
+              } catch {
+                return false;
+              }
+            },
+            { message: "Attachment links must be HTTPS or stored files." },
+          ),
           linkType: z.enum([
             "reference",
             "brief",
@@ -158,6 +175,25 @@ const itemSchema = z
       )
       .max(1_000),
     history: z.array(historySchema).max(10_000),
+    subtasks: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          title: z.string().min(1).max(500),
+          completed: z.boolean(),
+          sortRank: z.number(),
+          createdAt: z.string().datetime(),
+          updatedAt: z.string().datetime(),
+        }),
+      )
+      .max(1_000)
+      .default([]),
+    links: z
+      .object({
+        blockedBy: z.array(z.string()).default([]),
+        blocking: z.array(z.string()).default([]),
+      })
+      .default({ blockedBy: [], blocking: [] }),
   })
   .strict()
   .superRefine((item, context) => {
@@ -286,6 +322,18 @@ const settingsSchema = z
     guardianWeeklyEnabled: z.boolean().default(false),
     smsGatewayAddress: z.string().default(""),
     examEscalationEnabled: z.boolean().default(false),
+    subjectDefaults: z
+      .record(
+        z.object({
+          priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+          calendarEnabled: z.boolean().optional(),
+          remindersEnabled: z.boolean().optional(),
+        }),
+      )
+      .default({}),
+    checklistTemplates: z
+      .record(z.array(z.string().max(200)).max(20))
+      .default({}),
     reminderWindowDays: z.number().int().min(1).max(90),
     immediateImportAlert: z.boolean(),
     naturalTodoParsing: z.boolean(),

@@ -45,6 +45,7 @@ const item = (
   calendarNote: "",
   pinned: false,
   sortRank: 0,
+  estimatedMinutes: null,
   archivedAt: null,
   archiveReason: null,
   sourceMissingSince: null,
@@ -63,6 +64,8 @@ const item = (
       createdAt,
     },
   ],
+  subtasks: [],
+  links: { blockedBy: [], blocking: [] },
   ...overrides,
 });
 
@@ -314,6 +317,12 @@ export const seedSettings: WorkspaceSettings = {
   guardianWeeklyEnabled: false,
   smsGatewayAddress: "",
   examEscalationEnabled: false,
+  subjectDefaults: {},
+  checklistTemplates: {
+    assignment: ["Understand the task", "Draft", "Proofread", "Submit"],
+    checkpoint: ["Review notes", "Practice", "Confirm"],
+    todo: ["Do it"],
+  },
   reminderWindowDays: 7,
   immediateImportAlert: true,
   naturalTodoParsing: true,

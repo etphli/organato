@@ -126,6 +126,81 @@ function TopBriefing() {
   );
 }
 
+function effortMinutes(item: OrganatoItem): number {
+  if (item.estimatedMinutes) return item.estimatedMinutes;
+  if (item.kind === "todo") return 15;
+  if (item.classification === "checkpoint") return 30;
+  if (item.classification === "both") return 150;
+  return 120;
+}
+
+function ForecastStrip() {
+  const { items, settings } = useOrganatoData();
+  const today = useToday();
+  const days = useMemo(() => {
+    const buckets: Array<{ key: string; label: string; minutes: number }> = [];
+    const start = new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
+    );
+    for (let offset = 0; offset < 14; offset += 1) {
+      const day = new Date(start.getTime() + offset * 86_400_000);
+      buckets.push({
+        key: day.toISOString().slice(0, 10),
+        label: day.toLocaleDateString("en-AU", {
+          timeZone: settings.timezone,
+          weekday: "narrow",
+        }),
+        minutes: 0,
+      });
+    }
+    for (const item of items) {
+      if (
+        item.archivedAt ||
+        item.workingStatus === "completed" ||
+        item.workingStatus === "submitted"
+      ) {
+        continue;
+      }
+      const due = itemDueDate(item, settings.timezone);
+      if (!due) continue;
+      const key = due.toISOString().slice(0, 10);
+      const bucket = buckets.find((entry) => entry.key === key);
+      if (bucket) bucket.minutes += effortMinutes(item);
+    }
+    return buckets;
+  }, [items, settings.timezone, today]);
+  const max = Math.max(240, ...days.map((day) => day.minutes));
+  const overloaded = days.filter((day) => day.minutes > 240);
+  const total = days.reduce((sum, day) => sum + day.minutes, 0);
+  if (!total) return null;
+  return (
+    <section className="forecast-strip" aria-label="Workload forecast">
+      <h2>Next 14 days</h2>
+      {overloaded.length ? (
+        <p className="forecast-warning" role="alert">
+          Crunch {overloaded.length === 1 ? "day" : "days"}:{" "}
+          {overloaded
+            .map(
+              (day) => `${day.key.slice(5)} (${Math.round(day.minutes / 60)}h)`,
+            )
+            .join(", ")}{" "}
+          — start early.
+        </p>
+      ) : null}
+      <div className="forecast-bars">
+        {days.map((day) => (
+          <div key={day.key} title={`${day.key}: ${day.minutes} min`}>
+            <span
+              style={{ height: `${Math.max(2, (day.minutes / max) * 44)}px` }}
+            />
+            <small>{day.label}</small>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function RiskStrip() {
   const { items, settings } = useOrganatoData();
   const { dispatch } = useOrganatoActions();
@@ -713,6 +788,7 @@ export default function HomePage() {
         <UpcomingList page="checkpoints" />
       </div>
       {settings.showWorkloadStrip ? <WorkloadStrip /> : null}
+      <ForecastStrip />
     </div>
   );
 }

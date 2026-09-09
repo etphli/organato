@@ -98,6 +98,7 @@ export interface OrganatoItem {
   calendarNote: string;
   pinned: boolean;
   sortRank: number;
+  estimatedMinutes: number | null;
   archivedAt: string | null;
   archiveReason: string | null;
   sourceMissingSince: string | null;
@@ -107,6 +108,59 @@ export interface OrganatoItem {
   overrides: FieldOverride[];
   attachments: AttachmentLink[];
   history: HistoryEntry[];
+  subtasks: Subtask[];
+  links: ItemLinkSummary;
+}
+
+export interface Subtask {
+  id: string;
+  title: string;
+  completed: boolean;
+  sortRank: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ItemLinkRef {
+  itemId: string;
+  linkId: string;
+}
+export interface ItemLinkSummary {
+  /** Items that must finish first. */
+  blockedBy: ItemLinkRef[];
+  /** Items waiting on this one. */
+  blocking: ItemLinkRef[];
+}
+
+export interface CanvasAnnouncement {
+  id: string;
+  courseId: string;
+  courseName: string;
+  title: string;
+  excerpt: string;
+  url: string | null;
+  postedAt: string | null;
+}
+
+export interface CanvasGrade {
+  courseId: string;
+  courseName: string;
+  score: number | null;
+  grade: string | null;
+}
+
+export interface CanvasModuleState {
+  courseId: string;
+  courseName: string;
+  moduleId: string;
+  moduleName: string;
+  state: string | null;
+}
+
+export interface CanvasCourseSignals {
+  announcements: CanvasAnnouncement[];
+  grades: CanvasGrade[];
+  modules: CanvasModuleState[];
 }
 
 export interface SavedView {
@@ -164,6 +218,8 @@ export interface WorkspaceSettings {
   guardianWeeklyEnabled: boolean;
   smsGatewayAddress: string;
   examEscalationEnabled: boolean;
+  subjectDefaults: Record<string, SubjectDefault>;
+  checklistTemplates: Record<string, string[]>;
   reminderWindowDays: number;
   immediateImportAlert: boolean;
   naturalTodoParsing: boolean;
@@ -190,6 +246,12 @@ export interface WorkspaceSettings {
   screenReaderAnnouncements: boolean;
   dragCalendarReschedule: boolean;
   onboardingCompleted: boolean;
+}
+
+export interface SubjectDefault {
+  priority?: Priority;
+  calendarEnabled?: boolean;
+  remindersEnabled?: boolean;
 }
 
 export interface IntegrationHealth {

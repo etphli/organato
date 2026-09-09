@@ -45,6 +45,7 @@ function item(overrides: Partial<OrganatoItem> = {}): OrganatoItem {
     calendarNote: "",
     pinned: false,
     sortRank: 0,
+    estimatedMinutes: null,
     archivedAt: null,
     archiveReason: null,
     sourceMissingSince: null,
@@ -54,6 +55,8 @@ function item(overrides: Partial<OrganatoItem> = {}): OrganatoItem {
     overrides: [],
     attachments: [],
     history: [],
+    subtasks: [],
+    links: { blockedBy: [], blocking: [] },
     ...overrides,
   };
 }
@@ -583,5 +586,91 @@ describe("Google Calendar projections", () => {
         "https://organato.example",
       ),
     ).toBeNull();
+  });
+});
+
+describe("Canvas course signals", () => {
+  it("collects announcements, grades, and module states", async () => {
+    const fetcher = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/courses?")) {
+        return new Response(
+          JSON.stringify([
+            { id: 7, name: "English", workflow_state: "available" },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.includes("/api/v1/announcements")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: 9,
+              title: "Essay moved",
+              message: "<p>The essay is now due <b>Friday</b>.</p>",
+              html_url: "https://emanuel.instructure.com/a/9",
+              posted_at: "2026-01-10T00:00:00.000Z",
+              context_code: "course_7",
+              context_name: "English",
+            },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.includes("/api/v1/users/self/enrollments")) {
+        return new Response(
+          JSON.stringify([
+            {
+              course_id: 7,
+              computed_current_score: 87.5,
+              computed_current_grade: "B+",
+            },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.includes("/modules")) {
+        return new Response(
+          JSON.stringify([{ id: 3, name: "Unit 1", state: "started" }]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("[]", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const provider = new CanvasRestProvider(
+      "https://emanuel.instructure.com",
+      "canvas_session=private-session",
+      fetcher,
+    );
+
+    const signals = await provider.fetchCourseSignals(
+      new Date("2026-01-01T00:00:00.000Z"),
+    );
+    expect(signals.announcements).toEqual([
+      {
+        id: "9",
+        courseId: "7",
+        courseName: "English",
+        title: "Essay moved",
+        excerpt: "The essay is now due Friday.",
+        url: "https://emanuel.instructure.com/a/9",
+        postedAt: "2026-01-10T00:00:00.000Z",
+      },
+    ]);
+    expect(signals.grades).toEqual([
+      { courseId: "7", courseName: "English", score: 87.5, grade: "B+" },
+    ]);
+    expect(signals.modules).toEqual([
+      {
+        courseId: "7",
+        courseName: "English",
+        moduleId: "3",
+        moduleName: "Unit 1",
+        state: "started",
+      },
+    ]);
   });
 });

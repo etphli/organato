@@ -2,7 +2,12 @@ import { Plus, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLocation } from "react-router-dom";
-import type { OrganatoItem, Subject } from "@organato/domain";
+import type {
+  OrganatoItem,
+  Subject,
+  SubjectDefault,
+  WorkspaceSettings,
+} from "@organato/domain";
 import {
   OrganatoDatePicker,
   OrganatoSelect,
@@ -19,12 +24,15 @@ export interface NewWorkItem {
   dueHasExplicitTime: boolean;
   subjectId: string | null;
   priority: OrganatoItem["priority"];
+  calendarEnabled?: boolean;
+  remindersEnabled?: boolean;
 }
 
 interface CreateWorkFormProps {
   page: "assignments" | "checkpoints";
   subjects: Subject[];
   timezone: string;
+  settings: WorkspaceSettings;
   onCancel(): void;
   onCreate(item: NewWorkItem): void;
 }
@@ -33,10 +41,18 @@ interface CreateWorkFormProps {
  * Keep transient form state below WorkPage so typing does not rebuild the
  * TanStack row model and reconcile every visible work row.
  */
+function subjectDefaultFor(
+  settings: WorkspaceSettings,
+  subjectId: string,
+): SubjectDefault | undefined {
+  return subjectId ? settings.subjectDefaults[subjectId] : undefined;
+}
+
 function CreateWorkFormComponent({
   page,
   subjects,
   timezone,
+  settings,
   onCancel,
   onCreate,
 }: CreateWorkFormProps) {
@@ -50,6 +66,16 @@ function CreateWorkFormComponent({
   const [classification, setClassification] = useState<
     "assignment" | "checkpoint" | "both"
   >(page === "assignments" ? "assignment" : "checkpoint");
+  const priorityTouched = useRef(false);
+  const applySubject = (subjectId: string) => {
+    setSubject(subjectId);
+    // Subject templates: fill priority from the subject default unless the
+    // user already picked one. Calendar/reminder defaults ride the payload.
+    if (!priorityTouched.current) {
+      const preset = subjectDefaultFor(settings, subjectId)?.priority;
+      setPriority(preset ?? "");
+    }
+  };
   const dialogRef = useRef<HTMLElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   useDialogFocus(true, dialogRef, nameRef, page);
@@ -127,6 +153,10 @@ function CreateWorkFormComponent({
               dueHasExplicitTime: Boolean(dueDate && dueTime),
               subjectId: subject || null,
               priority: priority || null,
+              calendarEnabled:
+                subjectDefaultFor(settings, subject)?.calendarEnabled ?? true,
+              remindersEnabled:
+                subjectDefaultFor(settings, subject)?.remindersEnabled ?? true,
             });
           }}
         >
@@ -176,7 +206,7 @@ function CreateWorkFormComponent({
               ariaLabel="Subject"
               options={subjectOptions}
               value={subject}
-              onChange={setSubject}
+              onChange={applySubject}
             />
           </div>
           <div className="create-work-field create-work-field--wide">
@@ -191,7 +221,10 @@ function CreateWorkFormComponent({
                 { value: "urgent", label: "Urgent" },
               ]}
               value={priority}
-              onChange={(value) => setPriority(value as typeof priority)}
+              onChange={(value) => {
+                priorityTouched.current = true;
+                setPriority(value as typeof priority);
+              }}
             />
           </div>
           <footer>
@@ -230,6 +263,7 @@ export const CreateWorkControl = memo(function CreateWorkControl({
   page,
   subjects,
   timezone,
+  settings,
   onCreate,
 }: Omit<CreateWorkFormProps, "onCancel">) {
   const { search } = useLocation();
@@ -276,6 +310,7 @@ export const CreateWorkControl = memo(function CreateWorkControl({
               page={page}
               subjects={subjects}
               timezone={timezone}
+              settings={settings}
               onCancel={close}
               onCreate={create}
             />,
@@ -303,6 +338,7 @@ interface CreateTodoFormProps {
   timezone: string;
   calendarDefault: boolean;
   remindersDefault: boolean;
+  settings: WorkspaceSettings;
   onCancel(): void;
   onCreate(item: NewTodoItem): void;
 }
@@ -321,6 +357,7 @@ function CreateTodoFormComponent({
   timezone,
   calendarDefault,
   remindersDefault,
+  settings,
   onCancel,
   onCreate,
 }: CreateTodoFormProps) {
@@ -334,6 +371,22 @@ function CreateTodoFormComponent({
   const [recurrence, setRecurrence] = useState("");
   const [calendarEnabled, setCalendarEnabled] = useState(calendarDefault);
   const [remindersEnabled, setRemindersEnabled] = useState(remindersDefault);
+  const touched = useRef({
+    priority: false,
+    calendar: false,
+    reminders: false,
+  });
+  const applySubject = (subjectId: string) => {
+    setSubject(subjectId);
+    const preset = subjectDefaultFor(settings, subjectId);
+    if (!touched.current.priority) setPriority(preset?.priority ?? "");
+    if (!touched.current.calendar && preset?.calendarEnabled !== undefined) {
+      setCalendarEnabled(preset.calendarEnabled);
+    }
+    if (!touched.current.reminders && preset?.remindersEnabled !== undefined) {
+      setRemindersEnabled(preset.remindersEnabled);
+    }
+  };
   const dialogRef = useRef<HTMLElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   useDialogFocus(true, dialogRef, nameRef, "todo");
@@ -449,7 +502,7 @@ function CreateTodoFormComponent({
               ariaLabel="Subject"
               options={subjectOptions}
               value={subject}
-              onChange={setSubject}
+              onChange={applySubject}
             />
           </div>
           <div className="create-work-field">
@@ -464,7 +517,10 @@ function CreateTodoFormComponent({
                 { value: "urgent", label: "Urgent" },
               ]}
               value={priority}
-              onChange={(value) => setPriority(value as typeof priority)}
+              onChange={(value) => {
+                touched.current.priority = true;
+                setPriority(value as typeof priority);
+              }}
             />
           </div>
           <div className="create-work-field">
@@ -488,7 +544,10 @@ function CreateTodoFormComponent({
               <input
                 type="checkbox"
                 checked={calendarEnabled}
-                onChange={(event) => setCalendarEnabled(event.target.checked)}
+                onChange={(event) => {
+                  touched.current.calendar = true;
+                  setCalendarEnabled(event.target.checked);
+                }}
                 aria-label="Add to Google Calendar"
               />
             </label>
@@ -500,7 +559,10 @@ function CreateTodoFormComponent({
               <input
                 type="checkbox"
                 checked={remindersEnabled}
-                onChange={(event) => setRemindersEnabled(event.target.checked)}
+                onChange={(event) => {
+                  touched.current.reminders = true;
+                  setRemindersEnabled(event.target.checked);
+                }}
                 aria-label="Email reminders"
               />
             </label>
@@ -531,6 +593,7 @@ export const CreateTodoControl = memo(function CreateTodoControl({
   timezone,
   calendarDefault,
   remindersDefault,
+  settings,
   onCreate,
 }: Omit<CreateTodoFormProps, "onCancel">) {
   const { search } = useLocation();
@@ -578,6 +641,7 @@ export const CreateTodoControl = memo(function CreateTodoControl({
               timezone={timezone}
               calendarDefault={calendarDefault}
               remindersDefault={remindersDefault}
+              settings={settings}
               onCancel={close}
               onCreate={create}
             />,

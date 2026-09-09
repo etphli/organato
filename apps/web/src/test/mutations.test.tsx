@@ -46,6 +46,8 @@ function createdAssignment(displayName: string): OrganatoItem {
     overrides: [],
     attachments: [],
     history: [],
+    subtasks: [],
+    links: { blockedBy: [], blocking: [] },
   };
 }
 

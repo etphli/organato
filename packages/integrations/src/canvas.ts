@@ -1,11 +1,25 @@
 import { z } from "zod";
 import type {
+  CanvasAnnouncement,
   CanvasAssignment,
   CanvasCourse,
+  CanvasCourseSignals,
+  CanvasGrade,
   CanvasIdentity,
+  CanvasModuleState,
   CanvasProvider,
   CanvasSyncResult,
 } from "./contracts";
+
+function plainExcerpt(html: string | null | undefined, length: number): string {
+  if (!html) return "";
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([.,!?;:])/g, "$1")
+    .trim()
+    .slice(0, length);
+}
 
 const userIdSchema = z
   .union([z.string().trim().min(1), z.number().int()])
@@ -24,6 +38,28 @@ const courseSchema = z.object({
   id: z.union([z.string(), z.number()]).transform(String),
   name: z.string(),
   workflow_state: z.string().default("available"),
+});
+
+const announcementSchema = z.object({
+  id: z.union([z.string(), z.number()]).transform(String),
+  title: z.string().default("(no title)"),
+  message: z.string().nullable().optional(),
+  html_url: z.string().nullable().optional(),
+  posted_at: z.string().nullable().optional(),
+  context_code: z.string().default(""),
+  context_name: z.string().nullable().optional(),
+});
+
+const enrollmentSchema = z.object({
+  course_id: z.union([z.string(), z.number()]).transform(String),
+  computed_current_score: z.number().nullable().optional(),
+  computed_current_grade: z.string().nullable().optional(),
+});
+
+const moduleSchema = z.object({
+  id: z.union([z.string(), z.number()]).transform(String),
+  name: z.string().default("(module)"),
+  state: z.string().nullable().optional(),
 });
 
 const plannerItemSchema = z.object({
@@ -585,6 +621,89 @@ export class CanvasRestProvider implements CanvasProvider {
       catalogueComplete: malformedCourseCount === 0,
       skippedMalformedItems,
     };
+  }
+
+  async fetchCourseSignals(
+    since: Date,
+    signal?: AbortSignal,
+  ): Promise<CanvasCourseSignals> {
+    const courseRows = await this.paginated(
+      "/api/v1/courses?enrollment_state=active&state[]=available&per_page=100",
+      courseSchema,
+      signal,
+    );
+    const courses = courseRows.slice(0, 20).map((course) => ({
+      id: String(course.id),
+      name: course.name,
+    }));
+    const names = new Map(courses.map((course) => [course.id, course.name]));
+    const announcements: CanvasAnnouncement[] = [];
+    if (courses.length) {
+      const params = new URLSearchParams({
+        start_date: since.toISOString(),
+        per_page: "100",
+      });
+      for (const course of courses) {
+        params.append("context_codes[]", `course_${course.id}`);
+      }
+      const rows = await this.paginated(
+        `/api/v1/announcements?${params.toString()}`,
+        announcementSchema,
+        signal,
+      ).catch(() => []);
+      for (const row of rows) {
+        const contextCode = row.context_code ?? "";
+        const courseId = contextCode.startsWith("course_")
+          ? contextCode.slice("course_".length)
+          : "";
+        announcements.push({
+          id: String(row.id),
+          courseId,
+          courseName: names.get(courseId) ?? row.context_name ?? "Canvas",
+          title: row.title ?? "(no title)",
+          excerpt: plainExcerpt(row.message, 160),
+          url: row.html_url ?? null,
+          postedAt: row.posted_at ?? null,
+        });
+      }
+    }
+    const grades: CanvasGrade[] = [];
+    const enrollmentRows = await this.paginated(
+      "/api/v1/users/self/enrollments?per_page=100",
+      enrollmentSchema,
+      signal,
+    ).catch(() => []);
+    for (const row of enrollmentRows) {
+      const courseId = String(row.course_id);
+      if (!names.has(courseId)) continue;
+      grades.push({
+        courseId,
+        courseName: names.get(courseId) ?? "Canvas",
+        score:
+          typeof row.computed_current_score === "number"
+            ? row.computed_current_score
+            : null,
+        grade: row.computed_current_grade ?? null,
+      });
+    }
+    const modules: CanvasModuleState[] = [];
+    for (const course of courses.slice(0, 10)) {
+      const rows = await this.paginated(
+        `/api/v1/courses/${encodeURIComponent(course.id)}/modules?per_page=50`,
+        moduleSchema,
+        signal,
+      ).catch(() => []);
+      for (const row of rows) {
+        modules.push({
+          courseId: course.id,
+          courseName: course.name,
+          moduleId: String(row.id),
+          moduleName: row.name ?? "(module)",
+          state: row.state ?? null,
+        });
+      }
+    }
+    return { announcements, grades, modules };
   }
 }
 

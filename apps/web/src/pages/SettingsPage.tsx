@@ -509,7 +509,7 @@ export default function SettingsPage() {
       throw new Error("Backup safety check failed.");
     const parsed = validateBackup(JSON.parse(output));
     if (!parsed.success) throw new Error("Exported backup failed validation.");
-    return parsed.data as WorkspaceSnapshot;
+    return parsed.data as unknown as WorkspaceSnapshot;
   };
   const exportJson = async () => {
     try {
@@ -619,7 +619,7 @@ export default function SettingsPage() {
         );
         return;
       }
-      const backup = validation.data as WorkspaceSnapshot;
+      const backup = validation.data as unknown as WorkspaceSnapshot;
       if (import.meta.env.VITE_DEMO_MODE !== "true") {
         const response = await fetch("/api/import/preview", {
           method: "POST",
@@ -685,9 +685,28 @@ export default function SettingsPage() {
           ),
           ...imported,
         ];
+        // Backup files store links as bare ID lists; normalize to link refs.
+        const importedItems = (
+          pendingImport.items as unknown as Array<{
+            links?: { blockedBy: string[]; blocking: string[] };
+          }>
+        ).map((entry) => ({
+          ...(entry as unknown as OrganatoItem),
+          subtasks: (entry as unknown as OrganatoItem).subtasks ?? [],
+          links: {
+            blockedBy: (entry.links?.blockedBy ?? []).map((itemId) => ({
+              itemId,
+              linkId: `imported:${itemId}`,
+            })),
+            blocking: (entry.links?.blocking ?? []).map((itemId) => ({
+              itemId,
+              linkId: `imported:${itemId}`,
+            })),
+          },
+        }));
         dispatch({
           type: "hydrate",
-          items: mergeById(items, pendingImport.items),
+          items: mergeById(items, importedItems),
           subjects: mergeById(subjects, pendingImport.subjects),
           settings: pendingImport.settings,
           integrations,
@@ -1019,6 +1038,46 @@ export default function SettingsPage() {
             </div>
           ) : null}
           {genericOptions[active] ? <ToggleRows category={active} /> : null}
+          {active === "work" ? (
+            <div className="settings-block">
+              <h3>Checklist templates</h3>
+              <p>
+                One step per line. From an item, “Add template checklist” copies
+                the matching list into subtasks.
+              </p>
+              {(
+                [
+                  ["assignment", "Assignment"],
+                  ["checkpoint", "Checkpoint"],
+                  ["both", "Assignment + checkpoint"],
+                  ["todo", "Todo"],
+                ] as const
+              ).map(([key, label]) => (
+                <label className="field-row" key={key}>
+                  <span>{label}</span>
+                  <textarea
+                    rows={3}
+                    value={(settings.checklistTemplates[key] ?? []).join("\n")}
+                    onChange={(event) =>
+                      dispatch({
+                        type: "settings",
+                        patch: {
+                          checklistTemplates: {
+                            ...settings.checklistTemplates,
+                            [key]: event.target.value
+                              .split("\n")
+                              .map((line) => line.trim())
+                              .filter(Boolean)
+                              .slice(0, 20),
+                          },
+                        },
+                      })
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+          ) : null}
           {active === "calendar" ? (
             <>
               <div className="settings-block">
@@ -1302,6 +1361,42 @@ export default function SettingsPage() {
                       }
                     />{" "}
                     Active
+                  </label>
+                  <label>
+                    Default priority
+                    <select
+                      aria-label={`${subject.displayName} default priority`}
+                      value={
+                        settings.subjectDefaults[subject.id]?.priority ?? ""
+                      }
+                      onChange={(event) =>
+                        dispatch({
+                          type: "settings",
+                          patch: {
+                            subjectDefaults: {
+                              ...settings.subjectDefaults,
+                              [subject.id]: {
+                                ...settings.subjectDefaults[subject.id],
+                                ...(event.target.value
+                                  ? {
+                                      priority: event.target
+                                        .value as NonNullable<
+                                        OrganatoItem["priority"]
+                                      >,
+                                    }
+                                  : {}),
+                              },
+                            },
+                          },
+                        })
+                      }
+                    >
+                      <option value="">No default</option>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="urgent">Urgent</option>
+                    </select>
                   </label>
                 </div>
               ))}

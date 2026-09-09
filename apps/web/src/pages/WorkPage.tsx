@@ -602,6 +602,7 @@ export default function WorkPage({
               page={page}
               subjects={subjects}
               timezone={settings.timezone}
+              settings={settings}
               onCreate={createWork}
             />
             <details ref={mobileActionsRef} className="mobile-actions-menu">

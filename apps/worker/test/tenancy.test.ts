@@ -80,6 +80,7 @@ function tenantDatabase() {
     "0003_account_workspace_isolation.sql",
     "0004_canvas_connector.sql",
     "0005_session_auth_stamp.sql",
+    "0006_subtasks_links_effort.sql",
   ]) {
     sqlite.exec(
       readFileSync(

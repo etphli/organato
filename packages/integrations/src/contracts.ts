@@ -1,4 +1,11 @@
-import type { OrganatoItem, Subject } from "@organato/domain";
+import type {
+  CanvasAnnouncement,
+  CanvasCourseSignals,
+  CanvasGrade,
+  CanvasModuleState,
+  OrganatoItem,
+  Subject,
+} from "@organato/domain";
 
 export interface CanvasIdentity {
   id: string;
@@ -32,9 +39,20 @@ export interface CanvasSyncResult {
   skippedMalformedItems: number;
 }
 
+export type {
+  CanvasAnnouncement,
+  CanvasCourseSignals,
+  CanvasGrade,
+  CanvasModuleState,
+};
+
 export interface CanvasProvider {
   validateConnection(signal?: AbortSignal): Promise<CanvasIdentity>;
   fetchUpcomingAssignments(signal?: AbortSignal): Promise<CanvasSyncResult>;
+  fetchCourseSignals(
+    since: Date,
+    signal?: AbortSignal,
+  ): Promise<CanvasCourseSignals>;
 }
 
 export interface CalendarEventProjection {

@@ -45,6 +45,7 @@ const item = (overrides: Partial<OrganatoItem> = {}): OrganatoItem => ({
   calendarNote: "",
   pinned: false,
   sortRank: 0,
+  estimatedMinutes: null,
   archivedAt: null,
   archiveReason: null,
   sourceMissingSince: null,
@@ -54,6 +55,8 @@ const item = (overrides: Partial<OrganatoItem> = {}): OrganatoItem => ({
   overrides: [],
   attachments: [],
   history: [],
+  subtasks: [],
+  links: { blockedBy: [], blocking: [] },
   ...overrides,
 });
 

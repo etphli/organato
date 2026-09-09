@@ -12,6 +12,7 @@ import { visibleStatus, type OrganatoItem } from "@organato/domain";
 import { localDateTimeToIso } from "../pages/calendar/model";
 import {
   useOrganatoActions,
+  useOrganatoItems,
   useOrganatoUi,
   useOrganatoWorkspace,
 } from "../state/OrganatoProvider";
@@ -24,7 +25,10 @@ import { SubjectDot } from "./SubjectDot";
 import { useDialogFocus } from "./useDialogFocus";
 import {
   IntegrationRequestError,
+  addItemLink,
+  addSubtask,
   attachmentHref,
+  mergeDuplicate,
   resolveCalendarConflict,
   uploadAttachment,
 } from "../lib/integrationApi";
@@ -71,6 +75,352 @@ function ConflictBanner({ itemId }: { itemId: string }) {
         </button>
       </div>
     </div>
+  );
+}
+
+function SubtaskSection({ item }: { item: OrganatoItem }) {
+  const { dispatch } = useOrganatoActions();
+  const { settings } = useOrganatoWorkspace();
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const done = item.subtasks.filter((subtask) => subtask.completed).length;
+  const total = item.subtasks.length;
+  const templateKey =
+    item.kind === "todo"
+      ? "todo"
+      : item.classification === "both"
+        ? "both"
+        : item.classification === "checkpoint"
+          ? "checkpoint"
+          : "assignment";
+  const template = settings.checklistTemplates[templateKey] ?? [];
+  const add = async () => {
+    const trimmed = title.trim();
+    if (!trimmed || busy) return;
+    setBusy(true);
+    try {
+      const updated = await addSubtask(item.id, trimmed);
+      dispatch({ type: "replaceItem", item: updated });
+      setTitle("");
+    } catch (error) {
+      dispatch({
+        type: "toast",
+        message:
+          error instanceof IntegrationRequestError
+            ? error.message
+            : "The subtask could not be added.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="inspector-section" aria-label="Checklist">
+      <h2>
+        Checklist
+        {total ? (
+          <small>
+            {" "}
+            {done}/{total}
+          </small>
+        ) : null}
+      </h2>
+      {total ? (
+        <div
+          className="subtask-progress"
+          role="progressbar"
+          aria-valuenow={done}
+          aria-valuemin={0}
+          aria-valuemax={total}
+          aria-label="Checklist progress"
+        >
+          <span style={{ width: `${(done / total) * 100}%` }} />
+        </div>
+      ) : null}
+      {item.subtasks.map((subtask) => (
+        <label key={subtask.id} className="subtask-row">
+          <input
+            type="checkbox"
+            checked={subtask.completed}
+            onChange={() =>
+              dispatch({
+                type: "patchSubtask",
+                itemId: item.id,
+                subtaskId: subtask.id,
+                patch: { completed: !subtask.completed },
+              })
+            }
+          />
+          <span>{subtask.title}</span>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Delete subtask ${subtask.title}`}
+            onClick={() =>
+              dispatch({
+                type: "deleteSubtask",
+                itemId: item.id,
+                subtaskId: subtask.id,
+              })
+            }
+          >
+            <X size={14} />
+          </button>
+        </label>
+      ))}
+      <form
+        className="subtask-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void add();
+        }}
+      >
+        <input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Add a step…"
+          aria-label="New subtask"
+        />
+        <button type="submit" disabled={!title.trim() || busy}>
+          Add
+        </button>
+      </form>
+      {!total && template.length ? (
+        <button
+          type="button"
+          className="text-button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              let current = item;
+              for (const step of template) {
+                current = await addSubtask(current.id, step);
+              }
+              dispatch({ type: "replaceItem", item: current });
+            } catch (error) {
+              dispatch({
+                type: "toast",
+                message:
+                  error instanceof IntegrationRequestError
+                    ? error.message
+                    : "The template could not be applied.",
+              });
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Add {templateKey} checklist ({template.length} steps)
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function LinksSection({ item }: { item: OrganatoItem }) {
+  const { items } = useOrganatoItems();
+  const { dispatch } = useOrganatoActions();
+  const [candidate, setCandidate] = useState("");
+  const [busy, setBusy] = useState(false);
+  const names = new Map(items.map((entry) => [entry.id, entry.displayName]));
+  const options = items
+    .filter(
+      (entry) =>
+        entry.id !== item.id &&
+        !entry.archivedAt &&
+        entry.workingStatus !== "completed",
+    )
+    .map((entry) => ({ value: entry.id, label: entry.displayName }))
+    .slice(0, 200);
+  const add = async () => {
+    if (!candidate || busy) return;
+    setBusy(true);
+    try {
+      const updated = await addItemLink(item.id, candidate);
+      dispatch({ type: "replaceItem", item: updated });
+      setCandidate("");
+    } catch (error) {
+      dispatch({
+        type: "toast",
+        message:
+          error instanceof IntegrationRequestError
+            ? error.message
+            : "The dependency could not be added.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const blockedNames = item.links.blockedBy.map(
+    (ref) => names.get(ref.itemId) ?? "Unknown item",
+  );
+  return (
+    <section className="inspector-section" aria-label="Dependencies">
+      <h2>Depends on</h2>
+      {item.links.blockedBy.length ? (
+        <ul className="link-list">
+          {item.links.blockedBy.map((ref, index) => (
+            <li key={ref.linkId}>
+              <span>{blockedNames[index]}</span>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={`Remove dependency on ${blockedNames[index]}`}
+                onClick={() =>
+                  dispatch({
+                    type: "deleteLink",
+                    itemId: item.id,
+                    linkId: ref.linkId,
+                  })
+                }
+              >
+                <X size={14} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="empty-line">No dependencies.</p>
+      )}
+      {item.links.blocking.length ? (
+        <p className="empty-line">
+          Blocking:{" "}
+          {item.links.blocking
+            .map((ref) => names.get(ref.itemId) ?? "Unknown item")
+            .join(", ")}
+        </p>
+      ) : null}
+      <form
+        className="subtask-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void add();
+        }}
+      >
+        <OrganatoSelect
+          ariaLabel="Item this depends on"
+          options={[{ value: "", label: "Depends on…" }, ...options]}
+          value={candidate}
+          onChange={setCandidate}
+        />
+        <button type="submit" disabled={!candidate || busy}>
+          Add
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function findDuplicates(
+  items: OrganatoItem[],
+  item: OrganatoItem,
+): OrganatoItem[] {
+  const name = item.displayName.trim().toLowerCase();
+  if (!name) return [];
+  const due = item.dueAt ?? item.dueDateLocal ?? null;
+  return items.filter(
+    (other) =>
+      other.id !== item.id &&
+      !other.archivedAt &&
+      other.displayName.trim().toLowerCase() === name &&
+      (other.dueAt ?? other.dueDateLocal ?? null) === due,
+  );
+}
+
+function DuplicateBanner({ item }: { item: OrganatoItem }) {
+  const { items } = useOrganatoItems();
+  const { dispatch } = useOrganatoActions();
+  const [arming, setArming] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const duplicates = findDuplicates(items, item);
+  if (!duplicates.length) return null;
+  const merge = async (duplicateId: string) => {
+    setBusy(true);
+    try {
+      const updated = await mergeDuplicate(item.id, duplicateId);
+      dispatch({ type: "replaceItem", item: updated });
+      dispatch({ type: "toast", message: "Duplicates merged" });
+      setArming(null);
+    } catch (error) {
+      dispatch({
+        type: "toast",
+        message:
+          error instanceof IntegrationRequestError
+            ? error.message
+            : "The merge could not be completed.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="conflict-banner" role="alert">
+      <p>
+        <strong>
+          Possible {duplicates.length === 1 ? "duplicate" : "duplicates"}.
+        </strong>{" "}
+        Same name and due date
+        {duplicates.some((entry) => entry.sourceType !== item.sourceType)
+          ? " across sources"
+          : ""}
+        :
+      </p>
+      {duplicates.map((duplicate) => (
+        <div key={duplicate.id}>
+          <span>
+            {duplicate.displayName} (
+            {duplicate.sourceType === "canvas" ? "Canvas" : "manual"})
+          </span>{" "}
+          {arming === duplicate.id ? (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void merge(duplicate.id)}
+              >
+                Confirm merge
+              </button>{" "}
+              <button type="button" onClick={() => setArming(null)}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button type="button" onClick={() => setArming(duplicate.id)}>
+              Merge into this
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EffortInput({ item }: { item: OrganatoItem }) {
+  const { dispatch } = useOrganatoActions();
+  return (
+    <label className="effort-row">
+      <span>Effort (minutes)</span>
+      <input
+        type="number"
+        min={1}
+        max={10000}
+        value={item.estimatedMinutes ?? ""}
+        placeholder="—"
+        aria-label="Estimated effort in minutes"
+        onChange={(event) => {
+          const value = event.target.value;
+          dispatch({
+            type: "patchItem",
+            id: item.id,
+            patch: {
+              estimatedMinutes:
+                value === "" ? null : Math.max(1, Number(value) || 0),
+            },
+          });
+        }}
+      />
+    </label>
   );
 }
 
@@ -344,6 +694,7 @@ export function Inspector() {
         {item.calendarSyncState === "conflict" ? (
           <ConflictBanner itemId={item.id} />
         ) : null}
+        <DuplicateBanner item={item} />
         <div className="inspector-scroll">
           <OrganatoSelect
             className={`plain-select status-${status}`}
@@ -572,6 +923,7 @@ export function Inspector() {
               placeholder="Add notes in Markdown…"
             />
           </section>
+          <SubtaskSection item={item} />
           <section className="inspector-section">
             <h2>Linked attachments</h2>
             {item.attachments.length ? (
@@ -797,6 +1149,11 @@ export function Inspector() {
         >
           Copy link
         </button>
+        <LinksSection item={item} />
+        <section className="inspector-section" aria-label="Planning">
+          <h2>Planning</h2>
+          <EffortInput item={item} />
+        </section>
         <section
           className="inspector-section inspector-manage"
           aria-label="Danger zone"

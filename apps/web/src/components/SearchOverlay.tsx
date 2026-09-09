@@ -1,5 +1,5 @@
-import { Search, Settings2 } from "lucide-react";
-import { useDeferredValue, useMemo, useRef, useState } from "react";
+import { History, Search, Settings2 } from "lucide-react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { visibleStatus } from "@organato/domain";
 import {
@@ -37,6 +37,37 @@ export function SearchOverlay() {
     }
   });
   const navigate = useNavigate();
+  const [historyHits, setHistoryHits] = useState<
+    Array<{
+      summary: string;
+      action: string;
+      created_at: string;
+      item_id: string;
+      display_name: string;
+    }>
+  >([]);
+  useEffect(() => {
+    const needle = deferredQuery.trim();
+    if (!searchOpen || needle.length < 2 || needle.includes(":")) {
+      setHistoryHits([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void fetch(`/api/search/all?q=${encodeURIComponent(needle)}`, {
+        credentials: "same-origin",
+      })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((result) => {
+          if (!cancelled && result) setHistoryHits(result.history ?? []);
+        })
+        .catch(() => undefined);
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [deferredQuery, searchOpen]);
   useDialogFocus(
     searchOpen,
     dialogRef,
@@ -148,6 +179,27 @@ export function SearchOverlay() {
           ))}
           {!matches.length ? (
             <p className="empty-line">Nothing matches this search.</p>
+          ) : null}
+          {historyHits.length ? (
+            <>
+              <div className="search-group-label">History</div>
+              {historyHits.map((entry) => (
+                <button
+                  key={`${entry.item_id}-${entry.created_at}`}
+                  onClick={() => {
+                    rememberSearch();
+                    dispatch({ type: "select", id: entry.item_id });
+                    dispatch({ type: "search", open: false });
+                  }}
+                >
+                  <History size={15} aria-hidden="true" />
+                  <span>
+                    <strong>{entry.display_name}</strong>
+                    <small>{entry.summary}</small>
+                  </span>
+                </button>
+              ))}
+            </>
           ) : null}
           <button
             className="settings-result"

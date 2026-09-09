@@ -113,6 +113,7 @@ export default function TodoPage() {
               timezone={settings.timezone}
               calendarDefault={settings.todoCalendarDefault}
               remindersDefault={settings.todoRemindersDefault}
+              settings={settings}
               onCreate={createFromDialog}
             />
           </>

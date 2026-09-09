@@ -93,6 +93,14 @@ type Action =
       url: string;
       linkType: AttachmentLink["linkType"];
     }
+  | {
+      type: "patchSubtask";
+      itemId: string;
+      subtaskId: string;
+      patch: { title?: string; completed?: boolean };
+    }
+  | { type: "deleteSubtask"; itemId: string; subtaskId: string }
+  | { type: "deleteLink"; itemId: string; linkId: string }
   | { type: "select"; id: string | null }
   | { type: "patchItem"; id: string; patch: Partial<OrganatoItem> }
   | { type: "classify"; id: string; classification: Classification }
@@ -124,6 +132,8 @@ type Action =
       priority?: OrganatoItem["priority"];
       notesMarkdown?: string;
       calendarNote?: string;
+      calendarEnabled?: boolean;
+      remindersEnabled?: boolean;
     }
   | { type: "settings"; patch: Partial<WorkspaceSettings> }
   | { type: "command"; open: boolean }
@@ -144,6 +154,9 @@ const serverMutationTypes = new Set<Action["type"]>([
   "undo",
   "saveView",
   "addAttachment",
+  "patchSubtask",
+  "deleteSubtask",
+  "deleteLink",
   "patchItem",
   "classify",
   "archive",
@@ -424,6 +437,72 @@ function baseReducer(state: State, action: Action): State {
       undo: null,
     });
   }
+  if (action.type === "patchSubtask") {
+    return persist({
+      ...state,
+      items: state.items.map((item) =>
+        item.id === action.itemId
+          ? {
+              ...item,
+              subtasks: item.subtasks.map((subtask) =>
+                subtask.id === action.subtaskId
+                  ? {
+                      ...subtask,
+                      ...(action.patch.title !== undefined
+                        ? { title: action.patch.title }
+                        : {}),
+                      ...(action.patch.completed !== undefined
+                        ? { completed: action.patch.completed }
+                        : {}),
+                    }
+                  : subtask,
+              ),
+            }
+          : item,
+      ),
+      toast: null,
+      undo: null,
+    });
+  }
+  if (action.type === "deleteSubtask") {
+    return persist({
+      ...state,
+      items: state.items.map((item) =>
+        item.id === action.itemId
+          ? {
+              ...item,
+              subtasks: item.subtasks.filter(
+                (subtask) => subtask.id !== action.subtaskId,
+              ),
+            }
+          : item,
+      ),
+      toast: null,
+      undo: null,
+    });
+  }
+  if (action.type === "deleteLink") {
+    return persist({
+      ...state,
+      items: state.items.map((item) =>
+        item.id === action.itemId
+          ? {
+              ...item,
+              links: {
+                blockedBy: item.links.blockedBy.filter(
+                  (ref) => ref.linkId !== action.linkId,
+                ),
+                blocking: item.links.blocking.filter(
+                  (ref) => ref.linkId !== action.linkId,
+                ),
+              },
+            }
+          : item,
+      ),
+      toast: null,
+      undo: null,
+    });
+  }
   if (action.type === "select") {
     return {
       ...state,
@@ -648,6 +727,7 @@ function baseReducer(state: State, action: Action): State {
       calendarNote: "calendarNote" in action ? (action.calendarNote ?? "") : "",
       pinned: false,
       sortRank: 0,
+      estimatedMinutes: null,
       archivedAt: null,
       archiveReason: null,
       sourceMissingSince: null,
@@ -666,6 +746,8 @@ function baseReducer(state: State, action: Action): State {
           createdAt: now,
         },
       ],
+      subtasks: [],
+      links: { blockedBy: [], blocking: [] },
     };
     return persist({
       ...state,
@@ -1196,6 +1278,36 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                   linkType: action.linkType,
                 }),
               },
+            );
+            serverVersions.current.set(result.item.id, result.item.version);
+            baseDispatch({ type: "replaceItem", item: result.item });
+            return;
+          }
+          if (action.type === "patchSubtask") {
+            const result = await apiRequest<{ item: OrganatoItem }>(
+              `/api/items/${encodeURIComponent(action.itemId)}/subtasks/${encodeURIComponent(action.subtaskId)}`,
+              {
+                method: "PATCH",
+                body: JSON.stringify(action.patch),
+              },
+            );
+            serverVersions.current.set(result.item.id, result.item.version);
+            baseDispatch({ type: "replaceItem", item: result.item });
+            return;
+          }
+          if (action.type === "deleteSubtask") {
+            const result = await apiRequest<{ item: OrganatoItem }>(
+              `/api/items/${encodeURIComponent(action.itemId)}/subtasks/${encodeURIComponent(action.subtaskId)}`,
+              { method: "DELETE", body: JSON.stringify({}) },
+            );
+            serverVersions.current.set(result.item.id, result.item.version);
+            baseDispatch({ type: "replaceItem", item: result.item });
+            return;
+          }
+          if (action.type === "deleteLink") {
+            const result = await apiRequest<{ item: OrganatoItem }>(
+              `/api/items/${encodeURIComponent(action.itemId)}/links/${encodeURIComponent(action.linkId)}`,
+              { method: "DELETE", body: JSON.stringify({}) },
             );
             serverVersions.current.set(result.item.id, result.item.version);
             baseDispatch({ type: "replaceItem", item: result.item });

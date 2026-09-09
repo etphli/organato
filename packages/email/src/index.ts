@@ -1,6 +1,7 @@
 import {
   groupDigestItems,
   itemDeadline,
+  type CanvasCourseSignals,
   type GroupedReminder,
   type OrganatoItem,
   type Subject,
@@ -50,6 +51,7 @@ export interface DigestInput {
     summary: string;
     at: string;
   }>;
+  courseSignals?: CanvasCourseSignals | undefined;
 }
 
 export interface RenderedDigest {
@@ -65,7 +67,13 @@ export function renderDigest(input: DigestInput): RenderedDigest | null {
     input.now,
     input.timezone ?? "Australia/Sydney",
   );
-  if (!groups.length) return null;
+  const hasSignals = Boolean(
+    input.courseSignals &&
+      (input.courseSignals.announcements.length ||
+        input.courseSignals.grades.length ||
+        input.courseSignals.modules.length),
+  );
+  if (!groups.length && !hasSignals) return null;
   const subjects = new Map(
     input.subjects.map((subject) => [subject.id, subject]),
   );
@@ -147,6 +155,53 @@ export function renderDigest(input: DigestInput): RenderedDigest | null {
       `- ${change.itemName} · ${changeLabel(change.action)} · ${change.summary}\n  ${input.appOrigin}/items/${encodeURIComponent(change.itemId)}`,
   );
 
+  const signals = input.courseSignals;
+  const signalAnnouncements = (signals?.announcements ?? []).slice(0, 5);
+  const signalGrades = (signals?.grades ?? []).filter(
+    (grade) => grade.score !== null || grade.grade !== null,
+  );
+  const signalModules = (signals?.modules ?? [])
+    .filter((module) => module.state !== "completed")
+    .slice(0, 8);
+  const signalsSection =
+    signalAnnouncements.length || signalGrades.length || signalModules.length
+      ? `<section style="margin:0 0 26px">
+        <h2 style="margin:0 0 10px;color:#7057c8;font-size:15px;line-height:1.4">Course signals</h2>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${signalAnnouncements
+          .map(
+            (announcement) =>
+              `<tr><td style="padding:0 0 10px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #e7e5ef;border-radius:12px;background:#ffffff"><tr><td style="padding:16px 18px">${
+                announcement.url
+                  ? `<a href="${escapeHtml(announcement.url)}" style="color:#17151d;text-decoration:none;font-size:15px;font-weight:700;line-height:1.35">${escapeHtml(announcement.title)}</a>`
+                  : `<span style="color:#17151d;font-size:15px;font-weight:700;line-height:1.35">${escapeHtml(announcement.title)}</span>`
+              }<div style="margin-top:7px;color:#6f6a79;font-size:13px;line-height:1.5">${escapeHtml(announcement.courseName)} &nbsp;•&nbsp; ${escapeHtml(announcement.excerpt)}</div></td></tr></table></td></tr>`,
+          )
+          .join("")}${signalGrades
+          .map(
+            (grade) =>
+              `<tr><td style="padding:0 0 10px;color:#3e3948;font-size:13px">📊 ${escapeHtml(grade.courseName)}: ${
+                grade.score !== null ? `${grade.score}%` : ""
+              }${grade.score !== null && grade.grade ? " · " : ""}${escapeHtml(grade.grade ?? "")}</td></tr>`,
+          )
+          .join("")}${signalModules
+          .map(
+            (module) =>
+              `<tr><td style="padding:0 0 6px;color:#6f6a79;font-size:13px">📦 ${escapeHtml(module.courseName)} — ${escapeHtml(module.moduleName)}${module.state ? ` (${escapeHtml(module.state)})` : ""}</td></tr>`,
+          )
+          .join("")}</table>
+      </section>`
+      : "";
+  const signalsText = [
+    ...signalAnnouncements.map(
+      (announcement) =>
+        `- ${announcement.title} (${announcement.courseName}): ${announcement.excerpt}`,
+    ),
+    ...signalGrades.map(
+      (grade) =>
+        `- Grade ${grade.courseName}: ${grade.score !== null ? `${grade.score}%` : ""}${grade.grade ? ` ${grade.grade}` : ""}`,
+    ),
+  ];
+
   const html = `<!doctype html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body data-organato-template="${EMAIL_TEMPLATE_VERSION}" style="margin:0;background:#f4f2f8;color:#17151d;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
   <div style="display:none;max-height:0;overflow:hidden">${escapeHtml(subject)}</div>
@@ -159,7 +214,7 @@ export function renderDigest(input: DigestInput): RenderedDigest | null {
           <h1 style="margin:8px 0 6px;font-size:28px;line-height:1.2;letter-spacing:-0.03em">Your next seven days</h1>
           <p style="margin:0;color:#bbb7c2;font-size:14px;line-height:1.55">${all.length} item${all.length === 1 ? "" : "s"} need your attention${overdueCount ? `, including ${overdueCount} overdue` : ""}.</p>
         </td></tr>
-        <tr><td style="background:#fbfaff;border:1px solid #e7e5ef;border-top:0;border-radius:0 0 16px 16px;padding:28px 30px 8px">${changesSection}${htmlGroups}</td></tr>
+        <tr><td style="background:#fbfaff;border:1px solid #e7e5ef;border-top:0;border-radius:0 0 16px 16px;padding:28px 30px 8px">${changesSection}${signalsSection}${htmlGroups}</td></tr>
         <tr><td align="center" style="padding:20px 12px 4px">
           <a href="${escapeHtml(input.appOrigin)}" style="display:inline-block;background:#7057c8;border-radius:9px;color:#ffffff;font-size:14px;font-weight:700;padding:11px 18px;text-decoration:none">Open Organato</a>
         </td></tr>
@@ -179,6 +234,7 @@ export function renderDigest(input: DigestInput): RenderedDigest | null {
     ...(changesText.length
       ? ["CHANGED SINCE YESTERDAY", ...changesText, ""]
       : []),
+    ...(signalsText.length ? ["COURSE SIGNALS", ...signalsText, ""] : []),
     ...groups.flatMap((group) => [
       labels[group.key].toUpperCase(),
       ...group.items.map((item) => {

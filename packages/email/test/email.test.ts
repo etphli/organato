@@ -45,6 +45,7 @@ describe("email rendering", () => {
       calendarNote: "",
       pinned: false,
       sortRank: 0,
+    estimatedMinutes: null,
       archivedAt: null,
       archiveReason: null,
       sourceMissingSince: null,
@@ -54,6 +55,8 @@ describe("email rendering", () => {
       overrides: [],
       attachments: [],
       history: [],
+    subtasks: [],
+    links: { blockedBy: [], blocking: [] },
     };
     const digest = renderDigest({
       items: [item],
@@ -108,6 +111,7 @@ describe("email rendering", () => {
       calendarNote: "",
       pinned: false,
       sortRank: 0,
+    estimatedMinutes: null,
       archivedAt: null,
       archiveReason: null,
       sourceMissingSince: null,
@@ -117,6 +121,8 @@ describe("email rendering", () => {
       overrides: [],
       attachments: [],
       history: [],
+    subtasks: [],
+    links: { blockedBy: [], blocking: [] },
     };
     const review = renderWeeklyReview({
       done: [{ ...base, id: "done-1", workingStatus: "completed" }],
@@ -146,5 +152,48 @@ describe("email rendering", () => {
         appOrigin: "https://organato.example",
       }),
     ).toBeNull();
+  });
+
+  it("renders course signals when provided", () => {
+    const now = new Date("2026-08-23T00:00:00.000Z");
+    const digest = renderDigest({
+      items: [],
+      subjects: [],
+      now,
+      appOrigin: "https://organato.example",
+      lastCanvasSync: "just now",
+      lastCalendarSync: "just now",
+      timezone: "Australia/Sydney",
+      courseSignals: {
+        announcements: [
+          {
+            id: "9",
+            courseId: "7",
+            courseName: "English",
+            title: "Essay moved",
+            excerpt: "Due Friday.",
+            url: null,
+            postedAt: null,
+          },
+        ],
+        grades: [
+          { courseId: "7", courseName: "English", score: 87.5, grade: "B+" },
+        ],
+        modules: [
+          {
+            courseId: "7",
+            courseName: "English",
+            moduleId: "3",
+            moduleName: "Unit 1",
+            state: "started",
+          },
+        ],
+      },
+    });
+
+    expect(digest?.html).toContain("Course signals");
+    expect(digest?.html).toContain("Essay moved");
+    expect(digest?.html).toContain("87.5%");
+    expect(digest?.text).toContain("COURSE SIGNALS");
   });
 });

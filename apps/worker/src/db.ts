@@ -2,8 +2,10 @@ import type {
   AttachmentLink,
   FieldOverride,
   HistoryEntry,
+  ItemLinkSummary,
   OrganatoItem,
   Subject,
+  Subtask,
   WorkspaceSettings,
 } from "@organato/domain";
 
@@ -34,6 +36,12 @@ const defaultSettings: WorkspaceSettings = {
   guardianWeeklyEnabled: false,
   smsGatewayAddress: "",
   examEscalationEnabled: false,
+  subjectDefaults: {},
+  checklistTemplates: {
+    assignment: ["Understand the task", "Draft", "Proofread", "Submit"],
+    checkpoint: ["Review notes", "Practice", "Confirm"],
+    todo: ["Do it"],
+  },
   reminderWindowDays: 7,
   immediateImportAlert: true,
   naturalTodoParsing: true,
@@ -104,6 +112,8 @@ function mapItem(
   overrides: FieldOverride[],
   attachments: AttachmentLink[],
   history: HistoryEntry[],
+  subtasks: Subtask[] = [],
+  links: ItemLinkSummary = { blockedBy: [], blocking: [] },
 ): OrganatoItem {
   return {
     id: String(row.id),
@@ -137,6 +147,10 @@ function mapItem(
     calendarNote: String(row.calendar_note ?? ""),
     pinned: boolean(row.pinned),
     sortRank: Number(row.sort_rank),
+    estimatedMinutes:
+      row.estimated_minutes === null || row.estimated_minutes === undefined
+        ? null
+        : Number(row.estimated_minutes),
     archivedAt: nullableString(row.archived_at),
     archiveReason: nullableString(row.archive_reason),
     sourceMissingSince: nullableString(row.source_missing_since),
@@ -146,6 +160,8 @@ function mapItem(
     overrides,
     attachments,
     history,
+    subtasks,
+    links,
   };
 }
 
@@ -229,6 +245,19 @@ export async function listItems(
              ORDER BY created_at DESC`,
         2,
       ),
+      prepareScoped(
+        `SELECT * FROM subtask WHERE workspace_id = ? AND item_id IN (${itemScope})
+         ORDER BY sort_rank, created_at`,
+        2,
+      ),
+      prepareScoped(
+        `SELECT *, 'out' AS link_direction FROM item_link WHERE workspace_id = ? AND from_item_id IN (${itemScope})`,
+        2,
+      ),
+      prepareScoped(
+        `SELECT *, 'in' AS link_direction FROM item_link WHERE workspace_id = ? AND to_item_id IN (${itemScope})`,
+        2,
+      ),
     );
   }
   const results = await db.batch(statements);
@@ -236,6 +265,9 @@ export async function listItems(
   const overrideResult = results[1]!;
   const attachmentResult = results[2];
   const historyResult = results[3];
+  const subtaskResult = results[4];
+  const linkOutResult = results[5];
+  const linkInResult = results[6];
   const overrides = new Map<string, FieldOverride[]>();
   for (const row of overrideResult.results as Row[]) {
     const itemId = String(row.item_id);
@@ -280,14 +312,61 @@ export async function listItems(
     }
     history.set(itemId, list);
   }
+  const subtasks = new Map<string, Subtask[]>();
+  for (const row of (subtaskResult?.results ?? []) as Row[]) {
+    const itemId = String(row.item_id);
+    const list = subtasks.get(itemId) ?? [];
+    list.push(mapSubtask(row));
+    subtasks.set(itemId, list);
+  }
+  const links = new Map<string, Row[]>();
+  for (const row of (linkOutResult?.results ?? []) as Row[]) {
+    const itemId = String(row.from_item_id);
+    const list = links.get(itemId) ?? [];
+    list.push(row);
+    links.set(itemId, list);
+  }
+  for (const row of (linkInResult?.results ?? []) as Row[]) {
+    const itemId = String(row.to_item_id);
+    const list = links.get(itemId) ?? [];
+    list.push(row);
+    links.set(itemId, list);
+  }
   return (itemResult.results as Row[]).map((row) =>
     mapItem(
       row,
       overrides.get(String(row.id)) ?? [],
       attachments.get(String(row.id)) ?? [],
       history.get(String(row.id)) ?? [],
+      subtasks.get(String(row.id)) ?? [],
+      summarizeLinks(links.get(String(row.id)) ?? [], String(row.id)),
     ),
   );
+}
+
+function mapSubtask(entry: Row): Subtask {
+  return {
+    id: String(entry.id),
+    title: String(entry.title),
+    completed: Number(entry.completed) === 1,
+    sortRank: Number(entry.sort_rank),
+    createdAt: String(entry.created_at),
+    updatedAt: String(entry.updated_at),
+  };
+}
+
+function summarizeLinks(rows: Row[], itemId: string): ItemLinkSummary {
+  const blockedBy: ItemLinkSummary["blockedBy"] = [];
+  const blocking: ItemLinkSummary["blocking"] = [];
+  for (const entry of rows) {
+    const ref = { itemId: "", linkId: String(entry.id) };
+    if (String(entry.from_item_id) === itemId) {
+      blocking.push({ ...ref, itemId: String(entry.to_item_id) });
+    } else {
+      blockedBy.push({ ...ref, itemId: String(entry.from_item_id) });
+    }
+  }
+  return { blockedBy, blocking };
 }
 
 export async function getItem(
@@ -300,26 +379,39 @@ export async function getItem(
     .bind(id, workspaceId)
     .first<Row>();
   if (!row) return null;
-  const [overrides, attachments, history] = await Promise.all([
-    db
-      .prepare(
-        "SELECT * FROM field_override WHERE workspace_id = ? AND item_id = ?",
-      )
-      .bind(workspaceId, id)
-      .all<Row>(),
-    db
-      .prepare(
-        "SELECT * FROM attachment_link WHERE workspace_id = ? AND item_id = ?",
-      )
-      .bind(workspaceId, id)
-      .all<Row>(),
-    db
-      .prepare(
-        "SELECT * FROM item_history WHERE workspace_id = ? AND item_id = ? ORDER BY created_at DESC LIMIT 50",
-      )
-      .bind(workspaceId, id)
-      .all<Row>(),
-  ]);
+  const [overrides, attachments, history, subtaskRows, linkRows] =
+    await Promise.all([
+      db
+        .prepare(
+          "SELECT * FROM field_override WHERE workspace_id = ? AND item_id = ?",
+        )
+        .bind(workspaceId, id)
+        .all<Row>(),
+      db
+        .prepare(
+          "SELECT * FROM attachment_link WHERE workspace_id = ? AND item_id = ?",
+        )
+        .bind(workspaceId, id)
+        .all<Row>(),
+      db
+        .prepare(
+          "SELECT * FROM item_history WHERE workspace_id = ? AND item_id = ? ORDER BY created_at DESC LIMIT 50",
+        )
+        .bind(workspaceId, id)
+        .all<Row>(),
+      db
+        .prepare(
+          "SELECT * FROM subtask WHERE workspace_id = ? AND item_id = ? ORDER BY sort_rank, created_at",
+        )
+        .bind(workspaceId, id)
+        .all<Row>(),
+      db
+        .prepare(
+          "SELECT * FROM item_link WHERE workspace_id = ? AND (from_item_id = ? OR to_item_id = ?)",
+        )
+        .bind(workspaceId, id, id)
+        .all<Row>(),
+    ]);
   return mapItem(
     row,
     overrides.results.map((entry) => ({
@@ -347,6 +439,8 @@ export async function getItem(
       summary: String(entry.summary),
       createdAt: String(entry.created_at),
     })),
+    subtaskRows.results.map(mapSubtask),
+    summarizeLinks(linkRows.results as Row[], id),
   );
 }
 
@@ -364,6 +458,7 @@ const patchColumns = new Map<string, string>([
   ["calendarNote", "calendar_note"],
   ["pinned", "pinned"],
   ["sortRank", "sort_rank"],
+  ["estimatedMinutes", "estimated_minutes"],
   ["recurrenceRule", "recurrence_rule_json"],
   ["recurrenceSeriesId", "recurrence_series_id"],
 ]);

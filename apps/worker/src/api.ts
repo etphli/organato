@@ -85,6 +85,7 @@ const itemPatchSchema = z.object({
   remindersEnabled: z.boolean().optional(),
   calendarNote: z.string().max(20_000).optional(),
   pinned: z.boolean().optional(),
+  estimatedMinutes: z.number().int().min(1).max(10_000).nullable().optional(),
   sortRank: z.number().optional(),
   recurrenceRule: recurrenceRuleSchema.nullable().optional(),
   recurrenceSeriesId: z.string().max(200).nullable().optional(),
@@ -107,6 +108,15 @@ const createItemSchema = z
     recurrenceRule: recurrenceRuleSchema.nullable().default(null),
     calendarEnabled: z.boolean().default(true),
     remindersEnabled: z.boolean().default(true),
+    notesMarkdown: z.string().max(100_000).default(""),
+    calendarNote: z.string().max(20_000).default(""),
+    estimatedMinutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(10_000)
+      .nullable()
+      .default(null),
   })
   .superRefine((input, refinement) => {
     try {
@@ -188,6 +198,14 @@ const workspaceSettingsPatchSchema = z
     guardianWeeklyEnabled: z.boolean(),
     smsGatewayAddress: z.string().max(254),
     examEscalationEnabled: z.boolean(),
+    subjectDefaults: z.record(
+      z.object({
+        priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+        calendarEnabled: z.boolean().optional(),
+        remindersEnabled: z.boolean().optional(),
+      }),
+    ),
+    checklistTemplates: z.record(z.array(z.string().max(200)).max(20)),
     reminderWindowDays: z.number().int().min(1).max(90),
     immediateImportAlert: z.boolean(),
     naturalTodoParsing: z.boolean(),
@@ -491,8 +509,8 @@ apiRoutes.post(
              (id, workspace_id, kind, classification, source_type, display_name, due_at, due_date_local,
               due_has_explicit_time, subject_id, priority, working_status, recurrence_rule_json,
               recurrence_series_id, calendar_enabled, reminders_enabled, calendar_sync_state,
-              created_at, updated_at)
-             VALUES (?, ?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, 'not_started', ?, ?, ?, ?, ?, ?, ?)`,
+              notes_markdown, calendar_note, estimated_minutes, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, 'not_started', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).bind(
           id,
           context.get("user").workspaceId,
@@ -509,6 +527,9 @@ apiRoutes.post(
           input.calendarEnabled ? 1 : 0,
           input.remindersEnabled ? 1 : 0,
           deadline.dueAt || deadline.dueDateLocal ? "pending" : "synced",
+          input.notesMarkdown,
+          input.calendarNote,
+          input.estimatedMinutes,
           now,
           now,
         ),
@@ -1253,6 +1274,248 @@ apiRoutes.delete("/items/:id/attachments/:attachmentId", async (context) => {
   });
 });
 
+const subtaskCreateSchema = z.object({
+  title: z.string().trim().min(1).max(500),
+});
+
+const subtaskPatchSchema = z.object({
+  title: z.string().trim().min(1).max(500).optional(),
+  completed: z.boolean().optional(),
+});
+
+async function requireWorkspaceItem(
+  db: D1Database,
+  workspaceId: string,
+  id: string,
+) {
+  return getItem(db, workspaceId, id);
+}
+
+apiRoutes.post(
+  "/items/:id/subtasks",
+  zValidator("json", subtaskCreateSchema),
+  async (context) => {
+    const workspaceId = context.get("user").workspaceId;
+    const item = await requireWorkspaceItem(
+      context.env.DB,
+      workspaceId,
+      context.req.param("id"),
+    );
+    if (!item) return context.json({ error: "Item not found." }, 404);
+    const input = context.req.valid("json");
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const existing = await context.env.DB.prepare(
+      "SELECT COALESCE(MAX(sort_rank), -1) AS max_rank FROM subtask WHERE workspace_id = ? AND item_id = ?",
+    )
+      .bind(workspaceId, item.id)
+      .first<{ max_rank: number }>();
+    await context.env.DB.prepare(
+      `INSERT INTO subtask
+        (id, workspace_id, item_id, title, completed, sort_rank, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
+    )
+      .bind(
+        id,
+        workspaceId,
+        item.id,
+        input.title,
+        Number(existing?.max_rank ?? -1) + 1,
+        now,
+        now,
+      )
+      .run();
+    return context.json(
+      {
+        item: await getItem(context.env.DB, workspaceId, item.id),
+      },
+      201,
+    );
+  },
+);
+
+apiRoutes.patch(
+  "/items/:id/subtasks/:subtaskId",
+  zValidator("json", subtaskPatchSchema),
+  async (context) => {
+    const workspaceId = context.get("user").workspaceId;
+    const item = await requireWorkspaceItem(
+      context.env.DB,
+      workspaceId,
+      context.req.param("id"),
+    );
+    if (!item) return context.json({ error: "Item not found." }, 404);
+    const input = context.req.valid("json");
+    if (input.title === undefined && input.completed === undefined) {
+      return context.json({ error: "Nothing to update." }, 400);
+    }
+    const now = new Date().toISOString();
+    const result = await context.env.DB.prepare(
+      `UPDATE subtask SET
+         title = COALESCE(?, title),
+         completed = COALESCE(?, completed),
+         updated_at = ?
+       WHERE id = ? AND item_id = ? AND workspace_id = ?`,
+    )
+      .bind(
+        input.title ?? null,
+        input.completed === undefined ? null : input.completed ? 1 : 0,
+        now,
+        context.req.param("subtaskId"),
+        item.id,
+        workspaceId,
+      )
+      .run();
+    if (!result.meta.changes) {
+      return context.json({ error: "Subtask not found." }, 404);
+    }
+    return context.json({
+      item: await getItem(context.env.DB, workspaceId, item.id),
+    });
+  },
+);
+
+apiRoutes.delete("/items/:id/subtasks/:subtaskId", async (context) => {
+  const workspaceId = context.get("user").workspaceId;
+  const item = await requireWorkspaceItem(
+    context.env.DB,
+    workspaceId,
+    context.req.param("id"),
+  );
+  if (!item) return context.json({ error: "Item not found." }, 404);
+  await context.env.DB.prepare(
+    "DELETE FROM subtask WHERE id = ? AND item_id = ? AND workspace_id = ?",
+  )
+    .bind(context.req.param("subtaskId"), item.id, workspaceId)
+    .run();
+  return context.json({
+    item: await getItem(context.env.DB, workspaceId, item.id),
+  });
+});
+
+apiRoutes.post(
+  "/items/:id/links",
+  zValidator("json", z.object({ toItemId: z.string().min(1) })),
+  async (context) => {
+    const workspaceId = context.get("user").workspaceId;
+    const fromId = context.req.param("id");
+    const { toItemId } = context.req.valid("json");
+    if (toItemId === fromId) {
+      return context.json({ error: "An item cannot block itself." }, 400);
+    }
+    const [from, to] = await Promise.all([
+      requireWorkspaceItem(context.env.DB, workspaceId, fromId),
+      requireWorkspaceItem(context.env.DB, workspaceId, toItemId),
+    ]);
+    if (!from || !to) {
+      return context.json({ error: "Item not found." }, 404);
+    }
+    const reverse = await context.env.DB.prepare(
+      "SELECT id FROM item_link WHERE workspace_id = ? AND from_item_id = ? AND to_item_id = ?",
+    )
+      .bind(workspaceId, toItemId, fromId)
+      .first<{ id: string }>();
+    if (reverse) {
+      return context.json(
+        { error: "That would create a dependency cycle." },
+        409,
+      );
+    }
+    const id = crypto.randomUUID();
+    const result = await context.env.DB.prepare(
+      `INSERT INTO item_link (id, workspace_id, from_item_id, to_item_id, created_at)
+       VALUES (?, ?, ?, ?, ?) ON CONFLICT(from_item_id, to_item_id) DO NOTHING`,
+    )
+      .bind(id, workspaceId, fromId, toItemId, new Date().toISOString())
+      .run();
+    if (!result.meta.changes) {
+      return context.json({ error: "That dependency already exists." }, 409);
+    }
+    return context.json(
+      {
+        item: await getItem(context.env.DB, workspaceId, fromId),
+      },
+      201,
+    );
+  },
+);
+
+apiRoutes.delete("/items/:id/links/:linkId", async (context) => {
+  const workspaceId = context.get("user").workspaceId;
+  await context.env.DB.prepare(
+    "DELETE FROM item_link WHERE id = ? AND workspace_id = ? AND (from_item_id = ? OR to_item_id = ?)",
+  )
+    .bind(
+      context.req.param("linkId"),
+      workspaceId,
+      context.req.param("id"),
+      context.req.param("id"),
+    )
+    .run();
+  return context.json({
+    item: await getItem(context.env.DB, workspaceId, context.req.param("id")),
+  });
+});
+
+apiRoutes.post(
+  "/items/:id/merge",
+  zValidator("json", z.object({ duplicateId: z.string().min(1) })),
+  async (context) => {
+    const workspaceId = context.get("user").workspaceId;
+    const survivorId = context.req.param("id");
+    const { duplicateId } = context.req.valid("json");
+    if (duplicateId === survivorId) {
+      return context.json({ error: "Cannot merge an item into itself." }, 400);
+    }
+    const [survivor, duplicate] = await Promise.all([
+      requireWorkspaceItem(context.env.DB, workspaceId, survivorId),
+      requireWorkspaceItem(context.env.DB, workspaceId, duplicateId),
+    ]);
+    if (!survivor || !duplicate) {
+      return context.json({ error: "Item not found." }, 404);
+    }
+    const now = new Date().toISOString();
+    const mergedNotes = [survivor.notesMarkdown, duplicate.notesMarkdown]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join("\n\n--- Merged ---\n\n");
+    await context.env.DB.batch([
+      context.env.DB.prepare(
+        "UPDATE subtask SET item_id = ?, updated_at = ? WHERE workspace_id = ? AND item_id = ?",
+      ).bind(survivorId, now, workspaceId, duplicateId),
+      context.env.DB.prepare(
+        "UPDATE attachment_link SET item_id = ? WHERE workspace_id = ? AND item_id = ?",
+      ).bind(survivorId, workspaceId, duplicateId),
+      context.env.DB.prepare(
+        "DELETE FROM item_link WHERE workspace_id = ? AND (from_item_id = ? OR to_item_id = ?)",
+      ).bind(workspaceId, duplicateId, duplicateId),
+      context.env.DB.prepare(
+        `UPDATE item SET notes_markdown = ?, archived_at = ?, archive_reason = 'Merged duplicate',
+           version = version + 1, updated_at = ? WHERE id = ? AND workspace_id = ?`,
+      ).bind(mergedNotes, now, now, survivorId, workspaceId),
+      context.env.DB.prepare(
+        `UPDATE item SET archived_at = ?, archive_reason = 'Merged duplicate',
+           version = version + 1, updated_at = ? WHERE id = ? AND workspace_id = ?`,
+      ).bind(now, now, duplicateId, workspaceId),
+      context.env.DB.prepare(
+        `INSERT INTO item_history
+          (id, item_id, workspace_id, actor_type, actor_identity, action, summary, created_at)
+         VALUES (?, ?, ?, 'user', ?, 'merged_duplicate', ?, ?)`,
+      ).bind(
+        crypto.randomUUID(),
+        survivorId,
+        workspaceId,
+        context.get("user").email,
+        `Merged duplicate “${duplicate.displayName}”`,
+        now,
+      ),
+    ]);
+    return context.json({
+      item: await getItem(context.env.DB, workspaceId, survivorId),
+    });
+  },
+);
+
 apiRoutes.get("/subjects", async (context) =>
   context.json({
     subjects: await listSubjects(
@@ -1306,6 +1569,50 @@ apiRoutes.post(
     );
   },
 );
+
+apiRoutes.get("/search/all", requireRecentSession(), async (context) => {
+  const query = (context.req.query("q") ?? "").trim().toLowerCase();
+  if (query.length < 2) {
+    return context.json({ items: [], history: [] });
+  }
+  if (
+    !(await rateLimit(
+      context,
+      `search:${context.get("user").email.toLowerCase()}`,
+      60,
+      1,
+    ))
+  ) {
+    return context.json({ error: "Search limit reached." }, 429);
+  }
+  const workspaceId = context.get("user").workspaceId;
+  const pattern = `%${query.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+  const [items, history] = await Promise.all([
+    context.env.DB.prepare(
+      `SELECT id, display_name, working_status FROM item
+       WHERE workspace_id = ? AND archived_at IS NULL
+         AND (LOWER(display_name) LIKE ? ESCAPE '\\' OR LOWER(notes_markdown) LIKE ? ESCAPE '\\')
+       ORDER BY updated_at DESC LIMIT 12`,
+    )
+      .bind(workspaceId, pattern, pattern)
+      .all<{ id: string; display_name: string; working_status: string }>(),
+    context.env.DB.prepare(
+      `SELECT h.summary, h.action, h.created_at, h.item_id, i.display_name
+       FROM item_history h JOIN item i ON i.id = h.item_id
+       WHERE i.workspace_id = ? AND LOWER(h.summary) LIKE ? ESCAPE '\\'
+       ORDER BY h.created_at DESC LIMIT 12`,
+    )
+      .bind(workspaceId, pattern)
+      .all<{
+        summary: string;
+        action: string;
+        created_at: string;
+        item_id: string;
+        display_name: string;
+      }>(),
+  ]);
+  return context.json({ items: items.results, history: history.results });
+});
 
 apiRoutes.patch(
   "/subjects/:id",
@@ -1987,6 +2294,7 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
       "calendar_note",
       "pinned",
       "sort_rank",
+      "estimated_minutes",
       "archived_at",
       "archive_reason",
       "source_missing_since",
@@ -2043,6 +2351,7 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
         item.calendarNote,
         item.pinned ? 1 : 0,
         item.sortRank,
+        item.estimatedMinutes ?? null,
         item.archivedAt,
         item.archiveReason,
         item.sourceMissingSince,
@@ -2063,6 +2372,12 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
       context.env.DB.prepare(
         "DELETE FROM item_history WHERE workspace_id = ? AND item_id = ?",
       ).bind(context.get("user").workspaceId, item.id),
+      context.env.DB.prepare(
+        "DELETE FROM subtask WHERE workspace_id = ? AND item_id = ?",
+      ).bind(context.get("user").workspaceId, item.id),
+      context.env.DB.prepare(
+        "DELETE FROM item_link WHERE workspace_id = ? AND (from_item_id = ? OR to_item_id = ?)",
+      ).bind(context.get("user").workspaceId, item.id, item.id),
       ...item.overrides.map((override) =>
         context.env.DB.prepare(
           `INSERT INTO field_override
@@ -2112,6 +2427,42 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
           entry.before ? JSON.stringify(entry.before) : null,
           entry.after ? JSON.stringify(entry.after) : null,
           entry.createdAt,
+        ),
+      ),
+      ...item.subtasks.map((subtask) =>
+        context.env.DB.prepare(
+          `INSERT INTO subtask
+              (id, workspace_id, item_id, title, completed, sort_rank, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+               title = excluded.title,
+               completed = excluded.completed,
+               sort_rank = excluded.sort_rank,
+               updated_at = excluded.updated_at`,
+        ).bind(
+          subtask.id,
+          context.get("user").workspaceId,
+          item.id,
+          subtask.title,
+          subtask.completed ? 1 : 0,
+          subtask.sortRank,
+          subtask.createdAt,
+          subtask.updatedAt,
+        ),
+      ),
+      ...[
+        ...item.links.blockedBy.map((other) => [other, item.id] as const),
+        ...item.links.blocking.map((other) => [item.id, other] as const),
+      ].map(([fromId, toId]) =>
+        context.env.DB.prepare(
+          `INSERT INTO item_link (id, workspace_id, from_item_id, to_item_id, created_at)
+             VALUES (?, ?, ?, ?, ?) ON CONFLICT(from_item_id, to_item_id) DO NOTHING`,
+        ).bind(
+          crypto.randomUUID(),
+          context.get("user").workspaceId,
+          fromId,
+          toId,
+          now,
         ),
       ),
     ]);

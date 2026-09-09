@@ -2,6 +2,7 @@ import type {
   CalendarChangePage,
   CalendarEventProjection,
   CalendarEventRecord,
+  CanvasCourseSignals,
   CanvasProvider,
   CanvasSyncResult,
   EmailMessage,
@@ -17,6 +18,9 @@ export class FakeCanvasProvider implements CanvasProvider {
       name: "Alex Smith",
       hostname: "canvas.example.edu",
     };
+  }
+  async fetchCourseSignals(): Promise<CanvasCourseSignals> {
+    return { announcements: [], grades: [], modules: [] };
   }
   async fetchUpcomingAssignments(): Promise<CanvasSyncResult> {
     const result = structuredClone(this.result);
