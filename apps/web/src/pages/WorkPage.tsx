@@ -19,11 +19,14 @@ import {
   ExternalLink,
   Filter,
   GitCompareArrows,
+  Link2,
   MoreHorizontal,
+  Pin,
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   daysRemainingLabel,
   itemDeadline,
@@ -98,7 +101,10 @@ export default function WorkPage({
   );
   const [priorityFilter, setPriorityFilter] = useState("");
   const [viewName, setViewName] = useState("");
-  const [activeView, setActiveView] = useState("active");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeView, setActiveView] = useState(
+    () => searchParams.get("view") ?? "active",
+  );
   const [deleteCandidate, setDeleteCandidate] = useState<OrganatoItem | null>(
     null,
   );
@@ -426,13 +432,28 @@ export default function WorkPage({
   const applySavedView = (id: string) => {
     if (id === "active" || id === "all") {
       setActiveView(id);
+      setSearchParams(
+        (current) => {
+          current.delete("view");
+          return current;
+        },
+        { replace: true },
+      );
       setQuery("");
       setPriorityFilter("");
       setSorting([{ id: "due", desc: false }]);
       return;
     }
     const selected = pageViews.find((view) => view.id === id);
+    if (!selected) return;
     setActiveView(id);
+    setSearchParams(
+      (current) => {
+        current.set("view", id);
+        return current;
+      },
+      { replace: true },
+    );
     setQuery(selected?.filters.query ?? "");
     setPriorityFilter(selected?.filters.priorities?.[0] ?? "");
     if (selected?.sort.length) {
@@ -451,6 +472,29 @@ export default function WorkPage({
       });
     }
   };
+  // Apply a shared ?view= link on load once saved views arrive.
+  const appliedSharedView = useRef(false);
+  useEffect(() => {
+    if (appliedSharedView.current) return;
+    const shared = pageViews.find((view) => view.id === activeView);
+    if (activeView !== "active" && activeView !== "all" && !shared) return;
+    if (!shared) {
+      if (activeView !== "active" && activeView !== "all") {
+        setActiveView("active");
+        setSearchParams(
+          (current) => {
+            current.delete("view");
+            return current;
+          },
+          { replace: true },
+        );
+      }
+      return;
+    }
+    appliedSharedView.current = true;
+    applySavedView(shared.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageViews]);
   const toggleCompleted = () => {
     const next = !showCompleted;
     setShowCompleted(next);
@@ -480,6 +524,52 @@ export default function WorkPage({
               value={activeView}
               onChange={applySavedView}
             />
+            {pageViews.some((view) => view.id === activeView) ? (
+              <>
+                <button
+                  className="text-button icon-labelled work-secondary-action"
+                  aria-pressed={
+                    pageViews.find((view) => view.id === activeView)
+                      ?.isDefault ?? false
+                  }
+                  onClick={() => {
+                    const current = pageViews.find(
+                      (view) => view.id === activeView,
+                    );
+                    if (current) {
+                      dispatch({
+                        type: "saveView",
+                        view: { ...current, isDefault: !current.isDefault },
+                      });
+                    }
+                  }}
+                >
+                  <Pin size={16} />
+                  {pageViews.find((view) => view.id === activeView)?.isDefault
+                    ? "Unpin"
+                    : "Pin"}
+                </button>
+                <button
+                  className="text-button icon-labelled work-secondary-action"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(window.location.href);
+                      dispatch({
+                        type: "toast",
+                        message: "View link copied",
+                      });
+                    } catch {
+                      dispatch({
+                        type: "toast",
+                        message: "Link copy failed",
+                      });
+                    }
+                  }}
+                >
+                  <Link2 size={16} /> Copy link
+                </button>
+              </>
+            ) : null}
             <button
               className="text-button icon-labelled work-secondary-action"
               onClick={() => setShowFilters((value) => !value)}
