@@ -248,7 +248,12 @@ app.get("/api/canvas-view", (c) => canvasViewer(c.req.raw, c.env));
 
 app.use("/api/*", requireSession());
 app.use("/api/*", async (context, next) => {
+  // File uploads are multipart, not JSON — exempt that single route.
+  const isAttachmentUpload =
+    context.req.method === "POST" &&
+    /^\/api\/items\/[^/]+\/attachments\/upload$/.test(context.req.path);
   if (
+    !isAttachmentUpload &&
     !["GET", "HEAD", "OPTIONS"].includes(context.req.method) &&
     !context.req
       .header("Content-Type")

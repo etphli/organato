@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { app } from "../src/index";
 import { apiRoutes, attachmentExtension } from "../src/api";
 import { getItem } from "../src/db";
+import { sha256 } from "../src/security";
 import type { Env, Variables } from "../src/types";
 
 vi.mock("../src/db", async (importOriginal) => {
@@ -224,5 +226,75 @@ describe("attachment uploads", () => {
     const response = await app.request("/attachments/file-id/file");
     expect(response.status).toBe(404);
     expect(bucket.getWithMetadata).not.toHaveBeenCalled();
+  });
+
+  it("lets multipart uploads past the JSON gate with a valid session", async () => {
+    mockedGetItem.mockReset();
+    mockedGetItem.mockResolvedValue(null);
+    const sessionId = "test-session-id";
+    const csrf = "test-csrf";
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const sessionRow = {
+      id_hash: await sha256(sessionId),
+      csrf_hash: await sha256(csrf),
+      authenticated_at: new Date().toISOString(),
+      idle_expires_at: future,
+      absolute_expires_at: future,
+      email_normalized: "owner@example.com",
+      workspace_id: "owner@example.com",
+      display_name: "Owner",
+      enabled: 1,
+    };
+    const db = {
+      prepare(query: string) {
+        return {
+          bind(..._args: unknown[]) {
+            return {
+              first: async () =>
+                query.includes("FROM session s") ? sessionRow : null,
+              run: async () => ({ success: true }),
+              all: async () => ({ results: [] }),
+            };
+          },
+        };
+      },
+      async batch() {
+        return [];
+      },
+    };
+    const bucket = { put: vi.fn(), delete: vi.fn(), getWithMetadata: vi.fn() };
+    const form = new FormData();
+    form.set(
+      "file",
+      new File(["rubric"], "rubric.pdf", { type: "application/pdf" }),
+    );
+    const response = await app.request(
+      "/api/items/missing/attachments/upload",
+      {
+        method: "POST",
+        headers: {
+          Origin: "https://organato.example",
+          "X-CSRF-Token": csrf,
+          Cookie: `organato_session=${sessionId}`,
+        },
+        body: form,
+      },
+      {
+        DB: db,
+        ATTACHMENTS: bucket,
+        APP_ORIGIN: "https://organato.example",
+        ALLOWED_GOOGLE_EMAILS: "owner@example.com",
+        GOOGLE_CLIENT_ID: "google-client",
+        CANVAS_BASE_URL: "https://canvas.example",
+      } as unknown as Env,
+      {
+        waitUntil: () => undefined,
+        passThroughOnException: () => undefined,
+      } as unknown as ExecutionContext,
+    );
+    // 404 (item missing) proves the multipart request cleared the JSON
+    // gate, session, and CSRF checks; 415 would mean the gate blocked it.
+    expect(response.status).toBe(404);
+    expect(bucket.put).not.toHaveBeenCalled();
   });
 });
