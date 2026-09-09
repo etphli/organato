@@ -84,7 +84,7 @@ function movedCloserByCanvas(item: OrganatoItem, now: Date): boolean {
 }
 
 function TopBriefing() {
-  const { items, subjectsById, settings } = useOrganatoData();
+  const { items, settings } = useOrganatoData();
   const { dispatch } = useOrganatoActions();
   const today = useToday();
   const top = useMemo(
@@ -111,14 +111,13 @@ function TopBriefing() {
         >
           <strong>{index + 1}</strong>
           <SubjectDot subjectId={item.subjectId} />
-          <span>{item.displayName}</span>
+          <span className="top-briefing-name">{item.displayName}</span>
           <small>
-            {subjectsById.get(item.subjectId ?? "")?.displayName ??
-              daysRemainingLabel(
-                itemDueDate(item, settings.timezone),
-                today,
-                settings.timezone,
-              )}
+            {daysRemainingLabel(
+              itemDueDate(item, settings.timezone),
+              today,
+              settings.timezone,
+            )}
           </small>
         </button>
       ))}

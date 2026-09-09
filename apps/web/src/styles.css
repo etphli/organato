@@ -847,7 +847,7 @@ button:disabled {
   width: 22px;
 }
 
-.top-briefing > button span,
+.top-briefing > button .top-briefing-name,
 .risk-strip > button span {
   flex: 1;
   min-width: 0;
