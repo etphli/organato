@@ -1,9 +1,14 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { OrganatoProvider } from "../state/OrganatoProvider";
 import HomePage from "../pages/HomePage";
 import { seedItems, seedSettings, seedSubjects } from "../data/seed";
+
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
 
 describe("Home", () => {
   it("keeps new Canvas work visible for classification", () => {
@@ -68,8 +73,62 @@ describe("Home", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Future active assignment")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("Future active assignment").length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByText("Future completed assignment")).toBeNull();
     expect(screen.queryByText("Past completed assignment")).toBeNull();
+  });
+
+  it("briefs the top priorities and flags deadline risks", () => {
+    const template = seedItems.find(
+      (item) => item.kind === "work" && item.classification === "assignment",
+    )!;
+    const future = new Date(Date.now() + 5 * 86_400_000).toISOString();
+    const past = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    localStorage.clear();
+    localStorage.setItem(
+      "organato-demo-state-v1",
+      JSON.stringify({
+        items: [
+          {
+            ...template,
+            id: "overdue-risk",
+            displayName: "Overdue essay",
+            dueAt: past,
+            workingStatus: "not_started",
+            completedAt: null,
+          },
+          {
+            ...template,
+            id: "future-fine",
+            displayName: "Future essay",
+            dueAt: future,
+            workingStatus: "not_started",
+            completedAt: null,
+          },
+        ],
+        subjects: seedSubjects,
+        settings: seedSettings,
+        views: [],
+      }),
+    );
+
+    render(
+      <MemoryRouter>
+        <OrganatoProvider>
+          <HomePage />
+        </OrganatoProvider>
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByRole("region", { name: "Top priorities" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Overdue essay").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("region", { name: "Deadline risks" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Overdue")).toBeInTheDocument();
   });
 });

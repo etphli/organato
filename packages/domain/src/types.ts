@@ -157,6 +157,13 @@ export interface WorkspaceSettings {
   completedVisibility: "end_of_day" | "seven_days" | "immediately";
   dailyDigestEnabled: boolean;
   digestHour: number;
+  eveningPreviewEnabled: boolean;
+  eveningHour: number;
+  weeklyReviewEnabled: boolean;
+  guardianEmail: string;
+  guardianWeeklyEnabled: boolean;
+  smsGatewayAddress: string;
+  examEscalationEnabled: boolean;
   reminderWindowDays: number;
   immediateImportAlert: boolean;
   naturalTodoParsing: boolean;

@@ -183,16 +183,18 @@ describe("test email delivery", () => {
                         active: 1,
                       },
                     ]
-                  : [
-                      {
-                        provider: "canvas",
-                        last_success_at: "2026-07-26T23:00:00.000Z",
-                      },
-                      {
-                        provider: "google",
-                        last_success_at: "2026-07-26T23:30:00.000Z",
-                      },
-                    ],
+                  : query.includes("FROM item_history")
+                    ? []
+                    : [
+                        {
+                          provider: "canvas",
+                          last_success_at: "2026-07-26T23:00:00.000Z",
+                        },
+                        {
+                          provider: "google",
+                          last_success_at: "2026-07-26T23:30:00.000Z",
+                        },
+                      ],
                 success: true,
                 meta: { changes: 0 },
               }),

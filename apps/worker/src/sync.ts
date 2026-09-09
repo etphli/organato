@@ -1,10 +1,16 @@
 import {
   digestDeliveryKey,
+  groupDigestItems,
   isDigestHour,
+  itemDeadline,
   localDateKey,
   type OrganatoItem,
 } from "@organato/domain";
-import { renderDigest } from "@organato/email";
+import {
+  renderDigest,
+  renderWeeklyReview,
+  type RenderedDigest,
+} from "@organato/email";
 import {
   CanvasConnectionError,
   CanvasRestProvider,
@@ -1194,6 +1200,13 @@ export async function resolveCalendarConflict(
   return { resolved: true };
 }
 
+export type EmailDeliveryType =
+  | "daily_digest"
+  | "urgent_import"
+  | "evening_preview"
+  | "weekly_review"
+  | "exam_escalation";
+
 export function nextDeliveryAttemptAt(attemptCount: number, now = new Date()) {
   const delayMinutes = Math.min(60, 5 * 2 ** Math.max(0, attemptCount - 1));
   return new Date(now.getTime() + delayMinutes * 60_000);
@@ -1244,7 +1257,7 @@ async function renderWorkspaceDigest(
   timezone: string,
   truncated = false,
 ) {
-  const [subjects, healthRows] = await Promise.all([
+  const [subjects, healthRows, changeRows] = await Promise.all([
     listSubjects(env.DB, workspaceId),
     env.DB.prepare(
       `SELECT provider, last_success_at, last_attempt_at, last_error_category
@@ -1257,6 +1270,22 @@ async function renderWorkspaceDigest(
         last_success_at: string | null;
         last_attempt_at: string | null;
         last_error_category: string | null;
+      }>(),
+    env.DB.prepare(
+      `SELECT h.item_id, h.action, h.summary, h.created_at, i.display_name
+       FROM item_history h JOIN item i ON i.id = h.item_id
+       WHERE i.workspace_id = ? AND h.actor_type = 'canvas'
+         AND h.action IN ('canvas_source_updated', 'canvas_removed', 'canvas_imported')
+         AND h.created_at >= ?
+       ORDER BY h.created_at DESC LIMIT 20`,
+    )
+      .bind(workspaceId, new Date(now.getTime() - 24 * 3_600_000).toISOString())
+      .all<{
+        item_id: string;
+        action: string;
+        summary: string;
+        created_at: string;
+        display_name: string;
       }>(),
   ]);
   const health = new Map(
@@ -1274,7 +1303,158 @@ async function renderWorkspaceDigest(
     lastCalendarSync: health.get("google") ?? "never",
     timezone,
     truncated,
+    recentChanges: changeRows.results.map((row) => ({
+      itemId: row.item_id,
+      itemName: row.display_name,
+      action: row.action,
+      summary: row.summary,
+      at: row.created_at,
+    })),
   });
+}
+
+type GoogleConnection = NonNullable<
+  Awaited<ReturnType<typeof loadGoogleConnection>>
+>;
+
+/** Shared claim + send + status-update core for every email job. */
+async function claimAndSendRenderedEmail(
+  env: Env,
+  workspaceId: string,
+  connection: GoogleConnection,
+  recipients: string[],
+  rendered: RenderedDigest,
+  deliveryKey: string,
+  deliveryType: EmailDeliveryType,
+  options: {
+    now: Date;
+    timezone: string;
+    forceRetry?: boolean;
+  },
+): Promise<boolean> {
+  const nowIso = options.now.toISOString();
+  const scopedDeliveryKey = `${workspaceId}:${deliveryKey}`;
+  const inserted = await env.DB.prepare(
+    `INSERT OR IGNORE INTO reminder_delivery
+      (delivery_key, workspace_id, delivery_type, local_date, item_snapshot_json, status,
+       attempt_count, created_at, last_attempt_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', 1, ?, ?)`,
+  )
+    .bind(
+      scopedDeliveryKey,
+      workspaceId,
+      deliveryType,
+      localDateKey(options.now, options.timezone),
+      JSON.stringify(rendered.itemIds),
+      nowIso,
+      nowIso,
+    )
+    .run();
+  if (!inserted.meta.changes) {
+    const staleBefore = new Date(
+      options.now.getTime() - 10 * 60_000,
+    ).toISOString();
+    const claimed = await env.DB.prepare(
+      `UPDATE reminder_delivery
+       SET status = 'pending', attempt_count = attempt_count + 1,
+           last_attempt_at = ?, next_attempt_at = NULL,
+           last_error_category = NULL
+       WHERE workspace_id = ? AND delivery_key = ? AND attempt_count < 3
+         AND (
+           (status = 'failed_transient' AND
+             (? = 1 OR next_attempt_at IS NULL OR next_attempt_at <= ?))
+           OR (status = 'pending' AND
+               COALESCE(last_attempt_at, created_at) <= ?)
+         )`,
+    )
+      .bind(
+        nowIso,
+        workspaceId,
+        scopedDeliveryKey,
+        options.forceRetry ? 1 : 0,
+        nowIso,
+        staleBefore,
+      )
+      .run();
+    if (!claimed.meta.changes) return false;
+  }
+  const gmail = new GmailSendProvider(
+    connection.tokenSource,
+    connection.metadata.email,
+  );
+  try {
+    const sent = await gmail.send({
+      to: recipients,
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
+      deliveryKey: scopedDeliveryKey,
+    });
+    await env.DB.prepare(
+      `UPDATE reminder_delivery SET status = 'sent', gmail_message_id = ?,
+         sent_at = ?, last_attempt_at = ?, next_attempt_at = NULL,
+         last_error_category = NULL
+       WHERE workspace_id = ? AND delivery_key = ?`,
+    )
+      .bind(sent.messageId, nowIso, nowIso, workspaceId, scopedDeliveryKey)
+      .run();
+    return true;
+  } catch (error) {
+    const authorizationFailure =
+      error instanceof GoogleApiError &&
+      (error.status === 401 || error.status === 403);
+    const delivery = await env.DB.prepare(
+      `SELECT attempt_count FROM reminder_delivery WHERE workspace_id = ? AND delivery_key = ?`,
+    )
+      .bind(workspaceId, scopedDeliveryKey)
+      .first<{ attempt_count: number }>();
+    const attempts = Number(delivery?.attempt_count ?? 1);
+    const retryAt =
+      authorizationFailure || attempts >= 3
+        ? null
+        : nextDeliveryAttemptAt(attempts, options.now).toISOString();
+    await Promise.all([
+      env.DB.prepare(
+        `UPDATE reminder_delivery
+         SET status = ?, last_attempt_at = ?, next_attempt_at = ?,
+             last_error_category = ?
+         WHERE workspace_id = ? AND delivery_key = ?`,
+      )
+        .bind(
+          authorizationFailure || attempts >= 3
+            ? "failed_permanent"
+            : "failed_transient",
+          nowIso,
+          retryAt,
+          authorizationFailure
+            ? "google_authorization_failed"
+            : attempts >= 3
+              ? "retry_limit_reached"
+              : "gmail_temporarily_unavailable",
+          workspaceId,
+          scopedDeliveryKey,
+        )
+        .run(),
+      env.DB.prepare(
+        `UPDATE integration_connection
+         SET status = ?, last_attempt_at = ?, last_error_category = ?,
+             reconnect_needed = ?, updated_at = ?
+         WHERE workspace_id = ? AND provider = 'google'`,
+      )
+        .bind(
+          authorizationFailure ? "action_needed" : "delayed",
+          nowIso,
+          authorizationFailure
+            ? "google_authorization_failed"
+            : "gmail_temporarily_unavailable",
+          authorizationFailure ? 1 : 0,
+          nowIso,
+          workspaceId,
+        )
+        .run(),
+    ]);
+    throw error;
+  }
 }
 
 async function sendDigestForItems(
@@ -1282,7 +1462,7 @@ async function sendDigestForItems(
   workspaceId: string,
   items: OrganatoItem[],
   deliveryKey: string,
-  deliveryType: "daily_digest" | "urgent_import",
+  deliveryType: EmailDeliveryType,
   options: {
     now: Date;
     timezone: string;
@@ -1354,133 +1534,24 @@ async function sendDigestForItems(
       .run();
     return false;
   }
-  const inserted = await env.DB.prepare(
-    `INSERT OR IGNORE INTO reminder_delivery
-      (delivery_key, workspace_id, delivery_type, local_date, item_snapshot_json, status,
-       attempt_count, created_at, last_attempt_at)
-     VALUES (?, ?, ?, ?, ?, 'pending', 1, ?, ?)`,
-  )
-    .bind(
-      scopedDeliveryKey,
-      workspaceId,
-      deliveryType,
-      localDate,
-      JSON.stringify(rendered.itemIds),
-      nowIso,
-      nowIso,
-    )
-    .run();
-  if (!inserted.meta.changes) {
-    const staleBefore = new Date(
-      options.now.getTime() - 10 * 60_000,
-    ).toISOString();
-    const claimed = await env.DB.prepare(
-      `UPDATE reminder_delivery
-       SET status = 'pending', attempt_count = attempt_count + 1,
-           last_attempt_at = ?, next_attempt_at = NULL,
-           last_error_category = NULL
-       WHERE workspace_id = ? AND delivery_key = ? AND attempt_count < 3
-         AND (
-           (status = 'failed_transient' AND
-             (? = 1 OR next_attempt_at IS NULL OR next_attempt_at <= ?))
-           OR (status = 'pending' AND
-               COALESCE(last_attempt_at, created_at) <= ?)
-         )`,
-    )
-      .bind(
-        nowIso,
-        workspaceId,
-        scopedDeliveryKey,
-        options.forceRetry ? 1 : 0,
-        nowIso,
-        staleBefore,
-      )
-      .run();
-    if (!claimed.meta.changes) return false;
-  }
   const recipients = connection.metadata.recipients?.length
     ? connection.metadata.recipients
     : [connection.metadata.email];
-  const gmail = new GmailSendProvider(
-    connection.tokenSource,
-    connection.metadata.email,
+  return claimAndSendRenderedEmail(
+    env,
+    workspaceId,
+    connection,
+    recipients,
+    deliveryType === "urgent_import"
+      ? {
+          ...rendered,
+          subject: `New short-notice Canvas work: ${rendered.subject}`,
+        }
+      : rendered,
+    deliveryKey,
+    deliveryType,
+    options,
   );
-  try {
-    const sent = await gmail.send({
-      to: recipients,
-      subject:
-        deliveryType === "urgent_import"
-          ? `New short-notice Canvas work: ${rendered.subject}`
-          : rendered.subject,
-      html: rendered.html,
-      text: rendered.text,
-      deliveryKey: scopedDeliveryKey,
-    });
-    await env.DB.prepare(
-      `UPDATE reminder_delivery SET status = 'sent', gmail_message_id = ?,
-         sent_at = ?, last_attempt_at = ?, next_attempt_at = NULL,
-         last_error_category = NULL
-       WHERE workspace_id = ? AND delivery_key = ?`,
-    )
-      .bind(sent.messageId, nowIso, nowIso, workspaceId, scopedDeliveryKey)
-      .run();
-    return true;
-  } catch (error) {
-    const authorizationFailure =
-      error instanceof GoogleApiError &&
-      (error.status === 401 || error.status === 403);
-    const delivery = await env.DB.prepare(
-      `SELECT attempt_count FROM reminder_delivery WHERE workspace_id = ? AND delivery_key = ?`,
-    )
-      .bind(workspaceId, scopedDeliveryKey)
-      .first<{ attempt_count: number }>();
-    const attempts = Number(delivery?.attempt_count ?? 1);
-    const retryAt =
-      authorizationFailure || attempts >= 3
-        ? null
-        : nextDeliveryAttemptAt(attempts, options.now).toISOString();
-    await Promise.all([
-      env.DB.prepare(
-        `UPDATE reminder_delivery
-         SET status = ?, last_attempt_at = ?, next_attempt_at = ?,
-             last_error_category = ?
-         WHERE workspace_id = ? AND delivery_key = ?`,
-      )
-        .bind(
-          authorizationFailure || attempts >= 3
-            ? "failed_permanent"
-            : "failed_transient",
-          nowIso,
-          retryAt,
-          authorizationFailure
-            ? "google_authorization_failed"
-            : attempts >= 3
-              ? "retry_limit_reached"
-              : "gmail_temporarily_unavailable",
-          workspaceId,
-          scopedDeliveryKey,
-        )
-        .run(),
-      env.DB.prepare(
-        `UPDATE integration_connection
-         SET status = ?, last_attempt_at = ?, last_error_category = ?,
-             reconnect_needed = ?, updated_at = ?
-         WHERE workspace_id = ? AND provider = 'google'`,
-      )
-        .bind(
-          authorizationFailure ? "action_needed" : "delayed",
-          nowIso,
-          authorizationFailure
-            ? "google_authorization_failed"
-            : "gmail_temporarily_unavailable",
-          authorizationFailure ? 1 : 0,
-          nowIso,
-          workspaceId,
-        )
-        .run(),
-    ]);
-    throw error;
-  }
 }
 
 export async function sendTestEmail(
@@ -1580,6 +1651,209 @@ export async function runDailyDigest(
     : { status: "skipped", reason: "not_claimed_or_no_items" };
 }
 
+function weekdayShort(now: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    weekday: "short",
+  }).format(now);
+}
+
+function recipientListKey(recipients: string[]): string {
+  return [...recipients]
+    .map((email) => email.toLowerCase())
+    .sort()
+    .join(",");
+}
+
+export async function runEveningPreview(
+  env: Env,
+  workspaceId: string,
+  now = new Date(),
+): Promise<DigestOutcome> {
+  const settings = await getSettings(env.DB, workspaceId);
+  if (!settings.eveningPreviewEnabled) {
+    return { status: "skipped", reason: "evening_preview_disabled" };
+  }
+  if (!isDigestHour(now, settings.timezone, settings.eveningHour)) {
+    return { status: "skipped", reason: "outside_evening_hour" };
+  }
+  const connection = await loadGoogleConnection(env, workspaceId);
+  if (!connection) return { status: "skipped", reason: "google_not_connected" };
+  const recipients = connection.metadata.recipients?.length
+    ? connection.metadata.recipients
+    : [connection.metadata.email];
+  const items = await listItems(env.DB, workspaceId, { limit: 1_000 });
+  const groups = groupDigestItems(items, now, settings.timezone);
+  const evening = groups
+    .filter((group) => group.key === "tomorrow" || group.key === "overdue")
+    .flatMap((group) => group.items);
+  const key = `evening:${localDateKey(now, settings.timezone)}:${recipientListKey(recipients)}`;
+  const sent = await sendDigestForItems(
+    env,
+    workspaceId,
+    evening,
+    key,
+    "evening_preview",
+    {
+      now,
+      timezone: settings.timezone,
+      truncated: evening.length >= 1_000,
+    },
+  );
+  return sent
+    ? { status: "sent", reason: "sent" }
+    : { status: "skipped", reason: "not_claimed_or_no_items" };
+}
+
+export async function runWeeklyReview(
+  env: Env,
+  workspaceId: string,
+  now = new Date(),
+): Promise<DigestOutcome> {
+  const settings = await getSettings(env.DB, workspaceId);
+  if (!settings.weeklyReviewEnabled) {
+    return { status: "skipped", reason: "weekly_review_disabled" };
+  }
+  if (
+    weekdayShort(now, settings.timezone) !== "Sun" ||
+    !isDigestHour(now, settings.timezone, 18)
+  ) {
+    return { status: "skipped", reason: "outside_review_window" };
+  }
+  const connection = await loadGoogleConnection(env, workspaceId);
+  if (!connection) return { status: "skipped", reason: "google_not_connected" };
+  const recipients = connection.metadata.recipients?.length
+    ? connection.metadata.recipients
+    : [connection.metadata.email];
+  const items = await listItems(env.DB, workspaceId, { limit: 2_000 });
+  const weekAgo = now.getTime() - 7 * 86_400_000;
+  const weekAhead = now.getTime() + 7 * 86_400_000;
+  const done = items.filter(
+    (item) =>
+      item.workingStatus === "completed" &&
+      item.completedAt &&
+      Date.parse(item.completedAt) >= weekAgo,
+  );
+  const slipped = items.filter((item) => {
+    if (item.archivedAt || item.workingStatus === "completed") return false;
+    const deadline = itemDeadline(item);
+    return deadline !== null && deadline.getTime() < now.getTime();
+  });
+  const upcoming = items.filter((item) => {
+    if (item.archivedAt || item.workingStatus === "completed") return false;
+    const deadline = itemDeadline(item);
+    return (
+      deadline !== null &&
+      deadline.getTime() >= now.getTime() &&
+      deadline.getTime() <= weekAhead
+    );
+  });
+  const rendered = renderWeeklyReview({
+    done,
+    slipped,
+    upcoming,
+    subjects: await listSubjects(env.DB, workspaceId),
+    now,
+    appOrigin: env.APP_ORIGIN,
+    timezone: settings.timezone,
+  });
+  if (!rendered) return { status: "skipped", reason: "nothing_to_review" };
+  const key = `weekly:${localDateKey(now, settings.timezone)}:${recipientListKey(recipients)}`;
+  const sent = await claimAndSendRenderedEmail(
+    env,
+    workspaceId,
+    connection,
+    recipients,
+    rendered,
+    key,
+    "weekly_review",
+    { now, timezone: settings.timezone },
+  );
+  // Guardian copy: same content, separate claim so one failure never blocks
+  // the other. Opt-in and read-only by construction (no action links).
+  if (
+    settings.guardianWeeklyEnabled &&
+    /.+@.+\..+/.test(settings.guardianEmail.trim())
+  ) {
+    const guardian = settings.guardianEmail.trim().toLowerCase();
+    await claimAndSendRenderedEmail(
+      env,
+      workspaceId,
+      connection,
+      [guardian],
+      {
+        ...rendered,
+        subject: `${rendered.subject} (guardian copy)`,
+      },
+      `${key}:guardian`,
+      "weekly_review",
+      { now, timezone: settings.timezone },
+    ).catch((error) => {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          category: "guardian_review_failed",
+          workspaceId,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    });
+  }
+  return sent
+    ? { status: "sent", reason: "sent" }
+    : { status: "skipped", reason: "not_claimed" };
+}
+
+export async function sendExamEscalation(
+  env: Env,
+  workspaceId: string,
+  now = new Date(),
+): Promise<DigestOutcome> {
+  const settings = await getSettings(env.DB, workspaceId);
+  if (!settings.examEscalationEnabled) {
+    return { status: "skipped", reason: "exam_escalation_disabled" };
+  }
+  const gateway = settings.smsGatewayAddress.trim().toLowerCase();
+  if (!/.+@.+\..+/.test(gateway)) {
+    return { status: "skipped", reason: "no_gateway_address" };
+  }
+  const connection = await loadGoogleConnection(env, workspaceId);
+  if (!connection) return { status: "skipped", reason: "google_not_connected" };
+  const items = await listItems(env.DB, workspaceId, { limit: 1_000 });
+  const groups = groupDigestItems(items, now, settings.timezone);
+  const candidates = (
+    groups.find((group) => group.key === "today")?.items ?? []
+  ).filter((item) => item.priority === "urgent" || item.priority === "high");
+  if (!candidates.length)
+    return { status: "skipped", reason: "no_exams_today" };
+  const names = candidates
+    .slice(0, 5)
+    .map((item) => item.displayName.slice(0, 60))
+    .join("; ");
+  const rendered: RenderedDigest = {
+    subject: `EXAM TODAY (${candidates.length}): ${names}`.slice(0, 160),
+    html: `<p>${candidates.length} high-priority item(s) due today: ${candidates
+      .map((item) => item.displayName)
+      .join("; ")}</p>`,
+    text: `Organato exam alert: ${names}`,
+    itemIds: candidates.map((item) => item.id),
+  };
+  const key = `exam:${localDateKey(now, settings.timezone)}`;
+  const sent = await claimAndSendRenderedEmail(
+    env,
+    workspaceId,
+    connection,
+    [gateway],
+    rendered,
+    key,
+    "exam_escalation",
+    { now, timezone: settings.timezone },
+  );
+  return sent
+    ? { status: "sent", reason: "sent" }
+    : { status: "skipped", reason: "not_claimed" };
+}
+
 export async function sendUrgentImport(
   env: Env,
   workspaceId: string,
@@ -1620,13 +1894,14 @@ export async function retryLatestDelivery(
     .bind(workspaceId)
     .first<{
       delivery_key: string;
-      delivery_type: "daily_digest" | "urgent_import";
+      delivery_type: EmailDeliveryType;
       item_snapshot_json: string;
     }>();
   if (!row) return false;
   if (
     row.delivery_type !== "daily_digest" &&
-    row.delivery_type !== "urgent_import"
+    row.delivery_type !== "urgent_import" &&
+    row.delivery_type !== "evening_preview"
   ) {
     return false;
   }
@@ -1686,7 +1961,8 @@ export async function retryDueDeliveries(
   for (const row of rows.results) {
     if (
       row.delivery_type !== "daily_digest" &&
-      row.delivery_type !== "urgent_import"
+      row.delivery_type !== "urgent_import" &&
+      row.delivery_type !== "evening_preview"
     ) {
       continue;
     }

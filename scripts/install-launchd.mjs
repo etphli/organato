@@ -49,6 +49,8 @@ function plist(label, job, schedule) {
 
 const hourlyPath = resolve(launchAgents, "dev.organato.hourly.plist");
 const digestPath = resolve(launchAgents, "dev.organato.digest.plist");
+const eveningPath = resolve(launchAgents, "dev.organato.evening.plist");
+const weeklyPath = resolve(launchAgents, "dev.organato.weekly.plist");
 writeFileSync(
   hourlyPath,
   plist(
@@ -65,8 +67,26 @@ writeFileSync(
     "<key>StartCalendarInterval</key><dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>0</integer></dict>",
   ),
 );
+writeFileSync(
+  eveningPath,
+  plist(
+    "dev.organato.evening",
+    "evening",
+    "<key>StartCalendarInterval</key><dict><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>",
+  ),
+);
+writeFileSync(
+  weeklyPath,
+  plist(
+    "dev.organato.weekly",
+    "weekly",
+    "<key>StartCalendarInterval</key><dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>0</integer></dict>",
+  ),
+);
 console.log(`Created ${hourlyPath}`);
 console.log(`Created ${digestPath}`);
+console.log(`Created ${eveningPath}`);
+console.log(`Created ${weeklyPath}`);
 console.log(
   "Load them with launchctl bootstrap gui/$(id -u) <path> after reviewing the files.",
 );

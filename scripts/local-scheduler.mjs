@@ -12,9 +12,17 @@ function loadEnvFile(path) {
 const args = process.argv.slice(2);
 const envIndex = args.indexOf("--env-file");
 if (envIndex >= 0) loadEnvFile(args[envIndex + 1]);
-const job = args.find((value) => value === "hourly" || value === "digest");
+const job = args.find(
+  (value) =>
+    value === "hourly" ||
+    value === "digest" ||
+    value === "evening" ||
+    value === "weekly",
+);
 if (!job)
-  throw new Error("Usage: local-scheduler.mjs hourly|digest [--env-file path]");
+  throw new Error(
+    "Usage: local-scheduler.mjs hourly|digest|evening|weekly [--env-file path]",
+  );
 
 const apiUrl = process.env.ORGANATO_API_URL;
 const token = process.env.ORGANATO_SCHEDULER_TOKEN;

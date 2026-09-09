@@ -72,6 +72,105 @@ function itemDueDate(
   return null;
 }
 
+function movedCloserByCanvas(item: OrganatoItem, now: Date): boolean {
+  const weekAgo = now.getTime() - 7 * 86_400_000;
+  return (item.history ?? []).some((entry) => {
+    if (entry.action !== "canvas_source_updated") return false;
+    if (Date.parse(entry.createdAt) < weekAgo) return false;
+    const before = Date.parse(String(entry.before?.dueAt ?? ""));
+    const after = Date.parse(String(entry.after?.dueAt ?? ""));
+    return Number.isFinite(before) && Number.isFinite(after) && after < before;
+  });
+}
+
+function TopBriefing() {
+  const { items, subjectsById, settings } = useOrganatoData();
+  const { dispatch } = useOrganatoActions();
+  const today = useToday();
+  const top = useMemo(
+    () =>
+      items
+        .filter(
+          (item) =>
+            !item.archivedAt &&
+            item.workingStatus !== "completed" &&
+            itemDueDate(item, settings.timezone),
+        )
+        .toSorted((a, b) => compareItems(a, b, today))
+        .slice(0, 3),
+    [items, settings.timezone, today],
+  );
+  if (!top.length) return null;
+  return (
+    <section className="top-briefing" aria-label="Top priorities">
+      <h2>Start here</h2>
+      {top.map((item, index) => (
+        <button
+          key={item.id}
+          onClick={() => dispatch({ type: "select", id: item.id })}
+        >
+          <strong>{index + 1}</strong>
+          <SubjectDot subjectId={item.subjectId} />
+          <span>{item.displayName}</span>
+          <small>
+            {subjectsById.get(item.subjectId ?? "")?.displayName ??
+              daysRemainingLabel(
+                itemDueDate(item, settings.timezone),
+                today,
+                settings.timezone,
+              )}
+          </small>
+        </button>
+      ))}
+    </section>
+  );
+}
+
+function RiskStrip() {
+  const { items, settings } = useOrganatoData();
+  const { dispatch } = useOrganatoActions();
+  const today = useToday();
+  const risks = useMemo(() => {
+    const now = today.getTime();
+    const soon = now + 2 * 86_400_000;
+    const stale = now - 2 * 86_400_000;
+    const flagged: Array<{ item: OrganatoItem; reason: string }> = [];
+    for (const item of items) {
+      if (item.archivedAt || item.workingStatus === "completed") continue;
+      const due = itemDueDate(item, settings.timezone)?.getTime();
+      if (due === undefined) continue;
+      if (due < now) {
+        flagged.push({ item, reason: "Overdue" });
+      } else if (
+        due <= soon &&
+        item.workingStatus === "not_started" &&
+        Date.parse(item.createdAt) < stale
+      ) {
+        flagged.push({ item, reason: "Due soon, not started" });
+      } else if (movedCloserByCanvas(item, today)) {
+        flagged.push({ item, reason: "Canvas moved it closer" });
+      }
+      if (flagged.length >= 5) break;
+    }
+    return flagged;
+  }, [items, settings.timezone, today]);
+  if (!risks.length) return null;
+  return (
+    <section className="risk-strip" aria-label="Deadline risks">
+      <h2>Needs attention</h2>
+      {risks.map(({ item, reason }) => (
+        <button
+          key={item.id}
+          onClick={() => dispatch({ type: "select", id: item.id })}
+        >
+          <span>{item.displayName}</span>
+          <small>{reason}</small>
+        </button>
+      ))}
+    </section>
+  );
+}
+
 function ClassificationInbox() {
   const { items, subjectsById, settings, integrations } = useOrganatoData();
   const { dispatch } = useOrganatoActions();
@@ -599,6 +698,8 @@ export default function HomePage() {
   return (
     <div className="page home-page">
       <PageHeader title="Home" meta={format(today, "EEEE, d MMMM")} />
+      <TopBriefing />
+      <RiskStrip />
       <ClassificationInbox />
       <OverdueList />
       <div

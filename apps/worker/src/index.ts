@@ -35,8 +35,11 @@ import {
   runCalendarReconciliation,
   runCanvasSync,
   runDailyDigest,
+  runEveningPreview,
   runRetentionCleanup,
+  runWeeklyReview,
   retryLatestDelivery,
+  sendExamEscalation,
   sendTestEmail,
   sendUrgentImport,
 } from "./sync";
@@ -170,8 +173,77 @@ async function runDigestForAllWorkspaces(env: Env, now: Date) {
         }),
       );
     }
+    // Morning-of exam escalation rides the digest job (no extra cron).
+    try {
+      const escalation = await sendExamEscalation(env, row.id, now);
+      if (escalation.status === "sent") {
+        outcomes.push({
+          workspaceId: row.id,
+          status: "sent",
+          reason: "exam_escalation",
+        });
+      }
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          category: "scheduled_job_failure",
+          area: "exam_escalation",
+          workspaceId: row.id,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
   }
   await runRetentionCleanup(env, now);
+  return { workspaces: rows.results.length, outcomes };
+}
+
+async function runEveningForAllWorkspaces(env: Env, now: Date) {
+  const rows = await env.DB.prepare("SELECT id FROM workspace").all<{
+    id: string;
+  }>();
+  const outcomes: Array<{
+    workspaceId: string;
+    status: string;
+    reason: string;
+  }> = [];
+  for (const row of rows.results) {
+    try {
+      const outcome = await runEveningPreview(env, row.id, now);
+      outcomes.push({ workspaceId: row.id, ...outcome });
+    } catch (error) {
+      outcomes.push({
+        workspaceId: row.id,
+        status: "failed",
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { workspaces: rows.results.length, outcomes };
+}
+
+async function runWeeklyForAllWorkspaces(env: Env, now: Date) {
+  const rows = await env.DB.prepare("SELECT id FROM workspace").all<{
+    id: string;
+  }>();
+  const outcomes: Array<{
+    workspaceId: string;
+    status: string;
+    reason: string;
+  }> = [];
+  for (const row of rows.results) {
+    try {
+      const outcome = await runWeeklyReview(env, row.id, now);
+      outcomes.push({ workspaceId: row.id, ...outcome });
+    } catch (error) {
+      outcomes.push({
+        workspaceId: row.id,
+        status: "failed",
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   return { workspaces: rows.results.length, outcomes };
 }
 
@@ -238,6 +310,22 @@ app.post("/api/internal/schedule", async (context) => {
       ok: true,
       job,
       ...(await runDigestForAllWorkspaces(context.env, now)),
+    });
+  }
+  if (job === "evening") {
+    const now = new Date();
+    return context.json({
+      ok: true,
+      job,
+      ...(await runEveningForAllWorkspaces(context.env, now)),
+    });
+  }
+  if (job === "weekly") {
+    const now = new Date();
+    return context.json({
+      ok: true,
+      job,
+      ...(await runWeeklyForAllWorkspaces(context.env, now)),
     });
   }
   return context.json({ error: "Unknown job." }, 400);

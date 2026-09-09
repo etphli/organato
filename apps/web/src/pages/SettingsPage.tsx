@@ -1123,6 +1123,126 @@ export default function SettingsPage() {
                     }
                   />
                 </label>
+                <label className="setting-row">
+                  <span>
+                    <strong>Evening preview</strong>
+                    <small>
+                      Tomorrow plus overdue, at 8 PM Australia/Sydney.
+                    </small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={settings.eveningPreviewEnabled}
+                    onChange={(event) =>
+                      dispatch({
+                        type: "settings",
+                        patch: { eveningPreviewEnabled: event.target.checked },
+                      })
+                    }
+                  />
+                </label>
+                <label className="setting-row">
+                  <span>
+                    <strong>Evening hour</strong>
+                    <small>24-hour Sydney time for the preview.</small>
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={23}
+                    value={settings.eveningHour}
+                    onChange={(event) => {
+                      const hour = Number(event.target.value);
+                      if (Number.isInteger(hour) && hour >= 0 && hour <= 23) {
+                        dispatch({
+                          type: "settings",
+                          patch: { eveningHour: hour },
+                        });
+                      }
+                    }}
+                  />
+                </label>
+                <label className="setting-row">
+                  <span>
+                    <strong>Sunday review</strong>
+                    <small>
+                      Done, slipped, and next week — Sundays 6 PM Sydney.
+                    </small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={settings.weeklyReviewEnabled}
+                    onChange={(event) =>
+                      dispatch({
+                        type: "settings",
+                        patch: { weeklyReviewEnabled: event.target.checked },
+                      })
+                    }
+                  />
+                </label>
+                <label className="setting-row">
+                  <span>
+                    <strong>Guardian copy</strong>
+                    <small>Read-only weekly review to a second address.</small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={settings.guardianWeeklyEnabled}
+                    onChange={(event) =>
+                      dispatch({
+                        type: "settings",
+                        patch: { guardianWeeklyEnabled: event.target.checked },
+                      })
+                    }
+                  />
+                </label>
+                <label className="field-row">
+                  <span>Guardian email</span>
+                  <input
+                    type="email"
+                    value={settings.guardianEmail}
+                    placeholder="parent@example.com"
+                    onChange={(event) =>
+                      dispatch({
+                        type: "settings",
+                        patch: { guardianEmail: event.target.value },
+                      })
+                    }
+                  />
+                </label>
+                <label className="setting-row">
+                  <span>
+                    <strong>Exam-day escalation</strong>
+                    <small>
+                      Urgent due-today items texted via your gateway each
+                      morning.
+                    </small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={settings.examEscalationEnabled}
+                    onChange={(event) =>
+                      dispatch({
+                        type: "settings",
+                        patch: { examEscalationEnabled: event.target.checked },
+                      })
+                    }
+                  />
+                </label>
+                <label className="field-row">
+                  <span>SMS gateway address</span>
+                  <input
+                    type="email"
+                    value={settings.smsGatewayAddress}
+                    placeholder="04XXXXXXXX@sms-gateway.example"
+                    onChange={(event) =>
+                      dispatch({
+                        type: "settings",
+                        patch: { smsGatewayAddress: event.target.value },
+                      })
+                    }
+                  />
+                </label>
               </div>
               <DeliveryHistory />
             </>
