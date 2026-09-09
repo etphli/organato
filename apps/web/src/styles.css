@@ -2324,16 +2324,89 @@ kbd {
   padding-bottom: 17px;
 }
 
-.inspector-manage {
-  display: grid;
-  gap: 8px;
-  justify-items: start;
+.inspector-section h2 {
+  /* Text starts where text-button labels start (12px button padding). */
+  padding-left: var(--ato-space-3, 12px);
 }
 
-.inspector-manage h2 {
-  /* Align the heading text with the text-button labels below it
-     (buttons carry 12px horizontal padding; the heading had none). */
-  padding-left: var(--ato-space-3, 12px);
+.inspector-header-actions {
+  display: flex;
+  gap: 2px;
+  position: relative;
+}
+
+.inspector-menu {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 16px 46px rgba(0, 0, 0, 0.4);
+  display: grid;
+  min-width: 190px;
+  padding: 6px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: var(--z-menu);
+}
+
+.inspector-menu > button {
+  border-radius: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.inspector-menu > button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+details.inspector-section > summary {
+  align-items: baseline;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+}
+
+details.inspector-section > summary h2 {
+  margin: 0;
+}
+
+details.inspector-section > summary small {
+  color: var(--muted);
+}
+
+details.inspector-section > summary::marker {
+  color: var(--muted);
+}
+
+.attachment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.effort-row > input {
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  width: 110px;
+}
+
+/* Number spinners add noise and break the row rhythm; typing + Enter suffices. */
+.effort-row > input::-webkit-outer-spin-button,
+.effort-row > input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.effort-row > input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .subtask-progress {

@@ -3,6 +3,7 @@ import {
   CalendarDays,
   ExternalLink,
   Link2,
+  MoreHorizontal,
   RotateCcw,
   X,
 } from "lucide-react";
@@ -398,6 +399,34 @@ function DuplicateBanner({ item }: { item: OrganatoItem }) {
 
 function EffortInput({ item }: { item: OrganatoItem }) {
   const { dispatch } = useOrganatoActions();
+  // Local draft committed on blur/Enter: committing per keystroke spammed
+  // server patches and an "Item edited" history row per character.
+  const [draft, setDraft] = useState<string | null>(null);
+  useEffect(() => {
+    setDraft(null);
+  }, [item.id]);
+  const commit = (value: string) => {
+    setDraft(null);
+    if (value.trim() === "") {
+      if (item.estimatedMinutes !== null) {
+        dispatch({
+          type: "patchItem",
+          id: item.id,
+          patch: { estimatedMinutes: null },
+        });
+      }
+      return;
+    }
+    const parsed = Math.round(Number(value));
+    if (!Number.isFinite(parsed) || parsed < 1) return;
+    if (parsed !== item.estimatedMinutes) {
+      dispatch({
+        type: "patchItem",
+        id: item.id,
+        patch: { estimatedMinutes: parsed },
+      });
+    }
+  };
   return (
     <label className="effort-row">
       <span>Effort (minutes)</span>
@@ -405,19 +434,22 @@ function EffortInput({ item }: { item: OrganatoItem }) {
         type="number"
         min={1}
         max={10000}
-        value={item.estimatedMinutes ?? ""}
+        value={draft ?? item.estimatedMinutes ?? ""}
         placeholder="—"
         aria-label="Estimated effort in minutes"
-        onChange={(event) => {
-          const value = event.target.value;
-          dispatch({
-            type: "patchItem",
-            id: item.id,
-            patch: {
-              estimatedMinutes:
-                value === "" ? null : Math.max(1, Number(value) || 0),
-            },
-          });
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={(event) => commit(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit(event.currentTarget.value);
+            event.currentTarget.blur();
+          }
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            setDraft(null);
+            event.currentTarget.blur();
+          }
         }}
       />
     </label>
@@ -564,6 +596,87 @@ export function Inspector() {
     }
     dispatch({ type: "select", id: null });
   };
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [menuOpen]);
+  const copyLink = async () => {
+    setMenuOpen(false);
+    const url = `${window.location.origin}/items/${item?.id ?? ""}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      dispatch({ type: "toast", message: "Link copied" });
+    } catch {
+      dispatch({
+        type: "toast",
+        message: "Link copy failed — copy it from the address bar",
+      });
+    }
+  };
+  const duplicateItem = () => {
+    setMenuOpen(false);
+    if (!item) return;
+    if (item.kind === "todo") {
+      dispatch({
+        type: "addTodo",
+        name: `${item.displayName} (copy)`,
+        dueAt: item.dueAt,
+        dueDateLocal: item.dueDateLocal,
+        dueHasExplicitTime: item.dueHasExplicitTime,
+        subjectId: item.subjectId,
+        priority: item.priority,
+        recurrenceRule: item.recurrenceRule,
+        calendarEnabled: item.calendarEnabled,
+        remindersEnabled: item.remindersEnabled,
+        notesMarkdown: item.notesMarkdown,
+        calendarNote: item.calendarNote,
+      });
+    } else {
+      dispatch({
+        type: "addWork",
+        name: `${item.displayName} (copy)`,
+        classification:
+          item.classification === "unclassified"
+            ? "assignment"
+            : item.classification,
+        dueAt: item.dueAt,
+        dueDateLocal: item.dueDateLocal,
+        dueHasExplicitTime: item.dueHasExplicitTime,
+        subjectId: item.subjectId,
+        priority: item.priority,
+        notesMarkdown: item.notesMarkdown,
+        calendarNote: item.calendarNote,
+      });
+    }
+    close();
+  };
+  const togglePin = () => {
+    setMenuOpen(false);
+    if (!item) return;
+    dispatch({
+      type: "patchItem",
+      id: item.id,
+      patch: { pinned: !item.pinned },
+    });
+  };
+  const archiveOrRestore = () => {
+    setMenuOpen(false);
+    if (!item) return;
+    if (item.archivedAt) {
+      dispatch({ type: "restore", id: item.id });
+    } else {
+      dispatch({ type: "archive", id: item.id });
+    }
+    close();
+  };
   useDialogFocus(
     Boolean(selectedItem),
     inspectorRef,
@@ -584,6 +697,7 @@ export function Inspector() {
   useEffect(() => {
     setConfirmingDelete(false);
     setDeleteConfirm("");
+    setMenuOpen(false);
   }, [item?.id]);
   if (!item) return null;
   const status = visibleStatus(item);
@@ -683,18 +797,133 @@ export function Inspector() {
               aria-label="Item name"
             />
           </div>
-          <button
-            className="icon-button"
-            onClick={close}
-            aria-label="Close details"
-          >
-            <X size={18} />
-          </button>
+          <div className="inspector-header-actions" ref={menuRef}>
+            {item ? (
+              <>
+                <button
+                  className="icon-button"
+                  onClick={() => setMenuOpen((open) => !open)}
+                  aria-label="Item actions"
+                  aria-expanded={menuOpen}
+                  aria-haspopup="menu"
+                >
+                  <MoreHorizontal size={18} />
+                </button>
+                {menuOpen ? (
+                  <div
+                    className="inspector-menu"
+                    role="menu"
+                    aria-label="Item actions"
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.stopPropagation();
+                        setMenuOpen(false);
+                      }
+                    }}
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => void copyLink()}
+                    >
+                      Copy link
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={duplicateItem}
+                    >
+                      Duplicate
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-pressed={item.pinned}
+                      onClick={togglePin}
+                    >
+                      {item.pinned ? "Unpin" : "Pin to top"}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={archiveOrRestore}
+                    >
+                      {item.archivedAt ? "Restore from archive" : "Archive"}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="danger-text"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setConfirmingDelete(true);
+                        setDeleteConfirm("");
+                      }}
+                    >
+                      Delete forever…
+                    </button>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+            <button
+              className="icon-button"
+              onClick={close}
+              aria-label="Close details"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </header>
         {item.calendarSyncState === "conflict" ? (
           <ConflictBanner itemId={item.id} />
         ) : null}
         <DuplicateBanner item={item} />
+        {confirmingDelete ? (
+          <form
+            className="attachment-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (deleteConfirm.trim().toLowerCase() !== "delete") return;
+              dispatch({
+                type: "deleteItem",
+                id: item.id,
+                confirmation: "delete",
+              });
+              close();
+            }}
+          >
+            <p className="empty-line">
+              Permanently delete <strong>{item.displayName}</strong>? Type
+              delete to confirm.
+            </p>
+            <input
+              value={deleteConfirm}
+              onChange={(event) => setDeleteConfirm(event.target.value)}
+              placeholder="delete"
+              aria-label="Type delete to confirm permanent deletion"
+              autoComplete="off"
+            />
+            <div>
+              <button
+                type="submit"
+                className="danger-button"
+                disabled={deleteConfirm.trim().toLowerCase() !== "delete"}
+              >
+                Delete forever
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmingDelete(false);
+                  setDeleteConfirm("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : null}
         <div className="inspector-scroll">
           <OrganatoSelect
             className={`plain-select status-${status}`}
@@ -1017,7 +1246,7 @@ export function Inspector() {
                 ) : null}
               </form>
             ) : (
-              <>
+              <div className="attachment-actions">
                 <button
                   className="text-button"
                   onClick={() => {
@@ -1046,7 +1275,7 @@ export function Inspector() {
                     if (file) void uploadFile(file);
                   }}
                 />
-              </>
+              </div>
             )}
           </section>
           <section className="toggle-lines" aria-label="Automation">
@@ -1116,9 +1345,12 @@ export function Inspector() {
               </div>
             </section>
           ))}
-          <section className="inspector-section activity">
-            <h2>Recent activity</h2>
-            {item.history.slice(0, 5).map((entry) => (
+          <details className="inspector-section activity">
+            <summary>
+              <h2>Recent activity</h2>
+              <small>{item.history.length}</small>
+            </summary>
+            {item.history.slice(0, 8).map((entry) => (
               <div key={entry.id}>
                 <span className="activity-dot" />{" "}
                 <p>
@@ -1129,168 +1361,13 @@ export function Inspector() {
                 </p>
               </div>
             ))}
+          </details>
+          <LinksSection item={item} />
+          <section className="inspector-section" aria-label="Planning">
+            <h2>Planning</h2>
+            <EffortInput item={item} />
           </section>
         </div>
-        <button
-          className="text-button"
-          type="button"
-          onClick={async () => {
-            const url = `${window.location.origin}/items/${item.id}`;
-            try {
-              await navigator.clipboard.writeText(url);
-              dispatch({ type: "toast", message: "Link copied" });
-            } catch {
-              dispatch({
-                type: "toast",
-                message: "Link copy failed — copy it from the address bar",
-              });
-            }
-          }}
-        >
-          Copy link
-        </button>
-        <LinksSection item={item} />
-        <section className="inspector-section" aria-label="Planning">
-          <h2>Planning</h2>
-          <EffortInput item={item} />
-        </section>
-        <section
-          className="inspector-section inspector-manage"
-          aria-label="Danger zone"
-        >
-          <h2>Manage</h2>
-          <button
-            className="text-button"
-            type="button"
-            onClick={() => {
-              if (item.kind === "todo") {
-                dispatch({
-                  type: "addTodo",
-                  name: `${item.displayName} (copy)`,
-                  dueAt: item.dueAt,
-                  dueDateLocal: item.dueDateLocal,
-                  dueHasExplicitTime: item.dueHasExplicitTime,
-                  subjectId: item.subjectId,
-                  priority: item.priority,
-                  recurrenceRule: item.recurrenceRule,
-                  calendarEnabled: item.calendarEnabled,
-                  remindersEnabled: item.remindersEnabled,
-                  notesMarkdown: item.notesMarkdown,
-                  calendarNote: item.calendarNote,
-                });
-              } else {
-                dispatch({
-                  type: "addWork",
-                  name: `${item.displayName} (copy)`,
-                  classification:
-                    item.classification === "unclassified"
-                      ? "assignment"
-                      : item.classification,
-                  dueAt: item.dueAt,
-                  dueDateLocal: item.dueDateLocal,
-                  dueHasExplicitTime: item.dueHasExplicitTime,
-                  subjectId: item.subjectId,
-                  priority: item.priority,
-                  notesMarkdown: item.notesMarkdown,
-                  calendarNote: item.calendarNote,
-                });
-              }
-              close();
-            }}
-          >
-            Duplicate
-          </button>
-          <button
-            className="text-button"
-            type="button"
-            aria-pressed={item.pinned}
-            onClick={() =>
-              dispatch({
-                type: "patchItem",
-                id: item.id,
-                patch: { pinned: !item.pinned },
-              })
-            }
-          >
-            {item.pinned ? "Unpin" : "Pin to top"}
-          </button>
-          {item.archivedAt ? (
-            <button
-              className="text-button"
-              type="button"
-              onClick={() => {
-                dispatch({ type: "restore", id: item.id });
-                close();
-              }}
-            >
-              Restore from archive
-            </button>
-          ) : (
-            <button
-              className="text-button"
-              type="button"
-              onClick={() => {
-                dispatch({ type: "archive", id: item.id });
-                close();
-              }}
-            >
-              Archive
-            </button>
-          )}
-          {confirmingDelete ? (
-            <form
-              className="attachment-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (deleteConfirm.trim().toLowerCase() !== "delete") return;
-                dispatch({
-                  type: "deleteItem",
-                  id: item.id,
-                  confirmation: "delete",
-                });
-                close();
-              }}
-            >
-              <p className="empty-line">
-                Permanently delete <strong>{item.displayName}</strong>? Type
-                delete to confirm.
-              </p>
-              <input
-                value={deleteConfirm}
-                onChange={(event) => setDeleteConfirm(event.target.value)}
-                placeholder="delete"
-                aria-label="Type delete to confirm permanent deletion"
-                autoComplete="off"
-              />
-              <div>
-                <button
-                  type="submit"
-                  className="danger-button"
-                  disabled={deleteConfirm.trim().toLowerCase() !== "delete"}
-                >
-                  Delete forever
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setConfirmingDelete(false);
-                    setDeleteConfirm("");
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          ) : (
-            <button
-              className="text-button danger-text"
-              type="button"
-              onClick={() => setConfirmingDelete(true)}
-            >
-              Delete forever…
-            </button>
-          )}
-        </section>
         <Link className="archive-button" to="/settings/data" onClick={close}>
           <Archive size={15} /> Manage archive in Settings
         </Link>

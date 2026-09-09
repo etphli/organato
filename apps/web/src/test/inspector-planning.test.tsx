@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import { Inspector } from "../components/Inspector";
@@ -68,5 +68,52 @@ describe("Inspector planning sections", () => {
     expect(
       screen.getByLabelText("Estimated effort in minutes"),
     ).toBeInTheDocument();
+  });
+
+  it("keeps item actions in the header menu, not a manage section", async () => {
+    const target = seedItems.find((item) => item.kind === "work")!;
+    localStorage.setItem(
+      "organato-demo-state-v1",
+      JSON.stringify({
+        items: [
+          { ...target, subtasks: [], links: { blockedBy: [], blocking: [] } },
+        ],
+        subjects: [],
+        settings: seedSettings,
+        views: [],
+      }),
+    );
+
+    function SelectProbe() {
+      const { dispatch } = useOrganatoActions();
+      useEffect(() => {
+        dispatch({ type: "select", id: target.id });
+      }, [dispatch]);
+      return null;
+    }
+
+    render(
+      <MemoryRouter>
+        <OrganatoProvider>
+          <SelectProbe />
+          <Inspector />
+        </OrganatoProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByLabelText("Item actions")).toBeInTheDocument();
+    expect(screen.queryByText("Pin to top")).toBeNull();
+    expect(screen.queryByText("Duplicate")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Item actions"));
+    expect(
+      screen.getByRole("menuitem", { name: "Duplicate" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: "Pin to top" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: "Delete forever…" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Manage archive in Settings")).toBeInTheDocument();
   });
 });
