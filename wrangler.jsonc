@@ -23,12 +23,16 @@
       { "name": "CANVAS_CONNECTOR", "class_name": "CanvasConnector" },
     ],
   },
-  "r2_buckets": [
-    {
-      "binding": "ATTACHMENTS",
-      "bucket_name": "organato-attachments",
-    },
-  ],
+  // R2 file attachments: uncomment after enabling R2 in the Cloudflare
+  // dashboard and creating the bucket with
+  // `wrangler r2 bucket create organato-attachments`. Code serves 501
+  // without it; links are unaffected.
+  // "r2_buckets": [
+  //   {
+  //     "binding": "ATTACHMENTS",
+  //     "bucket_name": "organato-attachments",
+  //   },
+  // ],
   "migrations": [
     { "tag": "canvas-connector-v1", "new_sqlite_classes": ["CanvasConnector"] },
   ],
