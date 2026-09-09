@@ -3,7 +3,7 @@ import { attachmentHref } from "../lib/integrationApi";
 
 describe("attachmentHref", () => {
   it("routes stored files through the authenticated file endpoint", () => {
-    expect(attachmentHref({ id: "att-1", url: "r2://ws/item/att-1.pdf" })).toBe(
+    expect(attachmentHref({ id: "att-1", url: "kv://ws/item/att-1.pdf" })).toBe(
       "/api/attachments/att-1/file",
     );
   });

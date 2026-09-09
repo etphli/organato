@@ -107,7 +107,7 @@ export function attachmentHref(attachment: {
   id: string;
   url: string;
 }): string {
-  if (attachment.url.startsWith("r2://")) {
+  if (attachment.url.startsWith("kv://")) {
     return `/api/attachments/${attachment.id}/file`;
   }
   return attachment.url;

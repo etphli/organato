@@ -1140,7 +1140,7 @@ apiRoutes.post("/items/:id/attachments/upload", async (context) => {
   const now = new Date().toISOString();
   const key = `${context.get("user").workspaceId}/${item.id}/${id}.${attachmentExtension(file.name, mime)}`;
   await bucket.put(key, await file.arrayBuffer(), {
-    httpMetadata: { contentType: mime },
+    metadata: { contentType: mime },
   });
   try {
     await context.env.DB.batch([
@@ -1153,7 +1153,7 @@ apiRoutes.post("/items/:id/attachments/upload", async (context) => {
         item.id,
         context.get("user").workspaceId,
         label,
-        `r2://${key}`,
+        `kv://${key}`,
         linkType,
         now,
       ),
@@ -1193,16 +1193,19 @@ apiRoutes.get("/attachments/:attachmentId/file", async (context) => {
   )
     .bind(context.req.param("attachmentId"), context.get("user").workspaceId)
     .first<{ url: string }>();
-  if (!row || !row.url.startsWith("r2://")) {
+  if (!row || !row.url.startsWith("kv://")) {
     return context.json({ error: "Not found." }, 404);
   }
-  const object = await bucket.get(row.url.slice("r2://".length));
-  if (!object) return context.json({ error: "Not found." }, 404);
-  return new Response(object.body, {
+  const stored = await bucket.getWithMetadata<{ contentType?: string }>(
+    row.url.slice("kv://".length),
+    "arrayBuffer",
+  );
+  if (!stored.value) return context.json({ error: "Not found." }, 404);
+  return new Response(stored.value, {
     headers: {
       "Content-Type":
-        object.httpMetadata?.contentType ?? "application/octet-stream",
-      "Content-Length": String(object.size),
+        stored.metadata?.contentType ?? "application/octet-stream",
+      "Content-Length": String(stored.value.byteLength),
       "Cache-Control": "private, max-age=3600",
     },
   });
@@ -1229,9 +1232,9 @@ apiRoutes.delete("/items/:id/attachments/:attachmentId", async (context) => {
     )
     .run();
   // Best-effort removal of the stored file; the link row is the record.
-  if (existing?.url.startsWith("r2://")) {
+  if (existing?.url.startsWith("kv://")) {
     await context.env.ATTACHMENTS?.delete(
-      existing.url.slice("r2://".length),
+      existing.url.slice("kv://".length),
     ).catch(() => undefined);
   }
   return context.json({

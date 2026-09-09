@@ -1,7 +1,7 @@
 export interface Env {
   DB: D1Database;
-  /** R2 bucket for item file attachments (PDF/DOCX). Optional: routes 501 without it. */
-  ATTACHMENTS?: R2Bucket;
+  /** KV namespace for item file attachments (PDF/DOCX). Optional: routes 501 without it. */
+  ATTACHMENTS?: KVNamespace;
   CANVAS_CONNECTOR?: DurableObjectNamespace;
   CONNECTOR_PUBLIC_ORIGIN?: string;
   ASSETS: Fetcher;

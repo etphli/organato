@@ -86,7 +86,7 @@ describe("attachmentExtension", () => {
 });
 
 describe("attachment uploads", () => {
-  it("returns 501 when the R2 bucket is not configured", async () => {
+  it("returns 501 when file storage is not configured", async () => {
     const { db } = mockDb();
     const response = await testApp(mockEnv(db, undefined)).request(
       "/items/item-1/attachments/upload",
@@ -98,7 +98,7 @@ describe("attachment uploads", () => {
   it("returns 404 when the item does not exist", async () => {
     mockedGetItem.mockResolvedValueOnce(null);
     const { db } = mockDb();
-    const bucket = { put: vi.fn(), delete: vi.fn(), get: vi.fn() };
+    const bucket = { put: vi.fn(), delete: vi.fn(), getWithMetadata: vi.fn() };
     const form = new FormData();
     form.set(
       "file",
@@ -115,7 +115,7 @@ describe("attachment uploads", () => {
   it("rejects oversized and disallowed files before storing", async () => {
     mockedGetItem.mockResolvedValue({ id: "item-1" } as any);
     const { db } = mockDb();
-    const bucket = { put: vi.fn(), delete: vi.fn(), get: vi.fn() };
+    const bucket = { put: vi.fn(), delete: vi.fn(), getWithMetadata: vi.fn() };
     const app = testApp(mockEnv(db, bucket));
 
     const big = new FormData();
@@ -144,7 +144,7 @@ describe("attachment uploads", () => {
   it("stores the file and links it to the item", async () => {
     mockedGetItem.mockResolvedValue({ id: "item-1", attachments: [] } as any);
     const { db, batches } = mockDb();
-    const bucket = { put: vi.fn(), delete: vi.fn(), get: vi.fn() };
+    const bucket = { put: vi.fn(), delete: vi.fn(), getWithMetadata: vi.fn() };
     const form = new FormData();
     form.set(
       "file",
@@ -168,12 +168,11 @@ describe("attachment uploads", () => {
     const bucket = {
       put: vi.fn(),
       delete: vi.fn(),
-      get: vi.fn(async (key: string) => {
+      getWithMetadata: vi.fn(async (key: string) => {
         expect(key).toBe("owner@example.com/item-1/file-id.pdf");
         return {
-          body: fileBytes,
-          httpMetadata: { contentType: "application/pdf" },
-          size: fileBytes.length,
+          value: fileBytes.buffer,
+          metadata: { contentType: "application/pdf" },
         };
       }),
     };
@@ -184,7 +183,7 @@ describe("attachment uploads", () => {
             return {
               first: async () =>
                 query.includes("FROM attachment_link")
-                  ? { url: "r2://owner@example.com/item-1/file-id.pdf" }
+                  ? { url: "kv://owner@example.com/item-1/file-id.pdf" }
                   : null,
               run: async () => ({ success: true }),
               all: async () => ({ results: [] }),
@@ -220,10 +219,10 @@ describe("attachment uploads", () => {
         return [];
       },
     };
-    const bucket = { put: vi.fn(), delete: vi.fn(), get: vi.fn() };
+    const bucket = { put: vi.fn(), delete: vi.fn(), getWithMetadata: vi.fn() };
     const app = testApp(mockEnv(db, bucket));
     const response = await app.request("/attachments/file-id/file");
     expect(response.status).toBe(404);
-    expect(bucket.get).not.toHaveBeenCalled();
+    expect(bucket.getWithMetadata).not.toHaveBeenCalled();
   });
 });
