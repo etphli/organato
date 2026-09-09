@@ -167,6 +167,7 @@ export function Inspector() {
   const [linkType, setLinkType] = useState<
     "reference" | "brief" | "rubric" | "working_document" | "other"
   >("other");
+  const [linkError, setLinkError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const uploadFile = async (file: File) => {
@@ -594,13 +595,24 @@ export function Inspector() {
                 className="attachment-form"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  if (!linkLabel.trim() || !linkUrl.startsWith("https://"))
+                  // Normalize instead of silently rejecting: trim stray
+                  // whitespace and assume https when no scheme is pasted.
+                  let url = linkUrl.trim();
+                  if (url && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) {
+                    url = `https://${url}`;
+                  }
+                  if (!linkLabel.trim() || !url.startsWith("https://")) {
+                    setLinkError(
+                      "Add a label and an https:// link (http links are not accepted).",
+                    );
                     return;
+                  }
+                  setLinkError(null);
                   dispatch({
                     type: "addAttachment",
                     itemId: item.id,
                     label: linkLabel.trim(),
-                    url: linkUrl,
+                    url,
                     linkType,
                   });
                   setLinkLabel("");
@@ -646,12 +658,20 @@ export function Inspector() {
                     Cancel
                   </button>
                 </div>
+                {linkError ? (
+                  <p className="settings-inline-error" role="alert">
+                    {linkError}
+                  </p>
+                ) : null}
               </form>
             ) : (
               <>
                 <button
                   className="text-button"
-                  onClick={() => setAddingLink(true)}
+                  onClick={() => {
+                    setLinkError(null);
+                    setAddingLink(true);
+                  }}
                 >
                   + Add a secure link
                 </button>
