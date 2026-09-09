@@ -1294,6 +1294,47 @@ async function renderWorkspaceDigest(
       syncHealthLabel(row, timezone),
     ]),
   );
+  // Richer Canvas signal: announcements, grades, and module states from the
+  // last two days. Direct-cookie connections only; Pi workspaces sync
+  // through the connector instead. Never fails the digest.
+  let courseSignals = undefined;
+  try {
+    const canvasRow = await env.DB.prepare(
+      `SELECT encrypted_credential, metadata_json, account_label
+       FROM integration_connection
+       WHERE workspace_id = ? AND provider = 'canvas' AND status <> 'disconnected'`,
+    )
+      .bind(workspaceId)
+      .first<{
+        encrypted_credential: string | null;
+        metadata_json: string;
+        account_label: string;
+      }>();
+    const metadata = canvasRow
+      ? parseCanvasConnectionMetadata(
+          canvasRow.metadata_json,
+          canvasRow.account_label,
+        )
+      : null;
+    if (
+      metadata &&
+      metadata.transport !== "browser" &&
+      canvasRow?.encrypted_credential
+    ) {
+      const cookie = await decryptSecret(
+        canvasRow.encrypted_credential,
+        env.DATA_ENCRYPTION_KEY,
+        metadata.credentialAad,
+      );
+      const provider = new CanvasRestProvider(metadata.baseUrl, cookie);
+      courseSignals = await provider.fetchCourseSignals(
+        new Date(now.getTime() - 2 * 24 * 3_600_000),
+        AbortSignal.timeout(30_000),
+      );
+    }
+  } catch {
+    courseSignals = undefined;
+  }
   return renderDigest({
     items,
     subjects,
@@ -1310,6 +1351,7 @@ async function renderWorkspaceDigest(
       summary: row.summary,
       at: row.created_at,
     })),
+    courseSignals,
   });
 }
 
@@ -1687,6 +1729,8 @@ export async function runEveningPreview(
   const evening = groups
     .filter((group) => group.key === "tomorrow" || group.key === "overdue")
     .flatMap((group) => group.items);
+  // Course signals must not trigger an evening email on their own.
+  if (!evening.length) return { status: "skipped", reason: "no_items" };
   const key = `evening:${localDateKey(now, settings.timezone)}:${recipientListKey(recipients)}`;
   const sent = await sendDigestForItems(
     env,
@@ -1867,6 +1911,8 @@ export async function sendUrgentImport(
     ids: createdIds,
     limit: 2000,
   });
+  // Signals must not trigger an urgent email on their own.
+  if (!items.length) return;
   await sendDigestForItems(
     env,
     workspaceId,

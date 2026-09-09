@@ -102,6 +102,39 @@ export async function resolveCalendarConflict(
   );
 }
 
+export async function addSubtask(
+  itemId: string,
+  title: string,
+): Promise<OrganatoItem> {
+  const result = await integrationRequest<{ item: OrganatoItem }>(
+    `/api/items/${encodeURIComponent(itemId)}/subtasks`,
+    { method: "POST", body: JSON.stringify({ title }) },
+  );
+  return result.item;
+}
+
+export async function addItemLink(
+  itemId: string,
+  toItemId: string,
+): Promise<OrganatoItem> {
+  const result = await integrationRequest<{ item: OrganatoItem }>(
+    `/api/items/${encodeURIComponent(itemId)}/links`,
+    { method: "POST", body: JSON.stringify({ toItemId }) },
+  );
+  return result.item;
+}
+
+export async function mergeDuplicate(
+  itemId: string,
+  duplicateId: string,
+): Promise<OrganatoItem> {
+  const result = await integrationRequest<{ item: OrganatoItem }>(
+    `/api/items/${encodeURIComponent(itemId)}/merge`,
+    { method: "POST", body: JSON.stringify({ duplicateId }) },
+  );
+  return result.item;
+}
+
 /** Display href for an attachment: stored files resolve to the authed route. */
 export function attachmentHref(attachment: {
   id: string;

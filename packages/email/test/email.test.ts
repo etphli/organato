@@ -45,7 +45,7 @@ describe("email rendering", () => {
       calendarNote: "",
       pinned: false,
       sortRank: 0,
-    estimatedMinutes: null,
+      estimatedMinutes: null,
       archivedAt: null,
       archiveReason: null,
       sourceMissingSince: null,
@@ -55,8 +55,8 @@ describe("email rendering", () => {
       overrides: [],
       attachments: [],
       history: [],
-    subtasks: [],
-    links: { blockedBy: [], blocking: [] },
+      subtasks: [],
+      links: { blockedBy: [], blocking: [] },
     };
     const digest = renderDigest({
       items: [item],
@@ -111,7 +111,7 @@ describe("email rendering", () => {
       calendarNote: "",
       pinned: false,
       sortRank: 0,
-    estimatedMinutes: null,
+      estimatedMinutes: null,
       archivedAt: null,
       archiveReason: null,
       sourceMissingSince: null,
@@ -121,8 +121,8 @@ describe("email rendering", () => {
       overrides: [],
       attachments: [],
       history: [],
-    subtasks: [],
-    links: { blockedBy: [], blocking: [] },
+      subtasks: [],
+      links: { blockedBy: [], blocking: [] },
     };
     const review = renderWeeklyReview({
       done: [{ ...base, id: "done-1", workingStatus: "completed" }],

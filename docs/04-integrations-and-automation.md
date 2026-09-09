@@ -378,17 +378,19 @@ No paid security assessment is planned or appropriate for this personal app. If 
 
 ## 7. Automation schedule
 
-| Automation              | Schedule                        | Idempotency unit               |
-| ----------------------- | ------------------------------- | ------------------------------ |
-| Canvas full sync        | Hourly (Mac launchd)            | Provider + scheduled hour      |
-| Manual Canvas sync      | On demand                       | Requested run ID               |
-| Calendar reconciliation | After sync and before digest    | Connection + sync token        |
-| Calendar retry          | Hourly sweep of due retries     | Delivery/item key              |
-| Daily digest            | 6:00 AM Sydney (Mac launchd)    | Local date + recipient set     |
-| Urgent import email     | After qualifying sync           | Canvas sync run ID             |
-| Archive confirmation    | After two successful full syncs | Canvas item ID + missing epoch |
-| History cleanup         | Daily, inside the digest job    | Day                            |
-| Health check            | None — use `/health` (D1-aware) | n/a                            |
+| Automation              | Schedule                         | Idempotency unit               |
+| ----------------------- | -------------------------------- | ------------------------------ |
+| Canvas full sync        | Hourly (Mac launchd)             | Provider + scheduled hour      |
+| Manual Canvas sync      | On demand                        | Requested run ID               |
+| Calendar reconciliation | After sync and before digest     | Connection + sync token        |
+| Calendar retry          | Hourly sweep of due retries      | Delivery/item key              |
+| Daily digest            | 6:00 AM Sydney (Mac launchd)     | Local date + recipient set     |
+| Evening preview         | 8 PM Sydney (Mac launchd)        | Local date + recipient set     |
+| Weekly review           | Sunday 6 PM Sydney (Mac launchd) | Local date + recipient set     |
+| Urgent import email     | After qualifying sync            | Canvas sync run ID             |
+| Archive confirmation    | After two successful full syncs  | Canvas item ID + missing epoch |
+| History cleanup         | Daily, inside the digest job     | Day                            |
+| Health check            | None — use `/health` (D1-aware)  | n/a                            |
 
 ## 8. Integration health
 

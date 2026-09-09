@@ -248,7 +248,7 @@ describe("attachment uploads", () => {
     const db = {
       prepare(query: string) {
         return {
-          bind(..._args: unknown[]) {
+          bind() {
             return {
               first: async () =>
                 query.includes("FROM session s") ? sessionRow : null,

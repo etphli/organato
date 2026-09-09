@@ -316,6 +316,11 @@ conflict instead of either side winning silently. The Inspector shows a
 banner with **Keep Organato** / **Use Google**; the calendar marks the
 event with a warning icon until resolved.
 
+Checklists break an item into subtasks with a progress bar and optional
+per-type template fill. Dependencies link items (“B blocks A”) with
+cycle protection; the merge flow folds a duplicate's subtasks,
+attachments, and notes into the survivor and archives the loser.
+
 ## 8. Search
 
 `Cmd/Ctrl + K` opens the command palette. `/` focuses search when no field is active.

@@ -22,7 +22,7 @@ same-origin `/api/*` rewrite terminates at the Cloudflare Worker.
 - Connected GitHub to Vercel for automatic deployments.
 - Deployed the production PWA to Vercel with demo mode disabled.
 - Created the Oceania D1 database and applied migrations through
-  `0005_session_auth_stamp.sql` (re-run the D1 migrations command in
+  `0006_subtasks_links_effort.sql` (re-run the D1 migrations command in
   Operations after pulling; code tolerates a not-yet-migrated database but
   new session stamps and link error categories need 0005).
 - Registered the `etphli.workers.dev` account subdomain.

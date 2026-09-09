@@ -69,9 +69,9 @@ export function renderDigest(input: DigestInput): RenderedDigest | null {
   );
   const hasSignals = Boolean(
     input.courseSignals &&
-      (input.courseSignals.announcements.length ||
-        input.courseSignals.grades.length ||
-        input.courseSignals.modules.length),
+    (input.courseSignals.announcements.length ||
+      input.courseSignals.grades.length ||
+      input.courseSignals.modules.length),
   );
   if (!groups.length && !hasSignals) return null;
   const subjects = new Map(
