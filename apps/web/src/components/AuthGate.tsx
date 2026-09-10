@@ -42,6 +42,16 @@ export async function exchangeGoogleCallbackIfPresent(): Promise<boolean> {
       "Google sign-in could not finish. Please try again.",
     );
   }
+  // Strip the one-time code/state from the URL *before* exchanging: the
+  // server consumes the transaction on first attempt, so a refresh or back
+  // navigation must never replay these params (it can only produce a
+  // confusing "expired" error). A failed exchange still lands on the
+  // starter page with its message; the user starts fresh from there.
+  window.history.replaceState(
+    null,
+    "",
+    `${window.location.pathname}${window.location.hash}`,
+  );
   const response = await fetch(
     isAuthenticationCallback
       ? "/api/auth/google/exchange"

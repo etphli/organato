@@ -97,4 +97,30 @@ describe("Google authentication callback", () => {
       "This Google account has not been approved for Organato.",
     );
   });
+
+  it("strips the one-time params even when the exchange fails", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/api/auth/google/callback?code=google-code&state=oauth-state",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ error: "Google sign-in expired. Start again." }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+    );
+
+    await expect(exchangeGoogleCallbackIfPresent()).rejects.toThrow(
+      "Google sign-in expired. Start again.",
+    );
+    // A refresh or back navigation must not replay the consumed state.
+    expect(window.location.pathname).toBe("/api/auth/google/callback");
+    expect(window.location.search).toBe("");
+  });
 });

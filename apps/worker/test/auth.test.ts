@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { authRoutes, isConfiguredGoogleEmailAllowed } from "../src/auth";
+import {
+  authRoutes,
+  clientSignInMessage,
+  isConfiguredGoogleEmailAllowed,
+} from "../src/auth";
 import { encryptSecret, sha256 } from "../src/security";
 import type { Env } from "../src/types";
 
@@ -99,5 +103,37 @@ describe("Google sign-in exchange", () => {
 
     expect(tokenFetch).toHaveBeenCalledOnce();
     expect(response.status).toBe(401);
+  });
+});
+
+describe("client sign-in messages", () => {
+  it("keeps actionable wording for allow-list and expiry failures", () => {
+    expect(
+      clientSignInMessage({
+        message: "This Google account has not been approved for Organato.",
+        reason: "email_not_allowed",
+      }),
+    ).toBe("This Google account has not been approved for Organato.");
+    expect(
+      clientSignInMessage({
+        message: "Google sign-in expired. Start again.",
+        reason: "expired_transaction",
+      }),
+    ).toBe("Google sign-in expired. Start again.");
+  });
+
+  it("masks everything else with a generic message", () => {
+    expect(
+      clientSignInMessage({
+        message: "Google identity is disabled.",
+        reason: "identity_disabled",
+      }),
+    ).toBe("Google sign-in could not finish. Please try again.");
+    expect(
+      clientSignInMessage({
+        message: "Subjects do not match.",
+        reason: "google_subject_mismatch",
+      }),
+    ).toBe("Google sign-in could not finish. Please try again.");
   });
 });

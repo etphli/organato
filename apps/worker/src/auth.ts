@@ -63,14 +63,22 @@ class GoogleSignInError extends Error {
 }
 
 /**
- * Client-facing sign-in message. Only the allow-list rejection keeps its
- * specific wording (needed so new owners know to request approval); every
- * other failure maps to one generic message so error texts cannot be used
- * to probe allow-list membership, disabled identities, or token state. The
- * precise reason is always kept in the server-side security event.
+ * Client-facing sign-in message. The allow-list rejection and the expired-
+ * transaction notice keep their specific wording (both tell the user exactly
+ * what to do next); every other failure maps to one generic message so
+ * error texts cannot be used to probe disabled identities or token state.
+ * The precise reason is always kept in the server-side security event.
  */
-function clientSignInMessage(error: GoogleSignInError): string {
-  if (error.reason === "email_not_allowed") return error.message;
+export function clientSignInMessage(error: {
+  message: string;
+  reason: string;
+}): string {
+  if (
+    error.reason === "email_not_allowed" ||
+    error.reason === "expired_transaction"
+  ) {
+    return error.message;
+  }
   return "Google sign-in could not finish. Please try again.";
 }
 
