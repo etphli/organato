@@ -105,11 +105,25 @@ function TopBriefing() {
     <section className="top-briefing" aria-label="Top priorities">
       <h2>Start here</h2>
       <ol>
-        {top.map((item) => {
+        {top.map((item, index) => {
           const overdue = visibleStatus(item, today) === "overdue";
+          const due = itemDueDate(item, settings.timezone);
           return (
             <li key={item.id}>
-              <button onClick={() => dispatch({ type: "select", id: item.id })}>
+              <button
+                onClick={() => dispatch({ type: "select", id: item.id })}
+                title={
+                  due
+                    ? due.toLocaleDateString("en-AU", {
+                        timeZone: settings.timezone,
+                        weekday: "long",
+                        day: "numeric",
+                        month: "long",
+                      })
+                    : undefined
+                }
+              >
+                <span className="top-briefing-rank">{index + 1}</span>
                 <SubjectDot subjectId={item.subjectId} />
                 <span className="top-briefing-name">{item.displayName}</span>
                 <small
@@ -117,11 +131,7 @@ function TopBriefing() {
                     overdue ? "due-chip due-chip--overdue" : "due-chip"
                   }
                 >
-                  {daysRemainingLabel(
-                    itemDueDate(item, settings.timezone),
-                    today,
-                    settings.timezone,
-                  )}
+                  {daysRemainingLabel(due, today, settings.timezone)}
                 </small>
               </button>
             </li>

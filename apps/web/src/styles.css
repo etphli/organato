@@ -826,16 +826,20 @@ button:disabled {
   padding: 0;
 }
 
-.top-briefing > button,
+.top-briefing li + li {
+  border-top: 1px solid var(--border);
+}
+
 .top-briefing li > button,
 .risk-strip > button {
   align-items: center;
   border-radius: 8px;
   display: flex;
   gap: 10px;
-  min-height: 40px;
-  padding: 4px 12px;
+  min-height: 42px;
+  padding: 5px 12px;
   text-align: left;
+  transition: background-color var(--motion);
   width: 100%;
 }
 
@@ -844,20 +848,14 @@ button:disabled {
   background: var(--surface-hover);
 }
 
-.top-briefing > button strong {
-  align-items: center;
-  background: var(--focus-soft);
-  border-radius: 50%;
-  color: var(--focus);
-  display: inline-flex;
+.top-briefing-rank {
+  color: var(--muted);
   flex: 0 0 auto;
-  font-size: 0.75rem;
-  height: 22px;
-  justify-content: center;
-  width: 22px;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  width: 12px;
 }
 
-.top-briefing > button .top-briefing-name,
 .top-briefing li > button .top-briefing-name,
 .risk-strip > button span {
   flex: 1;
@@ -867,7 +865,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-.top-briefing > button small,
 .top-briefing li > button small,
 .risk-strip > button small {
   color: var(--muted);
