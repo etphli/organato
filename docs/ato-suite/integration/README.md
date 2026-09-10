@@ -17,9 +17,15 @@ finished app integration.
 ## Verify
 
 ```sh
-cd .coordination/integration
+cd docs/ato-suite/integration
 npm test
 sqlite3 :memory: < sql/sqlite/001_ato_integration.sql
+```
+
+From the repository root (also runs in CI):
+
+```sh
+pnpm --filter @ato/integration-kit test
 ```
 
 The schemas are the source of truth. The JavaScript validator intentionally

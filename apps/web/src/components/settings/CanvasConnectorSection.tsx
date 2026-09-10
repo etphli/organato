@@ -737,7 +737,6 @@ export function CanvasConnectorSection({
     if (!canMutate(false)) return;
     setBusy("close");
     setError(null);
-    clearLocalView(true);
     try {
       if (!demoMode) {
         parseOkResponse(
@@ -749,7 +748,12 @@ export function CanvasConnectorSection({
         );
         await loadStatus();
       }
+      // Clear the local viewer only after the server acknowledges closure so
+      // a failed close keeps its recovery path (automatic reopen on retry).
+      clearLocalView(true);
     } catch (closeError) {
+      // Leave the viewer mounted and allow automatic reopen to retry.
+      clearLocalView(false);
       handleRequestError(closeError, "Canvas sign-in browser could not close.");
     } finally {
       setBusy(null);

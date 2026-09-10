@@ -22,7 +22,12 @@ describe("Primary navigation", () => {
       </MemoryRouter>,
     );
 
-    await screen.findByRole("heading", { name: "Assignments" });
+    // Coverage instrumentation slows lazy chunk loads, so allow headroom.
+    await screen.findByRole(
+      "heading",
+      { name: "Assignments" },
+      { timeout: 15_000 },
+    );
     fireEvent.click(screen.getByRole("button", { name: "New" }));
     expect(
       screen.getByRole("textbox", { name: "Work item name" }),
@@ -31,7 +36,11 @@ describe("Primary navigation", () => {
     fireEvent.click(screen.getAllByRole("link", { name: "Checkpoints" })[0]!);
 
     expect(
-      await screen.findByRole("heading", { name: "Checkpoints" }),
+      await screen.findByRole(
+        "heading",
+        { name: "Checkpoints" },
+        { timeout: 15_000 },
+      ),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("textbox", { name: "Work item name" }),

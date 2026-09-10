@@ -25,20 +25,38 @@ export class IntegrationRequestError extends Error {
   }
 }
 
+const INTEGRATION_REQUEST_TIMEOUT_MS = 30_000;
+
 export async function integrationRequest<T>(
   path: string,
   init: RequestInit = {},
+  timeoutMs = INTEGRATION_REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.method && !["GET", "HEAD"].includes(init.method)) {
     headers.set("X-CSRF-Token", sessionStorage.getItem("organato_csrf") ?? "");
   }
   if (init.body) headers.set("Content-Type", "application/json");
-  const response = await fetch(path, {
-    ...init,
-    headers,
-    credentials: "same-origin",
-  });
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      ...init,
+      headers,
+      credentials: "same-origin",
+      signal: init.signal ?? AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new IntegrationRequestError(
+        "The request timed out. Check your connection and try again.",
+        "timeout",
+      );
+    }
+    throw new IntegrationRequestError(
+      "The network request failed. Check your connection and try again.",
+      "network_error",
+    );
+  }
   const text = await response.text().catch(() => "");
   let result: T & { error?: string; code?: string };
   try {
@@ -165,8 +183,20 @@ export async function uploadAttachment(
         "X-CSRF-Token": sessionStorage.getItem("organato_csrf") ?? "",
       },
       body: form,
+      signal: AbortSignal.timeout(120_000),
     },
-  );
+  ).catch((error: unknown) => {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new IntegrationRequestError(
+        "The upload timed out. Check your connection and try again.",
+        "timeout",
+      );
+    }
+    throw new IntegrationRequestError(
+      "The network request failed. Check your connection and try again.",
+      "network_error",
+    );
+  });
   const result = (await response.json().catch(() => ({}))) as {
     item?: OrganatoItem;
     error?: string;

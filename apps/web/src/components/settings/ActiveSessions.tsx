@@ -94,15 +94,26 @@ export function ActiveSessions() {
       dispatch({ type: "toast", message: "Other sessions revoked" });
       return;
     }
-    const response = await fetch("/api/sessions/revoke-others", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": sessionStorage.getItem("organato_csrf") ?? "",
-      },
-      body: JSON.stringify({}),
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/sessions/revoke-others", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": sessionStorage.getItem("organato_csrf") ?? "",
+        },
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch {
+      dispatch({
+        type: "toast",
+        message:
+          "The network request failed. Check your connection and try again.",
+      });
+      return;
+    }
     if (!response.ok) {
       dispatch({ type: "toast", message: "Sessions could not be updated" });
       return;

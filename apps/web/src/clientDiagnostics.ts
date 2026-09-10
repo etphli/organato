@@ -10,6 +10,7 @@ type DiagnosticKind =
 const sessionKey = "organato_diagnostic_session";
 const verboseDiagnosticsKey = "organato_verbose_diagnostics";
 const lastAliveKey = "organato_last_alive";
+const cleanExitKey = "organato_clean_exit";
 let installed = false;
 let clickIndex = 0;
 let longTasksReported = 0;
@@ -92,6 +93,16 @@ function reportPreviousSessionGap() {
   if (!marker) return;
   const gapSeconds = Math.round((Date.now() - marker.ts) / 1000);
   localStorage.removeItem(lastAliveKey);
+  // A clean shutdown (tab closed, navigated away) also leaves a gap when the
+  // app reopens minutes later. The unload handlers below record that case;
+  // only report when no clean exit was recorded after the last heartbeat.
+  try {
+    const cleanExit = Number(localStorage.getItem(cleanExitKey) ?? "0");
+    localStorage.removeItem(cleanExitKey);
+    if (Number.isFinite(cleanExit) && cleanExit >= marker.ts - 5000) return;
+  } catch {
+    /* Storage limits must never break the app. */
+  }
   if (gapSeconds >= 4 && gapSeconds <= 600) {
     // Defer until the workspace CSRF token exists so the report is accepted.
     window.setTimeout(
@@ -121,9 +132,22 @@ function installAliveMarker() {
       /* Storage limits must never break the app. */
     }
   };
+  const markCleanExit = () => {
+    try {
+      localStorage.setItem(cleanExitKey, String(Date.now()));
+    } catch {
+      /* Storage limits must never break the app. */
+    }
+  };
   write();
   window.setInterval(write, 2000);
   window.addEventListener("beforeunload", write);
+  // pagehide fires for clean navigations and tab closes (unlike crashes,
+  // which kill the renderer without running unload handlers).
+  window.addEventListener("pagehide", markCleanExit);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") markCleanExit();
+  });
 }
 
 const maximumReportedLongTasks = 10;

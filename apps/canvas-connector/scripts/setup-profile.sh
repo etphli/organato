@@ -39,6 +39,9 @@ if [[ "${3:-}" == "--refresh" ]]; then
   for component in xvfb x11vnc connector; do
     render_unit "$component" > "/etc/systemd/system/$unit-$component.service"
   done
+  display_port="$(grep -E '^ORGANATO_VNC_PORT=' "$env_file" | cut -d= -f2)"
+  [[ "$display_port" =~ ^[0-9]+$ ]] || display_port="$port"
+  bash "$install_dir/scripts/ensure-vnc-firewall.sh" "$display_port" "$service_user"
   exit 0
 fi
 [[ -f "$install_dir/systemd/organato-canvas-connector.service" ]] || {
@@ -78,6 +81,7 @@ chmod 0640 "$env_file"
 for component in xvfb x11vnc connector; do
   render_unit "$component" > "/etc/systemd/system/$unit-$component.service"
 done
+bash "$install_dir/scripts/ensure-vnc-firewall.sh" "$port" "$service_user"
 systemctl daemon-reload
 echo "In your friend's Organato account, open Canvas settings and create a pairing code."
 if sudo -u "$service_user" env ORGANATO_STATE_DIR="$state_dir" /usr/local/bin/node "$install_dir/bin/pair.mjs"; then

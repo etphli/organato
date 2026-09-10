@@ -1,4 +1,4 @@
-/* global URL, TextEncoder, fetch, process */
+/* global URL, TextEncoder, fetch, process, AbortController */
 
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
@@ -546,16 +546,30 @@ const BLOCK_CLIPBOARD_SCRIPT = `(() => {
 
 async function identityInPage(baseOrigin) {
   const paths = ["/api/v1/users/self", "/api/v1/users/self/profile"];
-  let lastFailure = { category: "read_failed", status: 0 };
-  for (const pathName of paths) {
+  const requestTimeoutMs = 20_000;
+  const fetchWithTimeout = async (urlValue) => {
+    const controller =
+      typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = controller
+      ? setTimeout(() => controller.abort(), requestTimeoutMs)
+      : null;
     try {
-      const target = new URL(pathName, baseOrigin);
-      const response = await fetch(target.href, {
+      return await fetch(urlValue, {
         method: "GET",
         credentials: "include",
         redirect: "manual",
         headers: { Accept: "application/json, text/plain, */*" },
+        ...(controller ? { signal: controller.signal } : {}),
       });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+  let lastFailure = { category: "read_failed", status: 0 };
+  for (const pathName of paths) {
+    try {
+      const target = new URL(pathName, baseOrigin);
+      const response = await fetchWithTimeout(target.href);
       if (
         response.type === "opaqueredirect" ||
         (response.status >= 300 && response.status < 400)
@@ -629,6 +643,7 @@ async function syncInPage(baseOrigin) {
     }
     return null;
   };
+  const requestTimeoutMs = 20_000;
   const fetchJson = async (urlValue) => {
     let target;
     try {
@@ -645,12 +660,23 @@ async function syncInPage(baseOrigin) {
       return { ok: false, category: "read_failed", status: 0 };
     }
     try {
-      const response = await fetch(target.href, {
-        method: "GET",
-        credentials: "include",
-        redirect: "manual",
-        headers: { Accept: "application/json, text/plain, */*" },
-      });
+      const controller =
+        typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = controller
+        ? setTimeout(() => controller.abort(), requestTimeoutMs)
+        : null;
+      let response;
+      try {
+        response = await fetch(target.href, {
+          method: "GET",
+          credentials: "include",
+          redirect: "manual",
+          headers: { Accept: "application/json, text/plain, */*" },
+          ...(controller ? { signal: controller.signal } : {}),
+        });
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
       if (
         response.type === "opaqueredirect" ||
         (response.status >= 300 && response.status < 400)
@@ -804,8 +830,12 @@ async function syncInPage(baseOrigin) {
   const assignments = [];
   const successfulCourseIds = [];
   const fetchCourse = async (course) => {
+    // No bucket filter: bucket=upcoming omits submitted work, which the sync
+    // would then mistake for deleted work. Past-due and unimportable rows are
+    // skipped downstream, and truncated courses are excluded from omission
+    // handling, so fetching the full list is safe.
     const result = await paginated(
-      `/api/v1/courses/${encodeURIComponent(course.id)}/assignments?bucket=upcoming&override_assignment_dates=true&include[]=submission&per_page=100`,
+      `/api/v1/courses/${encodeURIComponent(course.id)}/assignments?override_assignment_dates=true&include[]=submission&per_page=100`,
       maximumAssignments,
     );
     if (!result.ok) return { course, ok: false, category: result.category };
@@ -1120,11 +1150,32 @@ export class CanvasBrowserAdapter {
     }
   }
 
+  async evaluateWithTimeout(pageFunction, argument, timeoutMs) {
+    let timer;
+    try {
+      const evaluation = this.page.evaluate(pageFunction, argument);
+      const deadline = new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("evaluate_timeout")),
+          timeoutMs,
+        );
+        timer.unref?.();
+      });
+      return await Promise.race([evaluation, deadline]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   async readIdentity() {
     await this.ensureCanvasOrigin();
     let result;
     try {
-      result = await this.page.evaluate(identityInPage, this.baseUrl.origin);
+      result = await this.evaluateWithTimeout(
+        identityInPage,
+        this.baseUrl.origin,
+        45_000,
+      );
     } catch {
       throw new CanvasBrowserError("network_error");
     }
@@ -1136,7 +1187,11 @@ export class CanvasBrowserAdapter {
     await this.ensureCanvasOrigin();
     let result;
     try {
-      result = await this.page.evaluate(syncInPage, this.baseUrl.origin);
+      result = await this.evaluateWithTimeout(
+        syncInPage,
+        this.baseUrl.origin,
+        120_000,
+      );
     } catch {
       throw new CanvasBrowserError("network_error");
     }

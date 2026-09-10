@@ -15,12 +15,13 @@
     "@organato/domain": "workspace:*",
     "@organato/email": "workspace:*",
     "@organato/integrations": "workspace:*",
-    "hono": "^4.8.10",
+    "hono": "^4.13.7",
     "jose": "^6.0.12",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250726.0",
+    "@vitest/coverage-v8": "^3.2.7",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }

@@ -179,20 +179,24 @@ export function mergeDeadlineFields(
   return normalizeDeadlineFields(current);
 }
 
-export function itemDeadline(item: OrganatoItem): Date | null {
+export function itemDeadline(
+  item: OrganatoItem,
+  timezone = "Australia/Sydney",
+): Date | null {
   if (item.dueHasExplicitTime && item.dueAt) return new Date(item.dueAt);
-  if (item.dueDateLocal) return dateOnlyCutoffUtc(item.dueDateLocal);
+  if (item.dueDateLocal) return dateOnlyCutoffUtc(item.dueDateLocal, timezone);
   return item.dueAt ? new Date(item.dueAt) : null;
 }
 
 export function visibleStatus(
   item: OrganatoItem,
   now = new Date(),
+  timezone = "Australia/Sydney",
 ): VisibleStatus {
   if (item.archivedAt) return "archived";
   if (item.workingStatus === "completed") return "completed";
   if (item.workingStatus === "submitted") return "submitted";
-  const deadline = itemDeadline(item);
+  const deadline = itemDeadline(item, timezone);
   if (deadline && deadline.getTime() < now.getTime()) return "overdue";
   return item.workingStatus;
 }
@@ -227,13 +231,16 @@ export function compareItems(
   a: OrganatoItem,
   b: OrganatoItem,
   now = new Date(),
+  timezone = "Australia/Sydney",
 ): number {
-  const aStatus = visibleStatus(a, now);
-  const bStatus = visibleStatus(b, now);
+  const aStatus = visibleStatus(a, now, timezone);
+  const bStatus = visibleStatus(b, now, timezone);
   if (aStatus === "overdue" && bStatus !== "overdue") return -1;
   if (bStatus === "overdue" && aStatus !== "overdue") return 1;
-  const aDeadline = itemDeadline(a)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-  const bDeadline = itemDeadline(b)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  const aDeadline =
+    itemDeadline(a, timezone)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  const bDeadline =
+    itemDeadline(b, timezone)?.getTime() ?? Number.MAX_SAFE_INTEGER;
   if (aDeadline !== bDeadline) return aDeadline - bDeadline;
   const priorityDifference =
     (priorityRank[b.priority ?? "low"] ?? 0) -
@@ -318,12 +325,16 @@ export function nextRecurrenceDeadline(
   return null;
 }
 
-export function shouldRemind(item: OrganatoItem, now = new Date()): boolean {
+export function shouldRemind(
+  item: OrganatoItem,
+  now = new Date(),
+  timezone = "Australia/Sydney",
+): boolean {
   if (!item.remindersEnabled || item.archivedAt) return false;
-  const status = visibleStatus(item, now);
+  const status = visibleStatus(item, now, timezone);
   return (
     status !== "completed" &&
     status !== "submitted" &&
-    itemDeadline(item) !== null
+    itemDeadline(item, timezone) !== null
   );
 }

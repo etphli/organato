@@ -549,7 +549,7 @@ test("syncInPage follows bounded same-origin pagination and emits Worker-compati
   const originalFetch = globalThis.fetch;
   const coursesUrl = `${CANVAS_BASE}/api/v1/courses?enrollment_state=active&state[]=available&per_page=100`;
   const coursesPageTwo = `${CANVAS_BASE}/api/v1/courses?page=2`;
-  const assignmentsUrl = `${CANVAS_BASE}/api/v1/courses/c1/assignments?bucket=upcoming&override_assignment_dates=true&include[]=submission&per_page=100`;
+  const assignmentsUrl = `${CANVAS_BASE}/api/v1/courses/c1/assignments?override_assignment_dates=true&include[]=submission&per_page=100`;
   const calls = [];
   globalThis.fetch = async (url, init) => {
     calls.push({ url, init });

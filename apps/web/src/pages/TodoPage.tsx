@@ -43,8 +43,8 @@ export default function TodoPage() {
             return false;
           return true;
         })
-        .toSorted((a, b) => compareItems(a, b, new Date())),
-    [items, showCompleted],
+        .toSorted((a, b) => compareItems(a, b, new Date(), settings.timezone)),
+    [items, settings.timezone, showCompleted],
   );
   const activeCount = useMemo(
     () =>
@@ -128,7 +128,7 @@ export default function TodoPage() {
           <span>Recurrence</span>
         </div>
         {visibleTodos.map((todo) => {
-          const status = visibleStatus(todo, new Date());
+          const status = visibleStatus(todo, new Date(), settings.timezone);
           return (
             <div
               className={`todo-record${status === "completed" ? " completed" : ""}`}
@@ -168,17 +168,20 @@ export default function TodoPage() {
               </button>
               <span className={status === "overdue" ? "danger-text" : ""}>
                 {daysRemainingLabel(
-                  itemDeadline(todo),
+                  itemDeadline(todo, settings.timezone),
                   new Date(),
                   settings.timezone,
                 )}
                 <small>
-                  {itemDeadline(todo)
-                    ? itemDeadline(todo)!.toLocaleDateString("en-AU", {
-                        timeZone: settings.timezone,
-                        day: "numeric",
-                        month: "short",
-                      })
+                  {itemDeadline(todo, settings.timezone)
+                    ? itemDeadline(todo, settings.timezone)!.toLocaleDateString(
+                        "en-AU",
+                        {
+                          timeZone: settings.timezone,
+                          day: "numeric",
+                          month: "short",
+                        },
+                      )
                     : "No due date"}
                 </small>
               </span>

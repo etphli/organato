@@ -300,8 +300,18 @@ function baseReducer(state: State, action: Action): State {
     };
   }
   if (action.type === "detailLoaded") {
-    if (state.selectedItemId !== action.item.id) return state;
-    return { ...state, selectedItemDetail: action.item };
+    // Merge full details into the item list as well so archive previews
+    // (which read from the list, not the global selection) receive them.
+    const inList = state.items.some((item) => item.id === action.item.id);
+    const items = inList
+      ? state.items.map((item) =>
+          item.id === action.item.id ? { ...item, ...action.item } : item,
+        )
+      : state.items;
+    if (state.selectedItemId !== action.item.id) {
+      return inList ? { ...state, items } : state;
+    }
+    return { ...state, items, selectedItemDetail: action.item };
   }
   if (action.type === "syncSubjects") {
     return { ...state, subjects: action.subjects };
@@ -1007,6 +1017,11 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
   }, [loadWorkspace]);
 
   const mutationQueues = useRef(new Map<string, Promise<void>>());
+  // Text settings (checklist templates, gateway address, …) dispatch on
+  // every keystroke. Optimistic state applies immediately, but the server
+  // PATCH is debounced and merged so typing never spams the API.
+  const settingsPendingPatch = useRef<Record<string, unknown>>({});
+  const settingsFlushTimer = useRef(0);
   const loadItemDetails = useCallback(
     async (id: string) => {
       if (demoMode) return;
@@ -1060,6 +1075,34 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
           type: "toast",
           message: "Offline · this change was not saved",
         });
+        return;
+      }
+      if (action.type === "settings" && !demoMode) {
+        settingsPendingPatch.current = {
+          ...settingsPendingPatch.current,
+          ...action.patch,
+        };
+        if (settingsFlushTimer.current) {
+          window.clearTimeout(settingsFlushTimer.current);
+        }
+        settingsFlushTimer.current = window.setTimeout(() => {
+          settingsFlushTimer.current = 0;
+          const patch = settingsPendingPatch.current;
+          settingsPendingPatch.current = {};
+          if (!Object.keys(patch).length) return;
+          void apiRequest("/api/settings", {
+            method: "PATCH",
+            body: JSON.stringify(patch),
+          }).catch((error: unknown) =>
+            baseDispatch({
+              type: "toast",
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Settings could not be saved.",
+            }),
+          );
+        }, 600);
         return;
       }
       if (
@@ -1253,11 +1296,9 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
             });
             return;
           }
+          // Settings PATCHes are debounced in dispatch above; this path only
+          // remains for completeness and is not normally reached.
           if (action.type === "settings") {
-            await apiRequest("/api/settings", {
-              method: "PATCH",
-              body: JSON.stringify(action.patch),
-            });
             return;
           }
           if (action.type === "saveView") {

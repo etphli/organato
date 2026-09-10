@@ -447,7 +447,9 @@ describe("Canvas network boundaries", () => {
         );
       }
       expect(url.pathname).toBe("/api/v1/planner/items");
-      expect(url.searchParams.get("filter")).toBe("incomplete_items");
+      expect(["incomplete_items", "complete_items"]).toContain(
+        url.searchParams.get("filter"),
+      );
       expect(url.searchParams.get("start_date")).toBeTruthy();
       expect(url.searchParams.get("end_date")).toBeTruthy();
       return new Response(
@@ -501,14 +503,49 @@ describe("Canvas network boundaries", () => {
       successfulCourseIds: ["12"],
       skippedMalformedItems: 0,
     });
-    expect(requestedPaths).toHaveLength(2);
+    expect(requestedPaths).toHaveLength(3);
     expect(
       requestedPaths.some((path) => path.includes("bucket=upcoming")),
     ).toBe(false);
+    expect(
+      requestedPaths.filter((path) => path.includes("/api/v1/planner/items")),
+    ).toHaveLength(2);
   });
 });
 
 describe("Google Calendar projections", () => {
+  it("recreates a deleted dedicated calendar instead of trusting the stored id", async () => {
+    const seen: string[] = [];
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        seen.push(`${init?.method ?? "GET"} ${url}`);
+        if (
+          url ===
+          "https://www.googleapis.com/calendar/v3/calendars/dead-calendar-id"
+        ) {
+          return new Response(null, { status: 404 });
+        }
+        if (url === "https://www.googleapis.com/calendar/v3/calendars") {
+          return new Response(JSON.stringify({ id: "fresh-calendar-id" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    ) as unknown as typeof fetch;
+    const provider = new GoogleCalendarRestProvider(
+      { accessToken: async () => "access-token" },
+      fetcher,
+    );
+
+    await expect(
+      provider.ensureOrganatoCalendar("dead-calendar-id"),
+    ).resolves.toBe("fresh-calendar-id");
+    expect(seen[0]).toContain("dead-calendar-id");
+  });
+
   it("uses the redirect mode supported by Cloudflare Workers", async () => {
     const fetcher = vi.fn(
       async (_input: RequestInfo | URL, init?: RequestInit) => {

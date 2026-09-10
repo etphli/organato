@@ -440,13 +440,13 @@ export async function rateLimit(
   limit: number,
   windowMinutes = 60,
 ): Promise<boolean> {
-  const date = new Date();
-  date.setMinutes(
-    Math.floor(date.getMinutes() / windowMinutes) * windowMinutes,
-    0,
-    0,
-  );
-  const windowStart = date.toISOString();
+  // Epoch-based bucketing so windows longer than an hour (e.g. the 24-hour
+  // delete-all limit) actually span wall-clock time instead of resetting
+  // whenever the clock minute wraps.
+  const windowMs = windowMinutes * 60_000;
+  const windowStart = new Date(
+    Math.floor(Date.now() / windowMs) * windowMs,
+  ).toISOString();
   // Single-statement increment-and-read so concurrent requests cannot
   // undercount and over-allow.
   const row = await context.env.DB.prepare(

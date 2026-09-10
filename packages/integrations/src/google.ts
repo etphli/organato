@@ -129,7 +129,26 @@ export class GoogleCalendarRestProvider implements GoogleCalendarProvider {
     storedCalendarId?: string,
     timezone = "Australia/Sydney",
   ): Promise<string> {
-    if (storedCalendarId) return storedCalendarId;
+    if (storedCalendarId) {
+      try {
+        const existing = await googleJson<{ id?: string }>(
+          this.tokenSource,
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(storedCalendarId)}`,
+          {},
+          { fetcher: this.fetcher, sleep: this.sleep },
+        );
+        if (existing?.id) return storedCalendarId;
+      } catch (error) {
+        // A deleted calendar (404) or revoked access (410) must recreate
+        // instead of failing every sync against a dead id.
+        if (
+          !(error instanceof GoogleApiError) ||
+          (error.status !== 404 && error.status !== 410)
+        ) {
+          throw error;
+        }
+      }
+    }
     const created = await googleJson<{ id: string }>(
       this.tokenSource,
       "https://www.googleapis.com/calendar/v3/calendars",
@@ -198,6 +217,28 @@ export class GoogleCalendarRestProvider implements GoogleCalendarProvider {
         },
         { fetcher: this.fetcher, sleep: this.sleep, retryable: true },
       );
+    }
+  }
+
+  async getEvent(
+    calendarId: string,
+    eventId: string,
+  ): Promise<CalendarEventRecord | null> {
+    try {
+      return await googleJson<CalendarEventRecord>(
+        this.tokenSource,
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+        {},
+        { fetcher: this.fetcher, sleep: this.sleep, retryable: true },
+      );
+    } catch (error) {
+      if (
+        error instanceof GoogleApiError &&
+        (error.status === 404 || error.status === 410)
+      ) {
+        return null;
+      }
+      throw error;
     }
   }
 

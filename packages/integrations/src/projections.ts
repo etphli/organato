@@ -22,19 +22,22 @@ export function projectCalendarEvent(
   appOrigin: string,
   timezone = "Australia/Sydney",
 ): CalendarEventProjection | null {
-  const deadline = itemDeadline(item);
+  const deadline = itemDeadline(item, timezone);
   if (!deadline || item.archivedAt || !item.calendarEnabled) return null;
   const allDayDate =
-    !item.dueHasExplicitTime && (item.dueDateLocal ?? localDateKey(deadline));
+    !item.dueHasExplicitTime &&
+    (item.dueDateLocal ?? localDateKey(deadline, timezone));
   const start = item.dueHasExplicitTime
     ? { dateTime: deadline.toISOString(), timeZone: timezone }
-    : { date: allDayDate || localDateKey(deadline) };
+    : { date: allDayDate || localDateKey(deadline, timezone) };
   const end = item.dueHasExplicitTime
     ? {
         dateTime: new Date(deadline.getTime() + 30 * 60_000).toISOString(),
         timeZone: timezone,
       }
-    : { date: nextLocalDate(allDayDate || localDateKey(deadline)) };
+    : {
+        date: nextLocalDate(allDayDate || localDateKey(deadline, timezone)),
+      };
   const type =
     item.kind === "todo"
       ? "Todo"

@@ -11,11 +11,9 @@
     "test:coverage": "node node_modules/vitest/vitest.mjs run --coverage"
   },
   "dependencies": {
-    "@organato/domain": "workspace:*",
     "@novnc/novnc": "1.7.0",
+    "@organato/domain": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
-    "@vercel/analytics": "^2.0.1",
-    "@vercel/speed-insights": "^2.0.0",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.468.0",
     "react": "^19.1.0",
@@ -29,6 +27,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.7.0",
+    "@vitest/coverage-v8": "^3.2.7",
     "jsdom": "^26.1.0",
     "typescript": "^5.8.3",
     "vite": "^6.1.0",

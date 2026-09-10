@@ -28,6 +28,7 @@ import {
   requireSession,
   securityHeaders,
 } from "./security";
+import { drainStorageDeletions } from "./storage-cleanup";
 import {
   DigestPreviewError,
   resolveCalendarConflict,
@@ -712,6 +713,7 @@ async function scheduled(
   if (now.getUTCMinutes() === 0) {
     executionContext.waitUntil(runHourlyForAllWorkspaces(env));
   }
+  executionContext.waitUntil(drainStorageDeletions(env).catch(() => undefined));
   executionContext.waitUntil(runDigestForAllWorkspaces(env, now));
 }
 

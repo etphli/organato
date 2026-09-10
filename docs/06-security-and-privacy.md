@@ -26,7 +26,10 @@ The goal is to minimize both:
 - Validate issuer, audience, expiry, issued-at, nonce, and authorized party where applicable.
 - Require verified email.
 - Normalize email safely.
-- Check both email allow-list and bound Google subject.
+- Check both email allow-list and bound Google subject. Production sets
+  `ALLOWED_GOOGLE_EMAILS: "*"` so any verified Google account is admitted,
+  each into an isolated per-identity workspace; set explicit addresses to
+  restrict sign-in to an exact allow-list.
 - Do not use Google avatar URLs as authorization evidence.
 
 The public sign-in response must not reveal whether a guessed email is allow-listed.
@@ -46,7 +49,7 @@ Roles:
 - `Owner`: normal and administrative access.
 - No public, editor, viewer, or guest role in the initial product.
 
-Multiple allow-listed identities are alternate credentials for the same owner. Settings that alter identities, integration ownership, exports, imports, or permanent deletion require recent reauthentication.
+Each Google identity owns one isolated workspace; a person with two accounts has two workspaces that cannot read each other. Settings that alter identities, integration ownership, exports, imports, or permanent deletion require recent reauthentication. Uploads are bounded per workspace (20 × 10 MB per hour, 1 GB total) so one tenant cannot exhaust shared storage.
 
 The Worker, not the client, enforces authorization on every request.
 
@@ -205,21 +208,21 @@ Google's OAuth configuration may require public homepage and privacy-policy URLs
 
 ## 14. Threat model
 
-| Threat                                     | Main controls                                                 |
-| ------------------------------------------ | ------------------------------------------------------------- |
-| Stranger signs in                          | Google identity verification, allow-list, subject binding     |
-| Stolen session cookie                      | Secure HttpOnly cookie, session expiry, session revocation    |
-| CSRF changes data                          | SameSite, CSRF token, origin checks                           |
-| XSS steals visible data                    | CSP, escaping, Markdown sanitation, no raw Canvas HTML        |
-| Database leak exposes provider tokens      | Application-level encryption with separate key                |
-| Malicious attachment URL attacks server    | Store link only; no server-side fetch                         |
-| Canvas redirects cookie to attacker        | Host pinning and cross-host redirect rejection                |
-| Duplicate Cron run sends duplicate mail    | Locks and unique delivery keys                                |
-| Google deletion erases school item         | Event deletion only suppresses calendar projection            |
-| Canvas outage archives everything          | Two successful absence confirmations                          |
-| Compromised secondary allow-listed account | Session view/revoke, identity disable, recent-auth admin gate |
-| Backup leaks secrets                       | Secret-free export schema                                     |
-| Provider price change creates bill         | No payment method, free-plan lock, internal usage caps        |
+| Threat                                  | Main controls                                                                                                          |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Stranger signs in                       | Google identity verification, allow-list (`*` admits any verified account into an isolated workspace), subject binding |
+| Stolen session cookie                   | Secure HttpOnly cookie, session expiry, session revocation                                                             |
+| CSRF changes data                       | SameSite, CSRF token, origin checks                                                                                    |
+| XSS steals visible data                 | CSP, escaping, Markdown sanitation, no raw Canvas HTML                                                                 |
+| Database leak exposes provider tokens   | Application-level encryption with separate key                                                                         |
+| Malicious attachment URL attacks server | Store link only; no server-side fetch                                                                                  |
+| Canvas redirects cookie to attacker     | Host pinning and cross-host redirect rejection                                                                         |
+| Duplicate Cron run sends duplicate mail | Locks and unique delivery keys                                                                                         |
+| Google deletion erases school item      | Event deletion only suppresses calendar projection                                                                     |
+| Canvas outage archives everything       | Two successful absence confirmations                                                                                   |
+| Compromised tenant account              | Session view/revoke, identity disable, recent-auth admin gate, per-workspace storage quotas                            |
+| Backup leaks secrets                    | Secret-free export schema                                                                                              |
+| Provider price change creates bill      | No payment method, free-plan lock, internal usage caps                                                                 |
 
 ## 15. Security events
 

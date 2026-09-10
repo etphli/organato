@@ -16,7 +16,7 @@ service_group="organato-canvas"
 shopt -s nullglob
 profile_units=(/etc/systemd/system/organato-canvas-profile-*-connector.service)
 
-for required in package.json package-lock.json src bin policies systemd; do
+for required in package.json package-lock.json src bin policies systemd scripts/ensure-vnc-firewall.sh; do
   [[ -e "$source_dir/$required" ]] || {
     echo "Source directory is missing $required." >&2
     exit 1
@@ -43,12 +43,8 @@ command -v apt-get >/dev/null 2>&1 || {
   exit 1
 }
 
-# Never replace code or its runtime while an old connector can still be using it.
-if command -v systemctl >/dev/null 2>&1; then
-  for profile_unit in "${profile_units[@]}"; do systemctl stop "$(basename "$profile_unit")"; done
-  systemctl stop organato-canvas-connector.service organato-canvas-x11vnc.service organato-canvas-xvfb.service >/dev/null 2>&1 || true
-fi
-
+# Services keep running on the current release until the replacement is fully
+# staged and validated below; the swap (with rollback) happens in one place.
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 browser_package="chromium"
@@ -143,19 +139,24 @@ if [[ -L "$env_file" ]]; then
   echo "$env_file must not be a symbolic link." >&2
   exit 1
 fi
-install -d -m 0755 "$install_dir"
-rm -rf "$install_dir/src" "$install_dir/bin" "$install_dir/policies" "$install_dir/node_modules"
-install -m 0644 "$source_dir/package.json" "$install_dir/package.json"
-install -m 0644 "$source_dir/package-lock.json" "$install_dir/package-lock.json"
-install -d -m 0755 "$install_dir/src" "$install_dir/bin"
-cp -a "$source_dir/src/." "$install_dir/src/"
-cp -a "$source_dir/bin/." "$install_dir/bin/"
-install -d -m 0755 "$install_dir/scripts" "$install_dir/systemd"
-cp -a "$source_dir/scripts/." "$install_dir/scripts/"
-cp -a "$source_dir/systemd/." "$install_dir/systemd/"
-cp -a "$source_dir/policies" "$install_dir/policies"
-chmod 0755 "$install_dir/bin/pair.mjs" "$install_dir/src/index.mjs"
-chown -R root:root "$install_dir"
+# Stage the replacement release in a separate directory and validate it
+# before touching the running installation. Only the swap below stops
+# services, and any failure there rolls back to the previous release.
+staging_dir="$install_dir.new"
+rollback_dir="$install_dir.prev"
+rm -rf "$staging_dir"
+install -d -m 0755 "$staging_dir"
+install -m 0644 "$source_dir/package.json" "$staging_dir/package.json"
+install -m 0644 "$source_dir/package-lock.json" "$staging_dir/package-lock.json"
+install -d -m 0755 "$staging_dir/src" "$staging_dir/bin"
+cp -a "$source_dir/src/." "$staging_dir/src/"
+cp -a "$source_dir/bin/." "$staging_dir/bin/"
+install -d -m 0755 "$staging_dir/scripts" "$staging_dir/systemd"
+cp -a "$source_dir/scripts/." "$staging_dir/scripts/"
+cp -a "$source_dir/systemd/." "$staging_dir/systemd/"
+cp -a "$source_dir/policies" "$staging_dir/policies"
+chmod 0755 "$staging_dir/bin/pair.mjs" "$staging_dir/src/index.mjs"
+chown -R root:root "$staging_dir"
 
 if [[ ! -f "$env_file" ]]; then
   install -m 0640 -o root -g "$service_group" /dev/null "$env_file"
@@ -185,7 +186,44 @@ for policy_destination in /etc/chromium/policies/managed /etc/chromium-browser/p
   fi
 done
 
-npm ci --prefix "$install_dir" --omit=dev --ignore-scripts --no-audit --no-fund
+npm ci --prefix "$staging_dir" --omit=dev --ignore-scripts --no-audit --no-fund
+
+# Validate the staged release before it can replace the running one.
+node --check "$staging_dir/src/index.mjs"
+node --check "$staging_dir/src/service.mjs"
+node --check "$staging_dir/src/canvas-browser.mjs"
+node --check "$staging_dir/bin/pair.mjs"
+[[ -d "$staging_dir/node_modules" ]] || {
+  echo "Staged release is missing node_modules; refusing to swap." >&2
+  rm -rf "$staging_dir"
+  exit 1
+}
+
+rollback_needed=0
+rollback() {
+  if [[ "$rollback_needed" -eq 1 && -d "$rollback_dir" ]]; then
+    echo "Install failed; rolling back to the previous release." >&2
+    rm -rf "$install_dir"
+    mv "$rollback_dir" "$install_dir"
+    systemctl daemon-reload || true
+    systemctl restart organato-canvas-xvfb.service organato-canvas-x11vnc.service >/dev/null 2>&1 || true
+    systemctl restart organato-canvas-connector.service >/dev/null 2>&1 || true
+  fi
+}
+trap rollback ERR
+
+# Atomic swap: stop services, move the current release aside, move the staged
+# release into place. The old connector never runs mixed old/new code.
+if command -v systemctl >/dev/null 2>&1; then
+  for profile_unit in "${profile_units[@]}"; do systemctl stop "$(basename "$profile_unit")"; done
+  systemctl stop organato-canvas-connector.service organato-canvas-x11vnc.service organato-canvas-xvfb.service >/dev/null 2>&1 || true
+fi
+if [[ -e "$install_dir" ]]; then
+  rm -rf "$rollback_dir"
+  mv "$install_dir" "$rollback_dir"
+fi
+mv "$staging_dir" "$install_dir"
+rollback_needed=1
 
 install -m 0644 "$source_dir/systemd/organato-canvas-xvfb.service" /etc/systemd/system/organato-canvas-xvfb.service
 install -m 0644 "$source_dir/systemd/organato-canvas-x11vnc.service" /etc/systemd/system/organato-canvas-x11vnc.service
@@ -206,6 +244,9 @@ for profile_unit in "${profile_units[@]}"; do
 done
 systemctl daemon-reload
 systemctl enable organato-canvas-xvfb.service organato-canvas-x11vnc.service organato-canvas-connector.service
+# UID-restrict the loopback VNC port before the bridge starts accepting
+# connections. Failure here must not leave the display exposed, so abort.
+bash "$source_dir/scripts/ensure-vnc-firewall.sh" 5900 "$service_user"
 systemctl restart organato-canvas-xvfb.service organato-canvas-x11vnc.service
 
 for profile_unit in "${profile_units[@]}"; do
@@ -214,6 +255,10 @@ for profile_unit in "${profile_units[@]}"; do
     systemctl restart "$profile_name-xvfb.service" "$profile_name-x11vnc.service" "$profile_name-connector.service"
   fi
 done
+
+# The swap succeeded; the previous release is kept for manual rollback.
+rollback_needed=0
+trap - ERR
 
 echo "Installed Chromium, Xvfb, x11vnc, Node.js, and the connector package."
 echo "Configure $env_file, pair the device, then start organato-canvas-connector.service."

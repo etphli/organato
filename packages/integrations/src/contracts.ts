@@ -91,6 +91,10 @@ export interface GoogleCalendarProvider {
     etag?: string,
   ): Promise<CalendarEventRecord>;
   deleteEvent(calendarId: string, eventId: string): Promise<void>;
+  getEvent(
+    calendarId: string,
+    eventId: string,
+  ): Promise<CalendarEventRecord | null>;
   listChanges(
     calendarId: string,
     syncToken?: string,

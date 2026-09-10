@@ -6,6 +6,7 @@ import {
   digestDeliveryKey,
   groupDigestItems,
   isInView,
+  itemDeadline,
   mergeDeadlineFields,
   nextRecurrence,
   nextRecurrenceDeadline,
@@ -84,6 +85,54 @@ describe("domain invariants", () => {
     expect(dateOnlyCutoffUtc("2026-07-25").toISOString()).toBe(
       "2026-07-25T13:59:00.000Z",
     );
+  });
+
+  it("treats a UTC date-only deadline as 23:59Z, not Sydney-shifted", () => {
+    expect(dateOnlyCutoffUtc("2026-01-15", "UTC").toISOString()).toBe(
+      "2026-01-15T23:59:00.000Z",
+    );
+  });
+
+  it("resolves date-only deadlines in the workspace timezone", () => {
+    const work = item({
+      dueAt: null,
+      dueDateLocal: "2026-01-15",
+      dueHasExplicitTime: false,
+    });
+    expect(itemDeadline(work, "UTC")?.toISOString()).toBe(
+      "2026-01-15T23:59:00.000Z",
+    );
+    expect(itemDeadline(work, "Australia/Sydney")?.toISOString()).toBe(
+      "2026-01-15T12:59:00.000Z",
+    );
+  });
+
+  it("accepts dependency links exported as link reference objects", () => {
+    const candidate = item({
+      links: {
+        blockedBy: [{ itemId: "item-2", linkId: "link-1" }],
+        // Legacy string-only exports remain valid alongside references.
+        blocking: [{ itemId: "item-3", linkId: "link-2" }],
+      },
+    });
+    const withLegacyStrings = {
+      ...candidate,
+      links: { blockedBy: candidate.links.blockedBy, blocking: ["item-3"] },
+    };
+    const result = validateBackupItem(candidate);
+    const legacy = validateBackupItem(withLegacyStrings);
+    expect(result.success).toBe(true);
+    expect(legacy.success).toBe(true);
+    if (result.success && legacy.success) {
+      expect(result.data.links).toEqual({
+        blockedBy: ["item-2"],
+        blocking: ["item-3"],
+      });
+      expect(legacy.data.links).toEqual({
+        blockedBy: ["item-2"],
+        blocking: ["item-3"],
+      });
+    }
   });
 
   it("generates only the next recurring occurrence", () => {

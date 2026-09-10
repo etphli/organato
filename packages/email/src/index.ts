@@ -102,7 +102,10 @@ export function renderDigest(input: DigestInput): RenderedDigest | null {
           const subjectName = item.subjectId
             ? subjects.get(item.subjectId)?.displayName
             : undefined;
-          const due = itemDeadline(item)?.toLocaleString("en-AU", {
+          const due = itemDeadline(
+            item,
+            input.timezone ?? "Australia/Sydney",
+          )?.toLocaleString("en-AU", {
             timeZone: input.timezone ?? "Australia/Sydney",
             dateStyle: "medium",
             ...(item.dueHasExplicitTime ? { timeStyle: "short" as const } : {}),
@@ -241,7 +244,10 @@ export function renderDigest(input: DigestInput): RenderedDigest | null {
         const subjectName = item.subjectId
           ? subjects.get(item.subjectId)?.displayName
           : undefined;
-        const due = itemDeadline(item)?.toLocaleString("en-AU", {
+        const due = itemDeadline(
+          item,
+          input.timezone ?? "Australia/Sydney",
+        )?.toLocaleString("en-AU", {
           timeZone: input.timezone ?? "Australia/Sydney",
           dateStyle: "medium",
           ...(item.dueHasExplicitTime ? { timeStyle: "short" as const } : {}),
@@ -276,7 +282,7 @@ function reviewRow(
   const subjectName = item.subjectId
     ? subjects.get(item.subjectId)?.displayName
     : undefined;
-  const due = itemDeadline(item)?.toLocaleString("en-AU", {
+  const due = itemDeadline(item, timezone)?.toLocaleString("en-AU", {
     timeZone: timezone,
     dateStyle: "medium",
     ...(item.dueHasExplicitTime ? { timeStyle: "short" as const } : {}),
@@ -354,7 +360,7 @@ export function renderWeeklyReview(
     const subjectName = item.subjectId
       ? subjects.get(item.subjectId)?.displayName
       : undefined;
-    const due = itemDeadline(item)?.toLocaleString("en-AU", {
+    const due = itemDeadline(item, timezone)?.toLocaleString("en-AU", {
       timeZone: timezone,
       dateStyle: "medium",
       ...(item.dueHasExplicitTime ? { timeStyle: "short" as const } : {}),

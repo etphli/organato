@@ -50,6 +50,11 @@ import {
   sha256,
 } from "./security";
 import { runCalendarReconciliation, runCanvasSync } from "./sync";
+import {
+  drainStorageDeletions,
+  enqueueStorageDeletions,
+  storageKeyFromUrl,
+} from "./storage-cleanup";
 import type { Env, Variables } from "./types";
 
 const prioritySchema = z.enum(priorities).nullable();
@@ -501,6 +506,18 @@ apiRoutes.post(
     try {
       const input = context.req.valid("json");
       const deadline = normalizeDeadlineFields(input);
+      if (input.subjectId) {
+        const subject = await context.env.DB.prepare(
+          "SELECT id FROM subject WHERE id = ? AND workspace_id = ?",
+        )
+          .bind(input.subjectId, context.get("user").workspaceId)
+          .first();
+        if (!subject) {
+          throw new InvalidItemMutationError(
+            "That subject does not belong to this workspace.",
+          );
+        }
+      }
       const now = new Date().toISOString();
       const id = crypto.randomUUID();
       await context.env.DB.batch([
@@ -607,6 +624,22 @@ apiRoutes.patch(
         );
       }
       const normalizedPatch: Record<string, unknown> = { ...patch };
+      if (
+        Object.prototype.hasOwnProperty.call(normalizedPatch, "subjectId") &&
+        normalizedPatch.subjectId !== null &&
+        normalizedPatch.subjectId !== undefined
+      ) {
+        const subject = await context.env.DB.prepare(
+          "SELECT id FROM subject WHERE id = ? AND workspace_id = ?",
+        )
+          .bind(normalizedPatch.subjectId, context.get("user").workspaceId)
+          .first();
+        if (!subject) {
+          throw new InvalidItemMutationError(
+            "That subject does not belong to this workspace.",
+          );
+        }
+      }
       if (deadlineChanged) Object.assign(normalizedPatch, deadline);
       if (recurrenceRule) {
         normalizedPatch.recurrenceSeriesId = recurrenceRule.seriesId;
@@ -847,6 +880,19 @@ apiRoutes.post(
       .bind(context.get("user").workspaceId, id)
       .first<{ google_event_id: string | null }>();
     if (linkedEvent?.google_event_id) {
+      // Mark the item pending (without bumping the optimistic version) so
+      // reconciliation treats the linked event as orphaned and deletes it
+      // from Google before the version-guarded DELETE below.
+      await context.env.DB.batch([
+        context.env.DB.prepare(
+          `UPDATE item SET calendar_enabled = 0, calendar_sync_state = 'pending'
+           WHERE id = ? AND workspace_id = ?`,
+        ).bind(id, context.get("user").workspaceId),
+        context.env.DB.prepare(
+          `UPDATE calendar_link SET sync_state = 'pending',
+             last_synced_at = ? WHERE item_id = ? AND workspace_id = ?`,
+        ).bind(new Date().toISOString(), id, context.get("user").workspaceId),
+      ]).catch(() => undefined);
       try {
         await runCalendarReconciliation(
           context.env,
@@ -877,6 +923,14 @@ apiRoutes.post(
         );
       }
     }
+    const attachmentRows = await context.env.DB.prepare(
+      `SELECT url FROM attachment_link WHERE workspace_id = ? AND item_id = ?`,
+    )
+      .bind(context.get("user").workspaceId, id)
+      .all<{ url: string }>();
+    const storageKeys = attachmentRows.results
+      .map((row) => storageKeyFromUrl(row.url))
+      .filter((key): key is string => Boolean(key));
     const now = new Date().toISOString();
     const result = await context.env.DB.batch([
       context.env.DB.prepare(
@@ -897,6 +951,16 @@ apiRoutes.post(
     ]);
     if (!result[0]?.meta.changes) {
       return context.json({ error: "Item changed elsewhere." }, 409);
+    }
+    if (storageKeys.length) {
+      await enqueueStorageDeletions(
+        context.env.DB,
+        context.get("user").workspaceId,
+        storageKeys,
+      ).catch(() => undefined);
+      context.executionCtx?.waitUntil(
+        drainStorageDeletions(context.env).catch(() => undefined),
+      );
     }
     return context.json({ ok: true });
   },
@@ -1082,6 +1146,10 @@ apiRoutes.post(
 );
 
 const ATTACHMENT_MAX_BYTES = 10_000_000;
+// Per-workspace cap for uploaded files. Production intentionally allows any
+// verified Google account (see docs/11-production-handoff.md), so uploads
+// are bounded per tenant in addition to the per-hour rate limit above.
+const WORKSPACE_STORAGE_CAP_BYTES = 1_000_000_000;
 const ATTACHMENT_MIME_TYPES = new Set([
   "application/pdf",
   "application/msword",
@@ -1164,6 +1232,19 @@ apiRoutes.post("/items/:id/attachments/upload", async (context) => {
     rawLinkType === "working_document"
       ? rawLinkType
       : "other";
+  const usage = await context.env.DB.prepare(
+    `SELECT COALESCE(SUM(size_bytes), 0) AS total FROM attachment_link
+     WHERE workspace_id = ?`,
+  )
+    .bind(context.get("user").workspaceId)
+    .first<{ total: number }>()
+    .catch(() => ({ total: 0 }));
+  if (Number(usage?.total ?? 0) + file.size > WORKSPACE_STORAGE_CAP_BYTES) {
+    return context.json(
+      { error: "Workspace file storage is full (1 GB limit)." },
+      413,
+    );
+  }
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   const key = `${context.get("user").workspaceId}/${item.id}/${id}.${attachmentExtension(file.name, mime)}`;
@@ -1174,8 +1255,8 @@ apiRoutes.post("/items/:id/attachments/upload", async (context) => {
     await context.env.DB.batch([
       context.env.DB.prepare(
         `INSERT INTO attachment_link
-          (id, item_id, workspace_id, label, url, link_type, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          (id, item_id, workspace_id, label, url, link_type, size_bytes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         id,
         item.id,
@@ -1183,6 +1264,7 @@ apiRoutes.post("/items/:id/attachments/upload", async (context) => {
         label,
         `kv://${key}`,
         linkType,
+        file.size,
         now,
       ),
       context.env.DB.prepare(
@@ -1259,11 +1341,19 @@ apiRoutes.delete("/items/:id/attachments/:attachmentId", async (context) => {
       context.get("user").workspaceId,
     )
     .run();
-  // Best-effort removal of the stored file; the link row is the record.
-  if (existing?.url.startsWith("kv://")) {
-    await context.env.ATTACHMENTS?.delete(
-      existing.url.slice("kv://".length),
-    ).catch(() => undefined);
+  // Remove the stored file; on failure retain a queued tombstone so the
+  // scheduled drain retries instead of silently orphaning the object.
+  const storageKey = existing ? storageKeyFromUrl(existing.url) : null;
+  if (storageKey) {
+    try {
+      await context.env.ATTACHMENTS?.delete(storageKey);
+    } catch {
+      await enqueueStorageDeletions(
+        context.env.DB,
+        context.get("user").workspaceId,
+        [storageKey],
+      ).catch(() => undefined);
+    }
   }
   return context.json({
     item: await getItem(
@@ -1410,12 +1500,22 @@ apiRoutes.post(
     if (!from || !to) {
       return context.json({ error: "Item not found." }, 404);
     }
-    const reverse = await context.env.DB.prepare(
-      "SELECT id FROM item_link WHERE workspace_id = ? AND from_item_id = ? AND to_item_id = ?",
+    // Reject any dependency cycle, direct or indirect: if toItemId can
+    // already reach fromId through existing links, adding fromId → toItemId
+    // would close a loop (e.g. A→B, B→C, then C→A).
+    const cycle = await context.env.DB.prepare(
+      `WITH RECURSIVE reachable(id) AS (
+         SELECT from_item_id FROM item_link
+          WHERE workspace_id = ? AND to_item_id = ?
+         UNION
+         SELECT link.from_item_id FROM item_link AS link
+          JOIN reachable ON link.to_item_id = reachable.id
+          WHERE link.workspace_id = ?
+       ) SELECT 1 AS found FROM reachable WHERE id = ? LIMIT 1`,
     )
-      .bind(workspaceId, toItemId, fromId)
-      .first<{ id: string }>();
-    if (reverse) {
+      .bind(workspaceId, fromId, workspaceId, toItemId)
+      .first<{ found: number }>();
+    if (cycle) {
       return context.json(
         { error: "That would create a dependency cycle." },
         409,
@@ -2087,12 +2187,42 @@ apiRoutes.get("/export", requireRecentSession(), async (context) => {
         is_default: number;
       }>(),
   ]);
+  const normalizeLinks = (
+    links: unknown,
+  ): { blockedBy: string[]; blocking: string[] } => {
+    if (!links || typeof links !== "object") {
+      return { blockedBy: [], blocking: [] };
+    }
+    const pick = (value: unknown): string[] => {
+      if (!Array.isArray(value)) return [];
+      return value
+        .map((entry) =>
+          typeof entry === "string"
+            ? entry
+            : entry && typeof entry === "object" && "itemId" in entry
+              ? String((entry as { itemId: unknown }).itemId)
+              : null,
+        )
+        .filter((entry): entry is string => Boolean(entry));
+    };
+    const record = links as {
+      blockedBy?: unknown;
+      blocking?: unknown;
+    };
+    return {
+      blockedBy: pick(record.blockedBy),
+      blocking: pick(record.blocking),
+    };
+  };
   const backup = {
     version: 1,
     exportedAt: new Date().toISOString(),
     settings,
     subjects,
-    items: [...items, ...archived],
+    items: [...items, ...archived].map((item) => ({
+      ...item,
+      links: normalizeLinks(item.links),
+    })),
     savedViews: savedViews.results.map((row) => ({
       id: row.id,
       page: row.page,
@@ -2219,6 +2349,67 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
       { error: "Backup references an unknown subject. Nothing was changed." },
       400,
     );
+  }
+  // Backup identifiers are globally unique primary keys. When the same file
+  // is restored into a different workspace, colliding ids must be remapped
+  // — otherwise the workspace-scoped upserts silently skip those rows and
+  // links/subjects point across workspaces.
+  {
+    const workspaceId = context.get("user").workspaceId;
+    const remap = new Map<string, string>();
+    const checkTable = async (table: string, ids: string[]) => {
+      for (let index = 0; index < ids.length; index += 100) {
+        const chunk = ids.slice(index, index + 100);
+        const placeholders = chunk.map(() => "?").join(", ");
+        const rows = await context.env.DB.prepare(
+          `SELECT id, workspace_id FROM ${table} WHERE id IN (${placeholders})`,
+        )
+          .bind(...chunk)
+          .all<{ id: string; workspace_id: string }>()
+          .catch(() => ({
+            results: [] as Array<{ id: string; workspace_id: string }>,
+          }));
+        for (const row of rows.results) {
+          if (row.workspace_id !== workspaceId && !remap.has(row.id)) {
+            remap.set(row.id, crypto.randomUUID());
+          }
+        }
+      }
+    };
+    await checkTable(
+      "subject",
+      backup.subjects.map((subject) => subject.id),
+    );
+    await checkTable(
+      "item",
+      backup.items.map((item) => item.id),
+    );
+    await checkTable(
+      "saved_view",
+      backup.savedViews.map((view) => view.id),
+    );
+    if (remap.size) {
+      for (const subject of backup.subjects) {
+        const next = remap.get(subject.id);
+        if (next) subject.id = next;
+      }
+      for (const item of backup.items) {
+        const nextId = remap.get(item.id);
+        if (nextId) item.id = nextId;
+        if (item.subjectId && remap.has(item.subjectId)) {
+          item.subjectId = remap.get(item.subjectId)!;
+        }
+        for (const side of ["blockedBy", "blocking"] as const) {
+          item.links[side] = item.links[side].map(
+            (other) => remap.get(other) ?? other,
+          );
+        }
+      }
+      for (const view of backup.savedViews) {
+        const next = remap.get(view.id);
+        if (next) view.id = next;
+      }
+    }
   }
   let canvasBaseHash: string | null = null;
   try {
@@ -2498,7 +2689,10 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
       ),
     );
     // Execution happens once below via restoreGroups (atomically for small
-    // restores, grouped otherwise).
+    // restores, grouped otherwise). Every statement is an idempotent upsert
+    // (or a delete-then-insert scoped to one backup item), ordered
+    // subjects → items → children → views → settings, so a large restore
+    // interrupted mid-way is safe to retry with the same backup file.
     const mergedSettings = {
       ...(await getSettings(context.env.DB, context.get("user").workspaceId)),
       ...backup.settings,
@@ -2571,7 +2765,8 @@ apiRoutes.post("/import/apply", requireRecentSession(), async (context) => {
     return context.json(
       {
         error:
-          "Restore could not finish. Use the pre-restore backup to recover and review the sanitized diagnostic.",
+          "Restore could not finish. It is safe to retry the same backup file to resume, or use the pre-restore backup to recover.",
+        resumable: true,
       },
       500,
     );
@@ -2852,6 +3047,22 @@ apiRoutes.post(
         .run();
     }
     const now = new Date().toISOString();
+    const workspaceAttachments = await context.env.DB.prepare(
+      `SELECT url FROM attachment_link WHERE workspace_id = ? LIMIT 2000`,
+    )
+      .bind(user.workspaceId)
+      .all<{ url: string }>()
+      .catch(() => ({ results: [] as Array<{ url: string }> }));
+    const workspaceKeys = workspaceAttachments.results
+      .map((row) => storageKeyFromUrl(row.url))
+      .filter((key): key is string => Boolean(key));
+    if (workspaceKeys.length) {
+      await enqueueStorageDeletions(
+        context.env.DB,
+        user.workspaceId,
+        workspaceKeys,
+      ).catch(() => undefined);
+    }
     await context.env.DB.batch([
       context.env.DB.prepare("DELETE FROM item WHERE workspace_id = ?").bind(
         user.workspaceId,
@@ -2891,6 +3102,9 @@ apiRoutes.post(
            WHERE id = ?`,
       ).bind(now, user.workspaceId),
     ]);
+    context.executionCtx?.waitUntil(
+      drainStorageDeletions(context.env).catch(() => undefined),
+    );
     clearSessionCookies(context);
     return context.json({
       ok: true,

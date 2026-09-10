@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - docs/ato-suite/integration
 
 allowBuilds:
   esbuild: true

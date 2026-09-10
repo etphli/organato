@@ -193,19 +193,30 @@ function SubtaskSection({ item }: { item: OrganatoItem }) {
           disabled={busy}
           onClick={async () => {
             setBusy(true);
+            let applied = 0;
             try {
               let current = item;
               for (const step of template) {
                 current = await addSubtask(current.id, step);
+                applied += 1;
+                // Publish each step immediately so a midway failure leaves
+                // the visible list matching the server instead of hiding
+                // applied steps until every request succeeds.
+                dispatch({ type: "replaceItem", item: current });
               }
-              dispatch({ type: "replaceItem", item: current });
             } catch (error) {
               dispatch({
                 type: "toast",
                 message:
-                  error instanceof IntegrationRequestError
-                    ? error.message
-                    : "The template could not be applied.",
+                  applied > 0
+                    ? `Applied ${applied} of ${template.length} steps before the error: ${
+                        error instanceof IntegrationRequestError
+                          ? error.message
+                          : "the template could not finish."
+                      }`
+                    : error instanceof IntegrationRequestError
+                      ? error.message
+                      : "The template could not be applied.",
               });
             } finally {
               setBusy(false);
@@ -699,8 +710,23 @@ export function Inspector() {
     setDeleteConfirm("");
     setMenuOpen(false);
   }, [item?.id]);
+  const notesServerValue = item?.notesMarkdown;
+  const notesItemId = item?.id;
+  useEffect(() => {
+    // The textarea mounts with compact-list data; when full details arrive
+    // later, sync the field so closing cannot flush the stale value back.
+    // Skip while the user is actively editing to preserve their draft.
+    if (
+      notesRef.current &&
+      notesServerValue !== undefined &&
+      document.activeElement !== notesRef.current &&
+      notesRef.current.value !== notesServerValue
+    ) {
+      notesRef.current.value = notesServerValue;
+    }
+  }, [notesItemId, notesServerValue]);
   if (!item) return null;
-  const status = visibleStatus(item);
+  const status = visibleStatus(item, new Date(), settings.timezone);
   const dueInput = dueInputValues(item, settings.timezone);
   const sourceSubject = subjects.find(
     (subject) => subject.canvasCourseId === item.canvasCourseId,

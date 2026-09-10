@@ -10,8 +10,8 @@ The product should feel closer to Obsidian than a conventional school portal: bl
 2. Setup must not require a credit card.
 3. The product must not rely on an expiring free trial.
 4. Application libraries must be open source.
-5. Organato is private. Only explicitly allow-listed Google accounts can sign in.
-6. There is one shared Organato workspace, even if the owner permits more than one of their Google accounts.
+5. Organato is private per tenant. Production admits any verified Google account, and each identity receives an isolated workspace it cannot read across. Uploads are bounded per workspace (20 × 10 MB per hour, 1 GB total).
+6. There is one workspace per Google identity; a person signing in with two accounts gets two isolated workspaces.
 7. Desktop is the primary experience. Phone and tablet layouts remain usable and installable as a PWA.
 8. Offline mode is intentionally out of scope.
 
@@ -95,11 +95,12 @@ flowchart LR
 
 ## Owner activation still required
 
-The deployment, database, generated secrets, owner allow-list, Google OAuth client, Calendar API, and Gmail API are configured. Emanuel School's Reshet installation is pinned server-side. Sign in with either permitted Google identity, then paste the session cookie of a signed-in Reshet browser tab through Organato's protected Settings flow — no Canvas API token exists anywhere in this product. Provider credentials never belong in Git.
+The deployment, database, generated secrets, Google OAuth client, Calendar API, and Gmail API are configured. Emanuel School's Reshet installation is pinned server-side. Sign in with any verified Google identity to receive a private workspace, then paste the session cookie of a signed-in Reshet browser tab through Organato's protected Settings flow — no Canvas API token exists anywhere in this product. Provider credentials never belong in Git.
 
 For local development, run `pnpm install`, then `pnpm dev:web`. The release gate
-currently runs 67 domain, integration, component, authentication, and Worker
-tests in addition to formatting, linting, type-checking, production builds,
+currently runs 202 domain, integration, component, authentication, Worker,
+connector, and contract tests (plus connector and real-Canvas smoke skips)
+in addition to formatting, linting, type-checking, production builds,
 licence checks, and secret scanning. See the
 [production handoff](docs/11-production-handoff.md) for the exact remaining
 activation steps and the

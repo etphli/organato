@@ -66,6 +66,9 @@ export class FakeGoogleCalendarProvider implements GoogleCalendarProvider {
     this.events.set(id, event);
     return event;
   }
+  async getEvent(_calendarId: string, eventId: string) {
+    return this.events.get(eventId) ?? null;
+  }
   async deleteEvent(_calendarId: string, eventId: string) {
     this.events.delete(eventId);
   }

@@ -71,10 +71,21 @@ export function dateOnlyCutoffUtc(
   const offsetName =
     formatter.formatToParts(guess).find((part) => part.type === "timeZoneName")
       ?.value ?? "GMT+10:00";
-  const match = offsetName.match(/GMT([+-])(\d{1,2}):?(\d{2})?/);
-  const sign = match?.[1] === "-" ? -1 : 1;
-  const offsetMinutes =
-    sign * (Number(match?.[2] ?? 10) * 60 + Number(match?.[3] ?? 0));
+  const normalized = offsetName.trim();
+  // Plain "GMT"/"UTC" means zero offset — previously misparsed as GMT+10,
+  // shifting UTC date-only deadlines ten hours early.
+  let offsetMinutes = 0;
+  if (/^(GMT|UTC)$/i.test(normalized)) {
+    offsetMinutes = 0;
+  } else {
+    const match = normalized.match(/GMT([+-])(\d{1,2}):?(\d{2})?/);
+    if (match) {
+      const sign = match[1] === "-" ? -1 : 1;
+      offsetMinutes = sign * (Number(match[2]) * 60 + Number(match[3] ?? 0));
+    } else {
+      offsetMinutes = 10 * 60;
+    }
+  }
   return new Date(
     Date.UTC(year, month - 1, day, 23, 59) - offsetMinutes * 60_000,
   );

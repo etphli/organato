@@ -549,21 +549,75 @@ export class CanvasRestProvider implements CanvasProvider {
     const start = new Date(Date.now() - 86_400_000);
     const end = new Date(start);
     end.setUTCFullYear(end.getUTCFullYear() + 1);
-    const plannerParams = new URLSearchParams({
+    // Canvas excludes submitted assignments from the incomplete_items feed
+    // (see Planner API docs). Fetch both feeds so submitted work is observed
+    // instead of being mistaken for deleted work.
+    const plannerBase = {
       start_date: start.toISOString(),
       end_date: end.toISOString(),
-      filter: "incomplete_items",
       per_page: "100",
-    });
+    };
     let malformedPlannerCount = 0;
-    const plannerRows = await this.paginated(
-      `/api/v1/planner/items?${plannerParams.toString()}`,
-      plannerItemSchema,
-      signal,
-      () => {
-        malformedPlannerCount += 1;
-      },
-    );
+    const onMalformed = () => {
+      malformedPlannerCount += 1;
+    };
+    const [incompleteRows, completeRows] = await Promise.all([
+      this.paginated(
+        `/api/v1/planner/items?${new URLSearchParams({
+          ...plannerBase,
+          filter: "incomplete_items",
+        }).toString()}`,
+        plannerItemSchema,
+        signal,
+        onMalformed,
+      ),
+      this.paginated(
+        `/api/v1/planner/items?${new URLSearchParams({
+          ...plannerBase,
+          filter: "complete_items",
+        }).toString()}`,
+        plannerItemSchema,
+        signal,
+        onMalformed,
+      ).catch(() => []),
+    ]);
+    // Deduplicate by assignment id; prefer the submitted view when an item
+    // appears in both feeds.
+    const seenPlannerKeys = new Set<string>();
+    const plannerRows: typeof incompleteRows = [];
+    for (const row of [...incompleteRows, ...completeRows]) {
+      const key = `${row.course_id ?? "none"}:${row.plannable_type}:${row.plannable_id}`;
+      if (seenPlannerKeys.has(key)) {
+        const existingIndex = plannerRows.findIndex(
+          (entry) =>
+            `${entry.course_id ?? "none"}:${entry.plannable_type}:${entry.plannable_id}` ===
+            key,
+        );
+        if (existingIndex >= 0) {
+          const existing = plannerRows[existingIndex]!;
+          const existingSubmitted =
+            existing.submissions !== false &&
+            Boolean(
+              existing.submissions?.submitted ||
+              existing.submissions?.graded ||
+              existing.submissions?.excused,
+            );
+          const nextSubmitted =
+            row.submissions !== false &&
+            Boolean(
+              row.submissions?.submitted ||
+              row.submissions?.graded ||
+              row.submissions?.excused,
+            );
+          if (nextSubmitted && !existingSubmitted) {
+            plannerRows[existingIndex] = row;
+          }
+        }
+        continue;
+      }
+      seenPlannerKeys.add(key);
+      plannerRows.push(row);
+    }
     const courseIds = new Set(courses.map((course) => course.id));
     const malformedCourseIds = new Set<string>();
     for (const row of plannerRows) {

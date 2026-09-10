@@ -481,7 +481,9 @@ export default function SettingsPage() {
     (item) => item.workingStatus === "completed",
   ).length;
   const overdueCount = items.filter(
-    (item) => !item.archivedAt && visibleStatus(item) === "overdue",
+    (item) =>
+      !item.archivedAt &&
+      visibleStatus(item, new Date(), settings.timezone) === "overdue",
   ).length;
   const snapshot = useMemo<WorkspaceSnapshot>(
     () => ({
@@ -804,8 +806,12 @@ export default function SettingsPage() {
       });
       return;
     }
-    await protectedPost("/api/auth/logout");
-    window.location.reload();
+    // Preserve the session across the Google round-trip: the callback mints
+    // a fresh cookie on success, and abandoning the flow keeps the current
+    // session instead of dropping to the starter page.
+    const { reauthenticate: sessionPreservingReauth } =
+      await import("../lib/integrationApi");
+    await sessionPreservingReauth(window.location.pathname);
   };
   const revokeAllSessions = async () => {
     await protectedPost("/api/sessions/revoke-all");

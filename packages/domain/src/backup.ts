@@ -190,8 +190,36 @@ const itemSchema = z
       .default([]),
     links: z
       .object({
-        blockedBy: z.array(z.string()).default([]),
-        blocking: z.array(z.string()).default([]),
+        blockedBy: z
+          .array(
+            z.union([
+              z.string(),
+              z
+                .object({ itemId: z.string(), linkId: z.string() })
+                .passthrough(),
+            ]),
+          )
+          .default([])
+          .transform((entries) =>
+            entries.map((entry) =>
+              typeof entry === "string" ? entry : entry.itemId,
+            ),
+          ),
+        blocking: z
+          .array(
+            z.union([
+              z.string(),
+              z
+                .object({ itemId: z.string(), linkId: z.string() })
+                .passthrough(),
+            ]),
+          )
+          .default([])
+          .transform((entries) =>
+            entries.map((entry) =>
+              typeof entry === "string" ? entry : entry.itemId,
+            ),
+          ),
       })
       .default({ blockedBy: [], blocking: [] }),
   })

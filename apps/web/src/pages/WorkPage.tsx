@@ -110,7 +110,20 @@ export default function WorkPage({
   );
   const mobileActionsRef = useRef<HTMLDetailsElement>(null);
   const itemNoun = page === "assignments" ? "assignment" : "checkpoint";
-  const now = useMemo(() => new Date(), []);
+  // Recompute "now" every minute (and when the tab regains focus) so
+  // overnight tabs do not keep stale overdue/week/remaining-day values.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const refresh = () => setNow(new Date());
+    const timer = window.setInterval(refresh, 60_000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
   // Filtering to a smaller set must not strand the table on an empty page.
   useEffect(() => {
     setPagination((current) => ({ ...current, pageIndex: 0 }));
@@ -161,17 +174,17 @@ export default function WorkPage({
         }
         if (priorityFilter && item.priority !== priorityFilter) return false;
         if (activeView === "active") {
-          const status = visibleStatus(item, now);
+          const status = visibleStatus(item, now, settings.timezone);
           if (status === "completed" && !showCompleted) return false;
           if (status === "submitted" && !settings.showSubmittedActive)
             return false;
         }
         const selectedView = pageViews.find((view) => view.id === activeView);
         if (selectedView?.filters.due === "overdue") {
-          return visibleStatus(item, now) === "overdue";
+          return visibleStatus(item, now, settings.timezone) === "overdue";
         }
         if (selectedView?.filters.due === "this_week") {
-          const deadline = itemDeadline(item);
+          const deadline = itemDeadline(item, settings.timezone);
           return Boolean(
             deadline &&
             deadline.getTime() >= now.getTime() &&
@@ -188,6 +201,7 @@ export default function WorkPage({
       pageViews,
       priorityFilter,
       settings.showSubmittedActive,
+      settings.timezone,
       showCompleted,
     ],
   );
@@ -254,7 +268,7 @@ export default function WorkPage({
         ),
       }),
       columnHelper.accessor(
-        (item) => itemDeadline(item)?.toISOString() ?? null,
+        (item) => itemDeadline(item, settings.timezone)?.toISOString() ?? null,
         {
           id: "due",
           size: 150,
@@ -293,13 +307,13 @@ export default function WorkPage({
         cell: ({ row }) => (
           <span
             className={
-              visibleStatus(row.original, now) === "overdue"
+              visibleStatus(row.original, now, settings.timezone) === "overdue"
                 ? "danger-text"
                 : ""
             }
           >
             {daysRemainingLabel(
-              itemDeadline(row.original),
+              itemDeadline(row.original, settings.timezone),
               now,
               settings.timezone,
             )}
@@ -340,7 +354,7 @@ export default function WorkPage({
         size: 130,
         header: "Status",
         cell: ({ row }) => {
-          const status = visibleStatus(row.original, now);
+          const status = visibleStatus(row.original, now, settings.timezone);
           return (
             <OrganatoSelect
               ariaLabel={`Status for ${row.original.displayName}`}
@@ -664,12 +678,14 @@ export default function WorkPage({
           </>
         }
       />
-      {Object.keys(rowSelection).length ? (
+      {table.getFilteredSelectedRowModel().rows.length ? (
         <div className="bulk-bar" role="toolbar" aria-label="Bulk actions">
-          <strong>{Object.keys(rowSelection).length} selected</strong>
+          <strong>
+            {table.getFilteredSelectedRowModel().rows.length} selected
+          </strong>
           <button
             onClick={() => {
-              table.getSelectedRowModel().rows.forEach((row) =>
+              table.getFilteredSelectedRowModel().rows.forEach((row) =>
                 dispatch({
                   type: "classify",
                   id: row.original.id,
@@ -683,7 +699,7 @@ export default function WorkPage({
           </button>
           <button
             onClick={() => {
-              table.getSelectedRowModel().rows.forEach((row) =>
+              table.getFilteredSelectedRowModel().rows.forEach((row) =>
                 dispatch({
                   type: "classify",
                   id: row.original.id,

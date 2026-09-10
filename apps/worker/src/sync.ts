@@ -63,7 +63,10 @@ export function isCanvasImportCandidate(
   assignment: CanvasAssignment,
   now = new Date(),
 ): boolean {
-  if (!assignment.published || assignment.submitted) return false;
+  if (!assignment.published) return false;
+  // Submitted assignments are still imported so the submitted state is
+  // observable; they arrive via the complete_items planner feed.
+  if (assignment.submitted) return true;
   if (!assignment.dueAt) return true;
   const due = Date.parse(assignment.dueAt);
   return Number.isFinite(due) && due >= now.getTime();
@@ -259,7 +262,7 @@ export async function runCanvasSync(
     const existingRows = await env.DB.prepare(
       `SELECT id, canvas_assignment_id, canvas_course_id, source_payload_hash,
               archived_at, manual_archive, missing_sync_count, canvas_missing_run_id,
-              source_name, source_due_at, source_updated_at
+              source_name, source_due_at, source_updated_at, working_status
        FROM item WHERE workspace_id = ? AND canvas_base_url_hash = ?`,
     )
       .bind(workspaceId, baseHash)
@@ -275,6 +278,7 @@ export async function runCanvasSync(
         source_name: string | null;
         source_due_at: string | null;
         source_updated_at: string | null;
+        working_status: string;
       }>();
     const existingById = new Map(
       existingRows.results.map((item) => [item.canvas_assignment_id, item]),
@@ -309,6 +313,9 @@ export async function runCanvasSync(
           id,
           assignmentId: assignment.id,
           courseId: `${workspaceId}:${assignment.courseId}`,
+          submitted: assignment.submitted ? 1 : 0,
+          workingStatus: assignment.submitted ? "submitted" : "not_started",
+          submittedAt: assignment.submitted ? now : null,
           ...source,
         });
         createdIds.push(id);
@@ -372,6 +379,16 @@ export async function runCanvasSync(
         seenAssignmentIds.has(item.canvas_assignment_id)
       )
         continue;
+      // Submitted/completed work disappears from the incomplete feed by
+      // design. Never auto-archive it on omission; it is observed via the
+      // complete_items feed instead.
+      if (
+        item.working_status === "submitted" ||
+        item.working_status === "completed"
+      ) {
+        skipped += 1;
+        continue;
+      }
       if (
         !shouldAdvanceCanvasMissing(
           {
@@ -429,12 +446,12 @@ export async function runCanvasSync(
         (id, workspace_id, kind, classification, source_type, canvas_base_url_hash,
          canvas_assignment_id, canvas_course_id, canvas_html_url, source_name, source_due_at,
          source_updated_at, source_payload_hash, display_name, due_at, due_has_explicit_time,
-         subject_id, working_status, calendar_enabled, reminders_enabled, calendar_sync_state, created_at, updated_at)
+         subject_id, working_status, submitted_at, calendar_enabled, reminders_enabled, calendar_sync_state, created_at, updated_at)
         SELECT value ->> '$.id', ?, 'work', 'unclassified', 'canvas', ?,
           value ->> '$.assignmentId', value ->> '$.courseId', value ->> '$.url', value ->> '$.name', value ->> '$.due',
           value ->> '$.updated', value ->> '$.hash', value ->> '$.name', value ->> '$.due', (value ->> '$.due') IS NOT NULL,
           (SELECT id FROM subject WHERE workspace_id = ? AND canvas_course_id = value ->> '$.courseId'),
-          'not_started', 1, 1, 'pending', ?, ? FROM json_each(?) WHERE ${guard}`,
+          value ->> '$.workingStatus', value ->> '$.submittedAt', 1, 1, 'pending', ?, ? FROM json_each(?) WHERE ${guard}`,
         ).bind(workspaceId, baseHash, workspaceId, now, now, json, ...fence),
       ),
       ...jsonBatches(updates).map((json) =>
@@ -644,16 +661,21 @@ async function updateGoogleHealth(
   },
 ) {
   const now = new Date().toISOString();
+  // Compose both JSON mutations into a single assignment: SQLite applies only
+  // the last assignment when a column appears twice, which previously dropped
+  // the syncToken whenever a push cursor was also written.
   await env.DB.prepare(
     `UPDATE integration_connection SET
        status = ?, last_attempt_at = ?,
        last_success_at = CASE WHEN ? = 1 THEN ? ELSE last_success_at END,
        last_error_category = ?, reconnect_needed = ?,
-       metadata_json = CASE WHEN ? IS NOT NULL
-         THEN json_set(metadata_json, '$.syncToken', ?)
-         ELSE metadata_json END,
-       metadata_json = CASE WHEN ? IS NOT NULL
-         THEN json_set(metadata_json, '$.pushCursorRowId', ?)
+       metadata_json = CASE
+         WHEN ? IS NOT NULL AND ? IS NOT NULL
+           THEN json_set(json_set(metadata_json, '$.syncToken', ?), '$.pushCursorRowId', ?)
+         WHEN ? IS NOT NULL
+           THEN json_set(metadata_json, '$.syncToken', ?)
+         WHEN ? IS NOT NULL
+           THEN json_set(metadata_json, '$.pushCursorRowId', ?)
          ELSE metadata_json END,
        updated_at = ?
      WHERE workspace_id = ? AND provider = 'google'`,
@@ -665,6 +687,10 @@ async function updateGoogleHealth(
       now,
       input.errorCategory,
       input.reconnectNeeded ? 1 : 0,
+      input.syncToken ?? null,
+      input.pushCursorRowId ?? null,
+      input.syncToken ?? null,
+      input.pushCursorRowId ?? null,
       input.syncToken ?? null,
       input.syncToken ?? null,
       input.pushCursorRowId ?? null,
@@ -726,7 +752,8 @@ export async function runCalendarReconciliation(
   if (!connection?.metadata.calendarId) return;
   const runId = await acquireCalendarRun(env, workspaceId);
   if (!runId) return;
-  const calendarId = connection.metadata.calendarId;
+  let calendarId = connection.metadata.calendarId;
+  const settings = await getSettings(env.DB, workspaceId);
   const subjects = await listSubjects(env.DB, workspaceId);
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
   let nextSyncToken: string | undefined;
@@ -820,8 +847,16 @@ export async function runCalendarReconciliation(
                   ).bind(item.id, workspaceId),
                   env.DB.prepare(
                     `UPDATE calendar_link SET sync_state = 'conflict',
-                       last_synced_at = ? WHERE item_id = ? AND workspace_id = ?`,
-                  ).bind(conflictAt, item.id, workspaceId),
+                       last_synced_at = ?, conflict_event_json = ?,
+                       conflict_etag = ?
+                       WHERE item_id = ? AND workspace_id = ?`,
+                  ).bind(
+                    conflictAt,
+                    JSON.stringify(event).slice(0, 20_000),
+                    event.etag ?? null,
+                    item.id,
+                    workspaceId,
+                  ),
                   env.DB.prepare(
                     `INSERT INTO item_history
                       (id, item_id, actor_type, actor_identity, action,
@@ -932,6 +967,38 @@ export async function runCalendarReconciliation(
             .run();
           continue;
         }
+        // The dedicated Organato calendar was deleted or access was revoked:
+        // recreate it, drop the dead id/token, and requeue projections so
+        // events are rebuilt instead of failing forever.
+        if (
+          error instanceof GoogleApiError &&
+          (error.status === 404 || (error.status === 410 && !syncToken)) &&
+          !resetExpiredToken
+        ) {
+          resetExpiredToken = true;
+          const freshId = await connection.calendar.ensureOrganatoCalendar(
+            undefined,
+            settings.timezone,
+          );
+          calendarId = freshId;
+          syncToken = undefined;
+          nextSyncToken = undefined;
+          await env.DB.batch([
+            env.DB.prepare(
+              `UPDATE integration_connection
+               SET metadata_json = json_set(
+                 json_remove(metadata_json, '$.syncToken'),
+                 '$.calendarId', ?
+               ), updated_at = ? WHERE workspace_id = ? AND provider = 'google'`,
+            ).bind(freshId, new Date().toISOString(), workspaceId),
+            env.DB.prepare(
+              `UPDATE item SET calendar_sync_state = 'pending'
+               WHERE workspace_id = ? AND calendar_enabled = 1
+                 AND archived_at IS NULL`,
+            ).bind(workspaceId),
+          ]);
+          continue;
+        }
         throw error;
       }
     }
@@ -946,6 +1013,7 @@ export async function runCalendarReconciliation(
     let pushCursor = startCursor;
     let pushCursorWrapped = false;
     const pendingRows: Array<{ id: string; rowid: number }> = [];
+    const seenPendingIds = new Set<string>();
     for (
       let page = 0;
       page < PUSH_MAX_ROWS / PUSH_PAGE_SIZE &&
@@ -970,11 +1038,17 @@ export async function runCalendarReconciliation(
         break;
       }
       for (const row of batch.results) {
-        pendingRows.push(row);
+        if (!seenPendingIds.has(row.id)) {
+          seenPendingIds.add(row.id);
+          pendingRows.push(row);
+        }
         pushCursor = Math.max(pushCursor, row.rowid);
       }
       if (batch.results.length < PUSH_PAGE_SIZE) {
-        if (!pushCursorWrapped && pushCursor !== startCursor) {
+        // A short page means the tail is exhausted. Sweep the head exactly
+        // once when the run started mid-table; starting at zero must not
+        // re-fetch the same short page it just collected.
+        if (!pushCursorWrapped && startCursor !== 0) {
           pushCursor = 0;
           pushCursorWrapped = true;
           continue;
@@ -982,7 +1056,6 @@ export async function runCalendarReconciliation(
         break;
       }
     }
-    const settings = await getSettings(env.DB, workspaceId);
     for (const row of pendingRows) {
       const item = await getItem(env.DB, workspaceId, row.id);
       if (!item) continue;
@@ -1084,6 +1157,23 @@ export async function runCalendarReconciliation(
         const conflict =
           error instanceof GoogleApiError && error.status === 412;
         const now = new Date().toISOString();
+        let conflictEventJson: string | null = null;
+        let conflictEtag: string | null = null;
+        if (conflict && link?.google_event_id) {
+          try {
+            const latest = await connection.calendar.getEvent(
+              calendarId,
+              link.google_event_id,
+            );
+            if (latest) {
+              conflictEventJson = JSON.stringify(latest).slice(0, 20_000);
+              conflictEtag = latest.etag ?? null;
+            }
+          } catch {
+            // Fall back to conflict state without a snapshot; resolution
+            // will refetch the live event.
+          }
+        }
         await env.DB.batch([
           env.DB.prepare(
             `UPDATE item SET calendar_sync_state = ? WHERE id = ? AND workspace_id = ?`,
@@ -1092,10 +1182,15 @@ export async function runCalendarReconciliation(
             ? [
                 env.DB.prepare(
                   `UPDATE calendar_link SET sync_state = ?,
-                     last_synced_at = ? WHERE item_id = ? AND workspace_id = ?`,
+                     last_synced_at = ?,
+                     conflict_event_json = COALESCE(?, conflict_event_json),
+                     conflict_etag = COALESCE(?, conflict_etag)
+                     WHERE item_id = ? AND workspace_id = ?`,
                 ).bind(
                   conflict ? "conflict" : "error",
                   now,
+                  conflictEventJson,
+                  conflictEtag,
                   item.id,
                   workspaceId,
                 ),
@@ -1155,18 +1250,32 @@ export async function resolveCalendarConflict(
   const item = await getItem(env.DB, workspaceId, itemId);
   if (!item || item.calendarSyncState !== "conflict")
     return { resolved: false };
+  const link = await env.DB.prepare(
+    `SELECT google_event_id, google_etag, conflict_event_json, conflict_etag,
+            google_calendar_id
+     FROM calendar_link WHERE workspace_id = ? AND item_id = ?`,
+  )
+    .bind(workspaceId, itemId)
+    .first<{
+      google_event_id: string | null;
+      google_etag: string | null;
+      conflict_event_json: string | null;
+      conflict_etag: string | null;
+      google_calendar_id: string;
+    }>();
   const now = new Date().toISOString();
   if (strategy === "mine") {
-    // Keep the local version and re-queue it for push. The pushed-version
-    // marker is left alone so a concurrent Google edit re-flags the
-    // conflict instead of being silently overwritten.
+    // Keep the local version and force-push it: clear the stale ETag so the
+    // next push issues an unconditional PATCH instead of another 412, drop
+    // the stored conflict snapshot, and re-queue for push.
     await env.DB.batch([
       env.DB.prepare(
         `UPDATE item SET calendar_sync_state = 'pending'
          WHERE id = ? AND workspace_id = ?`,
       ).bind(item.id, workspaceId),
       env.DB.prepare(
-        `UPDATE calendar_link SET sync_state = 'pending', last_synced_at = ?
+        `UPDATE calendar_link SET sync_state = 'pending', last_synced_at = ?,
+           google_etag = NULL, conflict_event_json = NULL, conflict_etag = NULL
          WHERE item_id = ? AND workspace_id = ?`,
       ).bind(now, item.id, workspaceId),
       env.DB.prepare(
@@ -1176,27 +1285,73 @@ export async function resolveCalendarConflict(
            'Calendar conflict resolved — kept the Organato version', ?)`,
       ).bind(crypto.randomUUID(), item.id, now),
     ]);
-  } else {
-    // Google wins: align the pushed-version marker so the next pull adopts
-    // the Google event instead of re-flagging the same pair.
-    await env.DB.batch([
-      env.DB.prepare(
-        `UPDATE calendar_link SET last_pushed_item_version = ?,
-           sync_state = 'synced', last_synced_at = ?
-         WHERE item_id = ? AND workspace_id = ?`,
-      ).bind(item.version, now, item.id, workspaceId),
-      env.DB.prepare(
-        `UPDATE item SET calendar_sync_state = 'synced'
-         WHERE id = ? AND workspace_id = ?`,
-      ).bind(item.id, workspaceId),
-      env.DB.prepare(
-        `INSERT INTO item_history
-          (id, item_id, actor_type, actor_identity, action, summary, created_at)
-         VALUES (?, ?, 'user', 'owner', 'calendar_conflict_resolved',
-           'Calendar conflict resolved — kept the Google Calendar version', ?)`,
-      ).bind(crypto.randomUUID(), item.id, now),
-    ]);
+    return { resolved: true };
   }
+  // Google wins: apply the retained conflicting event explicitly instead of
+  // just marking resolved (the pull token has already advanced past it).
+  let conflictEvent: CalendarEventRecord | null = null;
+  if (link?.conflict_event_json) {
+    try {
+      conflictEvent = JSON.parse(
+        link.conflict_event_json,
+      ) as CalendarEventRecord;
+    } catch {
+      conflictEvent = null;
+    }
+  }
+  if (!conflictEvent && link?.google_event_id) {
+    try {
+      const connection = await loadGoogleConnection(env, workspaceId);
+      if (connection?.metadata.calendarId) {
+        conflictEvent = await connection.calendar.getEvent(
+          connection.metadata.calendarId,
+          link.google_event_id,
+        );
+      }
+    } catch {
+      conflictEvent = null;
+    }
+  }
+  if (!conflictEvent) return { resolved: false };
+  const patch = calendarPatchFromEvent(item, conflictEvent);
+  const updated = Object.keys(patch).length
+    ? await patchItem(
+        env.DB,
+        workspaceId,
+        item.id,
+        item.version,
+        patch,
+        "owner",
+        "google",
+      )
+    : item;
+  const etag = conflictEvent.etag ?? link?.conflict_etag ?? null;
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE calendar_link SET google_etag = ?,
+         last_google_updated_at = ?, last_pushed_item_version = ?,
+         sync_state = 'synced', last_synced_at = ?,
+         conflict_event_json = NULL, conflict_etag = NULL
+         WHERE item_id = ? AND workspace_id = ?`,
+    ).bind(
+      etag,
+      conflictEvent.updated ?? now,
+      updated.version,
+      now,
+      item.id,
+      workspaceId,
+    ),
+    env.DB.prepare(
+      `UPDATE item SET calendar_sync_state = 'synced'
+       WHERE id = ? AND workspace_id = ?`,
+    ).bind(item.id, workspaceId),
+    env.DB.prepare(
+      `INSERT INTO item_history
+        (id, item_id, actor_type, actor_identity, action, summary, created_at)
+       VALUES (?, ?, 'user', 'owner', 'calendar_conflict_resolved',
+         'Calendar conflict resolved — kept the Google Calendar version', ?)`,
+    ).bind(crypto.randomUUID(), item.id, now),
+  ]);
   return { resolved: true };
 }
 
@@ -1780,12 +1935,12 @@ export async function runWeeklyReview(
   );
   const slipped = items.filter((item) => {
     if (item.archivedAt || item.workingStatus === "completed") return false;
-    const deadline = itemDeadline(item);
+    const deadline = itemDeadline(item, settings.timezone);
     return deadline !== null && deadline.getTime() < now.getTime();
   });
   const upcoming = items.filter((item) => {
     if (item.archivedAt || item.workingStatus === "completed") return false;
-    const deadline = itemDeadline(item);
+    const deadline = itemDeadline(item, settings.timezone);
     return (
       deadline !== null &&
       deadline.getTime() >= now.getTime() &&
@@ -1874,10 +2029,17 @@ export async function sendExamEscalation(
     .slice(0, 5)
     .map((item) => item.displayName.slice(0, 60))
     .join("; ");
+  const escapeHtml = (value: string): string =>
+    value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
   const rendered: RenderedDigest = {
     subject: `EXAM TODAY (${candidates.length}): ${names}`.slice(0, 160),
     html: `<p>${candidates.length} high-priority item(s) due today: ${candidates
-      .map((item) => item.displayName)
+      .map((item) => escapeHtml(item.displayName))
       .join("; ")}</p>`,
     text: `Organato exam alert: ${names}`,
     itemIds: candidates.map((item) => item.id),

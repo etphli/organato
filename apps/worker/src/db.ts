@@ -516,14 +516,20 @@ export async function patchItem(
     assignments.push("calendar_sync_state = 'pending'");
   }
   const historyId = crypto.randomUUID();
+  // Apply the version-guarded update first and only write history/override
+  // rows when it actually matched. Batching them together committed child
+  // rows even for the concurrent loser, which then reported
+  // version_conflict after polluting history.
+  const updateResult = await db
+    .prepare(
+      `UPDATE item SET ${assignments.join(", ")}, version = version + 1,
+       updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND version = ?`,
+    )
+    .bind(...values, now, id, workspaceId, version)
+    .run();
+  if (!updateResult.meta.changes) throw new Error("version_conflict");
   const batch: D1PreparedStatement[] = [
-    db
-      .prepare(
-        `UPDATE item SET ${assignments.join(", ")}, version = version + 1,
-         updated_at = ?
-         WHERE id = ? AND workspace_id = ? AND version = ?`,
-      )
-      .bind(...values, now, id, workspaceId, version),
     db
       .prepare(
         `INSERT INTO item_history
@@ -594,8 +600,7 @@ export async function patchItem(
       );
     }
   }
-  const results = await db.batch(batch);
-  if (!results[0]?.meta.changes) throw new Error("version_conflict");
+  await db.batch(batch);
   return (await getItem(db, workspaceId, id))!;
 }
 

@@ -34,8 +34,13 @@ describe("primary navigation lifecycle", () => {
         screen.getAllByRole("link", { name: destination.name })[0]!,
       );
       // Routes are code-split; await each page instead of asserting sync.
+      // Coverage instrumentation slows lazy chunk loads, so allow headroom.
       expect(
-        await screen.findByRole("heading", { name: destination.heading }),
+        await screen.findByRole(
+          "heading",
+          { name: destination.heading },
+          { timeout: 15_000 },
+        ),
       ).toBeVisible();
     }
   }, 60_000);

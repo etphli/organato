@@ -5,7 +5,7 @@
 The repository contains:
 
 - `apps/web`: React/Vite responsive PWA with Home, Assignments, Checkpoints, Calendar, Todo, Settings, command palette, search, detail inspector, archive, export, validated restore, themes, and phone/tablet adaptations.
-- `apps/worker`: Hono API, Google OIDC, exact allow-list and subject binding, opaque server sessions, CSRF/origin checks, D1 persistence, protected integration setup, scheduled handlers, and security headers.
+- `apps/worker`: Hono API, Google OIDC, email allow-list (`*` admits any verified account into an isolated workspace) and subject binding, opaque server sessions, CSRF/origin checks, D1 persistence, protected integration setup, scheduled handlers, and security headers.
 - `packages/domain`: provider-independent item, date, status, recurrence, reminder, and backup rules.
 - `packages/integrations`: real and fake Canvas, Google Calendar, and Gmail adapters.
 - `packages/email`: versioned, escaped HTML/plain-text digest renderer.
@@ -58,7 +58,7 @@ pnpm dlx wrangler@4.114.0 d1 migrations apply organato-production --remote --con
 5. Integration consent separately requests:
    - `https://www.googleapis.com/auth/calendar.app.created`
    - `https://www.googleapis.com/auth/gmail.send`
-6. Use External/In Production for dependable background refresh tokens. Keep the application private through Organato's exact allow-list and accept the unverified personal-use warning only for the owner or a few personally known users.
+6. Use External/In Production for dependable background refresh tokens. Keep each tenant private through per-workspace isolation plus upload quotas, or restrict sign-in to an exact allow-list via `ALLOWED_GOOGLE_EMAILS`; accept the unverified personal-use warning only for the owner or a few personally known users.
 7. Do not request Calendar-wide, Drive, Contacts, inbox-reading, or full-mail scopes.
 
 Google currently documents `calendar.app.created` as the scope that can create secondary calendars and manage events on those app-created calendars. Google also documents that Testing-state authorizations, including offline refresh tokens, expire after seven days, while its personal-use exception covers a sole user or a few personally known users.
@@ -171,5 +171,5 @@ apply it to production.
 - Google authorization: revoke in Google Account permissions, revoke Organato sessions, reconnect, reconcile the dedicated calendar.
 - Database compromise: revoke provider credentials, rotate session/encryption keys, revoke sessions, restore a known-good secret-free export.
 - Backup restore: Settings validates the complete schema, previews counts, requires `RESTORE ORGANATO`, downloads the current workspace first, then performs an idempotent merge. Keep the downloaded pre-restore file until the merged workspace has been checked.
-- Lockout: update the exact allow-list through deployment configuration; there is no public recovery flow.
+- Lockout: update `ALLOWED_GOOGLE_EMAILS` through deployment configuration (exact addresses restrict sign-in; `"*"` admits any verified account); there is no public recovery flow.
 - Quota exhaustion: wait for the free limit reset or use the documented local scheduler. Never enable billing or upgrade automatically.

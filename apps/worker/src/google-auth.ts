@@ -318,9 +318,20 @@ export async function googleIntegrationCallback(
   ) {
     return new Response("Google connection expired.", { status: 400 });
   }
-  await env.DB.prepare("DELETE FROM oauth_transaction WHERE state_hash = ?")
-    .bind(stateHash)
-    .run();
+  // Claim the transaction instead of deleting it: concurrent callbacks for
+  // the same state race here, and a transient failure later must leave the
+  // transaction behind so the user can retry. It is deleted only after the
+  // connection is fully stored below.
+  const claimed = await env.DB.prepare(
+    `UPDATE oauth_transaction SET claimed_at = ?
+     WHERE state_hash = ? AND claimed_at IS NULL`,
+  )
+    .bind(new Date().toISOString(), stateHash)
+    .run()
+    .catch(() => null);
+  if (claimed?.meta && claimed.meta.changes === 0) {
+    return new Response("Google connection expired.", { status: 400 });
+  }
   const email = transaction.return_to.slice("integration:".length);
   const workspaceId = transaction.workspace_id;
   const nonce = await decryptSecret(
@@ -497,6 +508,18 @@ export async function googleIntegrationCallback(
     email,
     "Verified Google Calendar and Gmail authorization was connected.",
   );
+  // The exchange and calendar setup succeeded: record completion for
+  // idempotent retries and consume the transaction only now.
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO completed_oauth_exchange
+        (state_hash, csrf_token, return_to, created_at)
+       VALUES (?, '', ?, ?)`,
+    ).bind(stateHash, transaction.return_to, now),
+    env.DB.prepare("DELETE FROM oauth_transaction WHERE state_hash = ?").bind(
+      stateHash,
+    ),
+  ]).catch(() => undefined);
   const reconciliation = runCalendarReconciliation(env, workspaceId).catch(
     async () =>
       env.DB.prepare(

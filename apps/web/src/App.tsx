@@ -6,7 +6,6 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom";
-import { Analytics } from "@vercel/analytics/react";
 import { AppShell } from "./components/AppShell";
 import { RouteErrorBoundary } from "./components/AppErrorBoundary";
 import { DeferredOverlays } from "./components/DeferredOverlays";
@@ -206,7 +205,6 @@ export function App() {
       <DeferredOverlays />
       <Toast />
       <PwaUpdateNotice />
-      <Analytics />
     </>
   );
 }

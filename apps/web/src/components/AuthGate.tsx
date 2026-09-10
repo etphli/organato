@@ -165,16 +165,34 @@ export function AuthGate({ children }: { children: ReactNode }) {
       // momentary offline) should not bounce a signed-in user to the starter
       // page. The OAuth exchange above is single-use and is never retried.
       let response: Response | null = null;
+      let networkFailed = false;
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        response = await fetch("/api/session", {
-          credentials: "same-origin",
-        });
+        networkFailed = false;
+        try {
+          response = await fetch("/api/session", {
+            credentials: "same-origin",
+            signal: AbortSignal.timeout(30_000),
+          });
+        } catch {
+          // Actual network failures (offline, DNS, refused) reject instead
+          // of resolving: retry once like HTTP 5xx before giving up.
+          networkFailed = true;
+          response = null;
+          if (attempt === 0) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, SESSION_RETRY_DELAY_MS),
+            );
+            continue;
+          }
+          break;
+        }
         if (response.ok || attempt === 1) break;
         if (response.status === 401 || response.status === 403) break;
         await new Promise((resolve) =>
           setTimeout(resolve, SESSION_RETRY_DELAY_MS),
         );
       }
+      if (networkFailed) throw new Error("network_unavailable");
       if (!response || !response.ok) throw new Error("signed_out");
       const session = (await response.json()) as SessionResponse;
       sessionStorage.setItem("organato_csrf", session.csrfToken);
@@ -187,9 +205,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
         window.location.pathname === "/api/auth/google/callback" ||
         window.location.pathname === "/api/integrations/google/callback";
       if (callbackFailed) window.history.replaceState(null, "", "/");
+      // A twice-failed network request means offline even when the browser
+      // reports itself online; only HTTP 401/403 means signed out.
+      const offline =
+        !navigator.onLine ||
+        (error instanceof Error && error.message === "network_unavailable");
       setState(
-        navigator.onLine
-          ? callbackFailed
+        offline
+          ? { status: "offline" }
+          : callbackFailed
             ? {
                 status: "signed_out",
                 message:
@@ -197,8 +221,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
                     ? error.message
                     : "Google sign-in could not finish. Please try again.",
               }
-            : { status: "signed_out" }
-          : { status: "offline" },
+            : { status: "signed_out" },
       );
     });
   }, [demoMode]);

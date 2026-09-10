@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   calendarPatchFromEvent,
   extractCalendarNote,
+  isCanvasImportCandidate,
   nextDeliveryAttemptAt,
   sendTestEmail,
   shouldAdvanceCanvasMissing,
@@ -70,6 +71,43 @@ const item = (overrides: Partial<OrganatoItem> = {}): OrganatoItem => ({
 });
 
 describe("synchronization decisions", () => {
+  it("imports submitted Canvas assignments instead of archiving them", () => {
+    // Submitted work disappears from the incomplete_items planner feed, so
+    // it must remain an import candidate (via complete_items) and never be
+    // mistaken for deleted work.
+    const now = new Date("2026-07-27T00:00:00.000Z");
+    expect(
+      isCanvasImportCandidate(
+        {
+          id: "101",
+          courseId: "12",
+          name: "Comparative essay draft",
+          dueAt: "2026-07-20T06:00:00.000Z",
+          htmlUrl: "https://emanuel.instructure.com/courses/12/assignments/101",
+          updatedAt: "2026-07-26T00:10:00.000Z",
+          published: true,
+          submitted: true,
+        },
+        now,
+      ),
+    ).toBe(true);
+    expect(
+      isCanvasImportCandidate(
+        {
+          id: "102",
+          courseId: "12",
+          name: "Unpublished draft",
+          dueAt: null,
+          htmlUrl: "https://emanuel.instructure.com/courses/12/assignments/102",
+          updatedAt: "2026-07-26T00:10:00.000Z",
+          published: false,
+          submitted: false,
+        },
+        now,
+      ),
+    ).toBe(false);
+  });
+
   it("does not advance Canvas disappearance for failed courses or past work", () => {
     const successful = new Set(["course-1"]);
     const now = new Date("2026-07-27T00:00:00.000Z");

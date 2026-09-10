@@ -52,8 +52,8 @@ export function groupDigestItems(
 ): GroupedReminder[] {
   const grouped = new Map<ReminderGroup, OrganatoItem[]>();
   for (const item of items) {
-    if (!shouldRemind(item, now)) continue;
-    const deadline = itemDeadline(item);
+    if (!shouldRemind(item, now, timezone)) continue;
+    const deadline = itemDeadline(item, timezone);
     if (!deadline) continue;
     const key = reminderGroupForDays(
       daysBetweenLocalDates(now, deadline, timezone),
@@ -71,7 +71,8 @@ export function groupDigestItems(
       const rankB = priorityOrder[b.priority ?? "blank"] ?? 4;
       if (rankA !== rankB) return rankA - rankB;
       return (
-        (itemDeadline(a)?.getTime() ?? 0) - (itemDeadline(b)?.getTime() ?? 0)
+        (itemDeadline(a, timezone)?.getTime() ?? 0) -
+        (itemDeadline(b, timezone)?.getTime() ?? 0)
       );
     });
     return [{ key, items: groupItems }];

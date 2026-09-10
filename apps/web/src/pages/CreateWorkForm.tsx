@@ -280,6 +280,11 @@ export const CreateWorkControl = memo(function CreateWorkControl({
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+  // React Router same-route navigations (e.g. linking to ?new=1 while
+  // already on the page) update `search` without a popstate event.
+  useEffect(() => {
+    setOpen(new URLSearchParams(search).get("new") === "1");
+  }, [search]);
 
   const close = useCallback(() => {
     updateNewQuery(false);
@@ -610,6 +615,11 @@ export const CreateTodoControl = memo(function CreateTodoControl({
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+  // React Router same-route navigations (e.g. linking to ?new=1 while
+  // already on the page) update `search` without a popstate event.
+  useEffect(() => {
+    setOpen(new URLSearchParams(search).get("new") === "1");
+  }, [search]);
 
   const close = useCallback(() => {
     updateNewQuery(false);

@@ -206,7 +206,7 @@ export function buildCalendarEntries(
     ) {
       continue;
     }
-    const status = visibleStatus(item, now);
+    const status = visibleStatus(item, now, settings.timezone);
     if (!statusMatches(status, filters.statuses)) continue;
 
     const instant = item.dueAt ? new Date(item.dueAt) : null;

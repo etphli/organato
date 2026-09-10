@@ -96,7 +96,7 @@ function TopBriefing() {
             item.workingStatus !== "completed" &&
             itemDueDate(item, settings.timezone),
         )
-        .toSorted((a, b) => compareItems(a, b, today))
+        .toSorted((a, b) => compareItems(a, b, today, settings.timezone))
         .slice(0, 3),
     [items, settings.timezone, today],
   );
@@ -106,7 +106,8 @@ function TopBriefing() {
       <h2>Start here</h2>
       <ol>
         {top.map((item, index) => {
-          const overdue = visibleStatus(item, today) === "overdue";
+          const overdue =
+            visibleStatus(item, today, settings.timezone) === "overdue";
           const due = itemDueDate(item, settings.timezone);
           return (
             <li key={item.id}>
@@ -155,13 +156,19 @@ function ForecastStrip() {
   const today = useToday();
   const days = useMemo(() => {
     const buckets: Array<{ key: string; label: string; minutes: number }> = [];
-    const start = new Date(
-      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
-    );
+    // Key buckets by workspace-local dates: UTC ISO slices shift work around
+    // midnight for non-UTC timezones.
+    const [year = 0, month = 1, dayOfMonth = 1] = localDateKey(
+      today,
+      settings.timezone,
+    )
+      .split("-")
+      .map(Number);
+    const anchor = new Date(Date.UTC(year, month - 1, dayOfMonth, 12));
     for (let offset = 0; offset < 14; offset += 1) {
-      const day = new Date(start.getTime() + offset * 86_400_000);
+      const day = new Date(anchor.getTime() + offset * 86_400_000);
       buckets.push({
-        key: day.toISOString().slice(0, 10),
+        key: localDateKey(day, settings.timezone),
         label: day.toLocaleDateString("en-AU", {
           timeZone: settings.timezone,
           weekday: "narrow",
@@ -179,7 +186,7 @@ function ForecastStrip() {
       }
       const due = itemDueDate(item, settings.timezone);
       if (!due) continue;
-      const key = due.toISOString().slice(0, 10);
+      const key = localDateKey(due, settings.timezone);
       const bucket = buckets.find((entry) => entry.key === key);
       if (bucket) bucket.minutes += effortMinutes(item);
     }
@@ -229,7 +236,7 @@ function RiskStrip() {
     for (const item of items) {
       if (item.archivedAt || item.workingStatus === "completed") continue;
       // Overdue has its own section; risks cover what is quietly going wrong.
-      if (visibleStatus(item, today) === "overdue") continue;
+      if (visibleStatus(item, today, settings.timezone) === "overdue") continue;
       const due = itemDueDate(item, settings.timezone)?.getTime();
       if (due === undefined) continue;
       if (
@@ -437,7 +444,9 @@ function MiniCalendar() {
     grouped.forEach((entries, key) => {
       grouped.set(
         key,
-        entries.toSorted((a, b) => compareItems(a, b, today)),
+        entries.toSorted((a, b) =>
+          compareItems(a, b, today, settings.timezone),
+        ),
       );
     });
     return grouped;
@@ -531,7 +540,7 @@ function TodayList() {
   const today = useToday();
   const todos = items
     .filter((item) => item.kind === "todo" && !item.archivedAt)
-    .toSorted((a, b) => compareItems(a, b, today))
+    .toSorted((a, b) => compareItems(a, b, today, settings.timezone))
     .slice(0, 3);
   const create = () => {
     if (!name.trim()) return;
@@ -633,7 +642,7 @@ function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
             (settings.includeBothInPanels || item.classification !== "both")
           );
         })
-        .toSorted((a, b) => compareItems(a, b, today))
+        .toSorted((a, b) => compareItems(a, b, today, settings.timezone))
         .slice(0, limit),
     [
       items,
@@ -705,11 +714,12 @@ function OverdueList() {
       items
         .filter(
           (item) =>
-            !item.archivedAt && visibleStatus(item, today) === "overdue",
+            !item.archivedAt &&
+            visibleStatus(item, today, settings.timezone) === "overdue",
         )
-        .toSorted((a, b) => compareItems(a, b, today))
+        .toSorted((a, b) => compareItems(a, b, today, settings.timezone))
         .slice(0, 8),
-    [items, today],
+    [items, settings.timezone, today],
   );
   if (!overdue.length) return null;
   return (
