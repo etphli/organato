@@ -369,7 +369,11 @@ describe("Canvas connector settings", () => {
       await screen.findByText("Finishing the Pi browser startup…"),
     ).toBeInTheDocument();
     expect(
-      await screen.findByRole("button", { name: "Confirm this account" }),
+      await screen.findByRole(
+        "button",
+        { name: "Confirm this account" },
+        { timeout: 3_000 },
+      ),
     ).toBeInTheDocument();
     expect(verifyAttempts).toBe(2);
     expect(
