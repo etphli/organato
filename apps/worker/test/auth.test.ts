@@ -65,10 +65,14 @@ describe("Google sign-in exchange", () => {
             return {
               first: async () =>
                 query.includes("FROM oauth_transaction") ? transaction : null,
-              run: async () => ({ success: true }),
+              run: async () => ({ success: true, meta: { changes: 1 } }),
+              all: async () => ({ results: [] }),
             };
           },
         };
+      },
+      async batch() {
+        return [];
       },
     } as unknown as D1Database;
     const env = {
@@ -120,6 +124,12 @@ describe("client sign-in messages", () => {
         reason: "expired_transaction",
       }),
     ).toBe("Google sign-in expired. Start again.");
+    expect(
+      clientSignInMessage({
+        message: "Sign-in is already completing. Wait a moment and try again.",
+        reason: "exchange_in_progress",
+      }),
+    ).toBe("Sign-in is already completing. Wait a moment and try again.");
   });
 
   it("masks everything else with a generic message", () => {
@@ -135,5 +145,115 @@ describe("client sign-in messages", () => {
         reason: "google_subject_mismatch",
       }),
     ).toBe("Google sign-in could not finish. Please try again.");
+  });
+});
+
+describe("OAuth completion idempotency", () => {
+  function exchangeDb(options: {
+    transaction?: Record<string, unknown> | null;
+    completed?: Record<string, unknown> | null;
+    claimedChanges?: number;
+  }) {
+    return {
+      prepare(query: string) {
+        return {
+          bind() {
+            return {
+              first: async () => {
+                if (query.includes("FROM completed_oauth_exchange")) {
+                  return options.completed ?? null;
+                }
+                if (query.includes("FROM oauth_transaction")) {
+                  return options.transaction ?? null;
+                }
+                return null;
+              },
+              run: async () => ({
+                success: true,
+                meta: { changes: options.claimedChanges ?? 1 },
+              }),
+              all: async () => ({ results: [] }),
+            };
+          },
+        };
+      },
+      async batch() {
+        return [];
+      },
+    } as unknown as D1Database;
+  }
+
+  function exchangeEnv(db: D1Database) {
+    return {
+      DB: db,
+      APP_ORIGIN: "https://organato.example",
+      ALLOWED_GOOGLE_EMAILS: "*",
+      GOOGLE_CLIENT_ID: "google-client",
+      GOOGLE_CLIENT_SECRET: "google-secret",
+      DATA_ENCRYPTION_KEY: "key",
+      CANVAS_BASE_URL: "https://canvas.example",
+    } as Env;
+  }
+
+  it("returns cached success instead of expired for replays", async () => {
+    const db = exchangeDb({
+      transaction: null,
+      completed: {
+        csrf_token: "cached-csrf",
+        return_to: "/calendar",
+      },
+    });
+    const response = await authRoutes.request(
+      "https://organato.example/google/exchange",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://organato.example",
+        },
+        body: JSON.stringify({ code: "google-code", state: "oauth-state" }),
+      },
+      exchangeEnv(db),
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      authenticated: boolean;
+      csrfToken: string;
+      returnTo: string;
+    };
+    expect(body).toMatchObject({
+      authenticated: true,
+      csrfToken: "cached-csrf",
+      returnTo: "/calendar",
+    });
+  });
+
+  it("reports in-progress when a twin submission holds the claim", async () => {
+    const db = exchangeDb({
+      transaction: {
+        nonce_encrypted: "x",
+        code_verifier_encrypted: "y",
+        return_to: "/",
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        claimed_at: new Date().toISOString(),
+      },
+      completed: null,
+      claimedChanges: 0,
+    });
+    const response = await authRoutes.request(
+      "https://organato.example/google/exchange",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://organato.example",
+        },
+        body: JSON.stringify({ code: "google-code", state: "oauth-state" }),
+      },
+      exchangeEnv(db),
+    );
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain("already completing");
   });
 });

@@ -54,7 +54,7 @@ type AuthContext = Context<{ Bindings: Env; Variables: Variables }>;
 class GoogleSignInError extends Error {
   constructor(
     message: string,
-    readonly status: 400 | 401 | 403,
+    readonly status: 400 | 401 | 403 | 409,
     readonly reason = "unknown",
     readonly actorEmail: string | null = null,
   ) {
@@ -75,7 +75,8 @@ export function clientSignInMessage(error: {
 }): string {
   if (
     error.reason === "email_not_allowed" ||
-    error.reason === "expired_transaction"
+    error.reason === "expired_transaction" ||
+    error.reason === "exchange_in_progress"
   ) {
     return error.message;
   }
@@ -134,7 +135,8 @@ async function completeGoogleSignIn(
   }
   const stateHash = await sha256(state);
   const transaction = await context.env.DB.prepare(
-    `SELECT nonce_encrypted, code_verifier_encrypted, return_to, expires_at
+    `SELECT nonce_encrypted, code_verifier_encrypted, return_to, expires_at,
+            claimed_at
      FROM oauth_transaction WHERE state_hash = ?`,
   )
     .bind(stateHash)
@@ -143,19 +145,56 @@ async function completeGoogleSignIn(
       code_verifier_encrypted: string;
       return_to: string;
       expires_at: string;
+      claimed_at: string | null;
     }>();
-  if (!transaction || new Date(transaction.expires_at) < new Date()) {
+  const completedExchange = () =>
+    context.env.DB.prepare(
+      `SELECT csrf_token, return_to FROM completed_oauth_exchange
+       WHERE state_hash = ?`,
+    )
+      .bind(stateHash)
+      .first<{ csrf_token: string; return_to: string }>();
+  if (!transaction) {
+    // No transaction: either never existed/expired, or a replay of an
+    // already-completed exchange (double submit, back button). Replays
+    // return the cached success instead of failing.
+    const completed = await completedExchange();
+    if (completed) {
+      return { csrfToken: completed.csrf_token, returnTo: completed.return_to };
+    }
     throw new GoogleSignInError(
       "Google sign-in expired. Start again.",
       400,
       "expired_transaction",
     );
   }
-  await context.env.DB.prepare(
-    "DELETE FROM oauth_transaction WHERE state_hash = ?",
+  if (new Date(transaction.expires_at) < new Date()) {
+    throw new GoogleSignInError(
+      "Google sign-in expired. Start again.",
+      400,
+      "expired_transaction",
+    );
+  }
+  // Claim the transaction so concurrent duplicate submissions serialize.
+  // A claim older than 60s is a crashed attempt and may be reclaimed.
+  const staleBefore = new Date(Date.now() - 60_000).toISOString();
+  const claimed = await context.env.DB.prepare(
+    `UPDATE oauth_transaction SET claimed_at = ?
+     WHERE state_hash = ? AND (claimed_at IS NULL OR claimed_at < ?)`,
   )
-    .bind(stateHash)
+    .bind(new Date().toISOString(), stateHash, staleBefore)
     .run();
+  if (!claimed.meta.changes) {
+    const completed = await completedExchange();
+    if (completed) {
+      return { csrfToken: completed.csrf_token, returnTo: completed.return_to };
+    }
+    throw new GoogleSignInError(
+      "Sign-in is already completing. Wait a moment and try again.",
+      409,
+      "exchange_in_progress",
+    );
+  }
   const nonce = await decryptSecret(
     transaction.nonce_encrypted,
     context.env.DATA_ENCRYPTION_KEY,
@@ -312,6 +351,25 @@ async function completeGoogleSignIn(
     email,
     "Google identity verified and a new session was created.",
   );
+  // Consume the transaction only on success (transient Google failures stay
+  // retryable) and record the completion so duplicate submissions replay
+  // success instead of failing.
+  await context.env.DB.batch([
+    context.env.DB.prepare(
+      "DELETE FROM oauth_transaction WHERE state_hash = ?",
+    ).bind(stateHash),
+    context.env.DB.prepare(
+      `INSERT INTO completed_oauth_exchange
+        (state_hash, csrf_token, return_to, created_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(state_hash) DO NOTHING`,
+    ).bind(
+      stateHash,
+      csrfToken,
+      transaction.return_to,
+      new Date().toISOString(),
+    ),
+  ]);
   return { csrfToken, returnTo: transaction.return_to };
 }
 
@@ -372,7 +430,9 @@ authRoutes.post("/google/start", async (context) => {
       ),
       body.returnTo && isSafeReturnTo(body.returnTo) ? body.returnTo : "/",
       now.toISOString(),
-      new Date(now.getTime() + 10 * 60_000).toISOString(),
+      // Generous window: slow consent flows must not die mid-step. The
+      // transaction stays single-use (claim + consume) regardless.
+      new Date(now.getTime() + 30 * 60_000).toISOString(),
     )
     .run();
   const redirectUri = `${context.env.APP_ORIGIN}/api/auth/google/callback`;

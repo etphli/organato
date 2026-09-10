@@ -5,7 +5,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { SESSION_RETRY_DELAY_MS } from "../lib/timing";
+import {
+  EXCHANGE_IN_PROGRESS_WAIT_MS,
+  EXCHANGE_RETRY_DELAY_MS,
+  SESSION_RETRY_DELAY_MS,
+} from "../lib/timing";
 import { BrandMark } from "./BrandMark";
 
 interface SessionOwner {
@@ -52,24 +56,54 @@ export async function exchangeGoogleCallbackIfPresent(): Promise<boolean> {
     "",
     `${window.location.pathname}${window.location.hash}`,
   );
-  const response = await fetch(
-    isAuthenticationCallback
-      ? "/api/auth/google/exchange"
-      : "/api/integrations/google/exchange",
-    {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        ...(isIntegrationCallback
-          ? {
-              "X-CSRF-Token": sessionStorage.getItem("organato_csrf") ?? "",
-            }
-          : {}),
-      },
-      body: JSON.stringify({ code, state }),
-    },
-  );
+  // One retry: network blips fail the fetch itself, and a 409 means a twin
+  // submission is still completing server-side (its result is replayable).
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      response = await fetch(
+        isAuthenticationCallback
+          ? "/api/auth/google/exchange"
+          : "/api/integrations/google/exchange",
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            ...(isIntegrationCallback
+              ? {
+                  "X-CSRF-Token": sessionStorage.getItem("organato_csrf") ?? "",
+                }
+              : {}),
+          },
+          body: JSON.stringify({ code, state }),
+        },
+      );
+    } catch {
+      response = null;
+    }
+    if (response === null) {
+      // Network-level failure: brief pause, then one retry.
+      await new Promise((resolve) =>
+        setTimeout(resolve, EXCHANGE_RETRY_DELAY_MS),
+      );
+      continue;
+    }
+    if (response.status === 409 && attempt === 0) {
+      // Twin submission still completing: wait for it, then replay.
+      await new Promise((resolve) =>
+        setTimeout(resolve, EXCHANGE_IN_PROGRESS_WAIT_MS),
+      );
+      response = null;
+      continue;
+    }
+    break;
+  }
+  if (!response) {
+    throw new GoogleCallbackError(
+      "Google sign-in could not finish. Check the connection and try again.",
+    );
+  }
   if (!response.ok) {
     const failure = (await response.json().catch(() => ({}))) as {
       error?: string;

@@ -2057,6 +2057,9 @@ export async function runRetentionCleanup(
     env.DB.prepare("DELETE FROM oauth_transaction WHERE expires_at < ?").bind(
       now.toISOString(),
     ),
+    env.DB.prepare(
+      "DELETE FROM completed_oauth_exchange WHERE created_at < ?",
+    ).bind(isoBefore(1)),
     env.DB.prepare("DELETE FROM rate_limit WHERE window_start < ?").bind(
       isoBefore(2),
     ),

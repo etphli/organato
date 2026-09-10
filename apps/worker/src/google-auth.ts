@@ -196,7 +196,7 @@ googleIntegrationRoutes.post(
         ),
         `integration:${user.email}`,
         now.toISOString(),
-        new Date(now.getTime() + 10 * 60_000).toISOString(),
+        new Date(now.getTime() + 30 * 60_000).toISOString(),
         user.workspaceId,
       )
       .run();

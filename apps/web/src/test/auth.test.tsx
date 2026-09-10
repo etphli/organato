@@ -123,4 +123,63 @@ describe("Google authentication callback", () => {
     expect(window.location.pathname).toBe("/api/auth/google/callback");
     expect(window.location.search).toBe("");
   });
+
+  it("retries once when a twin submission is still completing", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/api/auth/google/callback?code=google-code&state=oauth-state",
+    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ error: "Sign-in is already completing." }),
+          {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            authenticated: true,
+            csrfToken: "csrf-2",
+            returnTo: "/",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(exchangeGoogleCallbackIfPresent()).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sessionStorage.getItem("organato_csrf")).toBe("csrf-2");
+  }, 15000);
+
+  it("retries once after a network failure", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/api/auth/google/callback?code=google-code&state=oauth-state",
+    );
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("network down"))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            authenticated: true,
+            csrfToken: "csrf-3",
+            returnTo: "/",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(exchangeGoogleCallbackIfPresent()).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  }, 15000);
 });

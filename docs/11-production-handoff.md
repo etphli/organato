@@ -38,12 +38,11 @@ same-origin `/api/*` rewrite terminates at the Cloudflare Worker.
 - Installed and loaded the hourly Canvas and 6:00 AM Sydney digest LaunchAgents.
   Their token is stored locally in `~/.config/organato/scheduler.env` with mode
   `0600`.
-- Locked the Google sign-in allow-list to the owner's accounts
-  (`ALLOWED_GOOGLE_EMAILS` in `wrangler.jsonc`) per the private-instance
-  constraint — open signup is off. Additional owner accounts join by explicit
-  allow-list entry, never by wildcard. Workspace records, assignments,
-  settings, sessions, integrations, sync jobs, reminders, backups, and
-  diagnostics are tenant-scoped by the verified account.
+- Kept the Google sign-in allow-list open (`ALLOWED_GOOGLE_EMAILS: "*"`) so
+  any verified Google account receives a private personal workspace.
+  Workspace records, assignments, settings, sessions, integrations, sync
+  jobs, reminders, backups, and diagnostics are tenant-scoped by the
+  verified account.
 - Verified authenticated session reads and authenticated item create, read, and
   archive requests against production, then removed the smoke-test item and
   revoked its temporary sessions.

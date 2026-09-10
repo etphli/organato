@@ -81,6 +81,7 @@ function tenantDatabase() {
     "0004_canvas_connector.sql",
     "0005_session_auth_stamp.sql",
     "0006_subtasks_links_effort.sql",
+    "0007_oauth_idempotency.sql",
   ]) {
     sqlite.exec(
       readFileSync(

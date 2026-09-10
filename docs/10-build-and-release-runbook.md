@@ -26,7 +26,8 @@ The committed Vite development profile enables redacted demo data only for `vite
 ## Required production values
 
 - Pinned Canvas HTTPS origin (`https://emanuel.instructure.com` for this deployment).
-- Explicit Google owner email allow-list (`ALLOWED_GOOGLE_EMAILS`, no wildcard).
+- Open Google sign-up (`ALLOWED_GOOGLE_EMAILS: "*"`); every verified
+  account gets an isolated personal workspace.
 - Google integration-owner email (must match the signed-in account).
 - Google OAuth client ID and secret.
 - Random base64url 32-byte AES-GCM key (`DATA_ENCRYPTION_KEY`).
