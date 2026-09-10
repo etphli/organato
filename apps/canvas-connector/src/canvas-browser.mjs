@@ -329,16 +329,21 @@ async function launchPersistentBrowser({
   profileDir,
   executablePath,
   display,
+  startUrl,
 }) {
   const { chromium } = await import("playwright-core");
   await fs.mkdir(profileDir, { recursive: true, mode: 0o700 });
   const activePortFile = path.join(profileDir, "DevToolsActivePort");
   await fs.rm(activePortFile, { force: true });
 
-  const child = spawn(executablePath, chromiumProcessArguments(profileDir), {
-    env: { ...process.env, DISPLAY: display },
-    stdio: ["ignore", "ignore", "pipe"],
-  });
+  const child = spawn(
+    executablePath,
+    chromiumProcessArguments(profileDir, startUrl),
+    {
+      env: { ...process.env, DISPLAY: display },
+      stdio: ["ignore", "ignore", "pipe"],
+    },
+  );
 
   let browser;
   try {
@@ -368,13 +373,17 @@ export function chromiumLaunchArguments() {
   ];
 }
 
-export function chromiumProcessArguments(profileDir) {
+export function chromiumProcessArguments(profileDir, startUrl) {
+  const target = new URL(startUrl);
+  if (target.protocol !== "https:" || target.username || target.password) {
+    throw new Error("Chromium start URL must be a credential-free HTTPS URL.");
+  }
   return [
     ...chromiumLaunchArguments(),
     `--user-data-dir=${profileDir}`,
     "--remote-debugging-address=127.0.0.1",
     "--remote-debugging-port=0",
-    "about:blank",
+    target.href,
   ];
 }
 
@@ -969,6 +978,7 @@ export class CanvasBrowserAdapter {
         profileDir: this.profileDir,
         executablePath: executable,
         display: this.display,
+        startUrl: new URL("/", this.baseUrl).href,
       });
     } catch (error) {
       throw new CanvasBrowserError(
@@ -1018,9 +1028,11 @@ export class CanvasBrowserAdapter {
         });
       }
       const pages = typeof context.pages === "function" ? context.pages() : [];
-      this.page = pages[0] ?? (await context.newPage());
+      this.page = this.preferredPage(pages) ?? (await context.newPage());
       this.installPage(this.page);
-      for (const extra of pages.slice(1)) await extra.close();
+      for (const extra of pages) {
+        if (extra !== this.page) await extra.close();
+      }
       this.context = context;
       void enterFullscreenAfterLaunch(context, this.page);
       return context;
@@ -1039,17 +1051,40 @@ export class CanvasBrowserAdapter {
     });
   }
 
+  preferredPage(pages) {
+    const canvasPage = pages.find((page) => {
+      try {
+        return new URL(page.url()).origin === this.baseUrl.origin;
+      } catch {
+        return false;
+      }
+    });
+    if (canvasPage) return canvasPage;
+    const allowedPage = pages.find((page) => {
+      const url = page.url();
+      return url !== "about:blank" && this.policy.isNavigationAllowed(url);
+    });
+    return allowedPage ?? pages.at(-1);
+  }
+
   async openLogin() {
     await this.ensureContext();
     const target = new URL("/", this.baseUrl).href;
+    let navigationError;
     try {
       await this.page.goto(target, {
-        waitUntil: "domcontentloaded",
+        waitUntil: "commit",
         timeout: 30_000,
       });
-    } catch {
-      // A slow school SSO page is still useful to the remote viewer. The next
-      // verify command is the authoritative check of whether sign-in worked.
+    } catch (error) {
+      navigationError = error;
+    }
+    if (!this.policy.isNavigationAllowed(this.page.url())) {
+      throw new CanvasBrowserError(
+        "network_error",
+        "Canvas sign-in page did not open.",
+        navigationError ? "login_navigation_failed" : "login_page_blank",
+      );
     }
     if (typeof this.page.bringToFront === "function") {
       await this.page.bringToFront().catch(() => undefined);

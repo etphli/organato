@@ -48,7 +48,9 @@ test(
     try {
       await adapter.openLogin();
       assert.ok(adapter.page);
-      assert.equal(new URL(adapter.page.url()).protocol, "https:");
+      const openedUrl = new URL(adapter.page.url());
+      assert.equal(openedUrl.protocol, "https:");
+      assert.notEqual(openedUrl.href, "about:blank");
     } finally {
       await adapter.close();
       await fs.rm(directory, { recursive: true, force: true });

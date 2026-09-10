@@ -54,7 +54,10 @@ test("Chromium starts without a launch mode that blocks browser control", () => 
 });
 
 test("Chromium browser control uses a private random TCP port", () => {
-  const args = chromiumProcessArguments("/var/lib/organato/profile");
+  const args = chromiumProcessArguments(
+    "/var/lib/organato/profile",
+    "https://canvas.example.org/",
+  );
   assert.equal(args.includes("--remote-debugging-pipe"), false);
   assert.equal(args.includes("--remote-debugging-address=127.0.0.1"), true);
   assert.equal(args.includes("--remote-debugging-port=0"), true);
@@ -62,7 +65,7 @@ test("Chromium browser control uses a private random TCP port", () => {
     args.includes("--user-data-dir=/var/lib/organato/profile"),
     true,
   );
-  assert.equal(args.at(-1), "about:blank");
+  assert.equal(args.at(-1), "https://canvas.example.org/");
 });
 
 test("Chromium readiness file resolves only a valid local endpoint", () => {
@@ -690,12 +693,24 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
     const executable = path.join(directory, "chromium");
     await fs.writeFile(executable, "browser");
     const navigations = [];
+    let currentUrl = `${CANVAS_BASE}/login`;
     const fakePage = {
       on() {},
+      url() {
+        return currentUrl;
+      },
       async goto(url) {
         navigations.push(url);
+        currentUrl = url;
       },
       async bringToFront() {},
+    };
+    let startupBlankClosed = false;
+    const startupBlank = {
+      url: () => "about:blank",
+      async close() {
+        startupBlankClosed = true;
+      },
     };
     let routeHandler;
     let onPage;
@@ -706,7 +721,7 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
         routeHandler = handler;
       },
       pages() {
-        return [fakePage];
+        return [startupBlank, fakePage];
       },
       on(event, callback) {
         if (event === "page") onPage = callback;
@@ -735,6 +750,7 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
     await adapter.openLogin();
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(navigations, [`${CANVAS_BASE}/`]);
+    assert.equal(startupBlankClosed, true);
     assert.deepEqual(browserCommands, [
       ["Browser.getWindowForTarget", undefined],
       [
@@ -799,6 +815,7 @@ test("fullscreen presentation cannot delay browser readiness", async () => {
     await fs.writeFile(executable, "browser");
     const fakePage = {
       on() {},
+      url: () => CANVAS_BASE,
       async goto() {},
       async bringToFront() {},
     };
