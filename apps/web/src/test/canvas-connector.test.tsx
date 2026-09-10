@@ -322,6 +322,61 @@ describe("Canvas connector settings", () => {
     expect(viewAttempts).toBe(2);
   });
 
+  it("waits for Pi browser readiness before verifying the account", async () => {
+    let currentStatus = connectorStatus("signing_in", {
+      paired: true,
+      loginExpiresAt: futureIso(600_000),
+    });
+    let verifyAttempts = 0;
+    const request = requestRecorder(async (path) => {
+      if (path === "/api/session") return { recentAuthentication: true };
+      if (path === "/api/integrations/canvas/connector") return currentStatus;
+      if (path.endsWith("/verify")) {
+        verifyAttempts += 1;
+        if (verifyAttempts === 1) {
+          throw new IntegrationRequestError(
+            "Wait for the sign-in browser to be ready.",
+          );
+        }
+        currentStatus = connectorStatus("awaiting_confirmation", {
+          paired: true,
+          candidateIdentity: identity,
+          loginExpiresAt: futureIso(600_000),
+        });
+        return { ok: true };
+      }
+      if (path.endsWith("/view")) {
+        return {
+          url: "wss://organato.etphli.workers.dev/api/canvas-view?ticket=ready-retry",
+          expiresAt: futureIso(60_000),
+        };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(
+      <CanvasConnectorSection
+        initialStatus={currentStatus}
+        request={request}
+        rfbFactory={vi.fn(async () => ({ disconnect: vi.fn() }))}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "I have signed in" }),
+    );
+    expect(
+      await screen.findByText("Finishing the Pi browser startup…"),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Confirm this account" }),
+    ).toBeInTheDocument();
+    expect(verifyAttempts).toBe(2);
+    expect(
+      screen.queryByText("Wait for the sign-in browser to be ready."),
+    ).not.toBeInTheDocument();
+  });
+
   it("lets an unconfirmed connector restart sign-in after a read error", async () => {
     let currentStatus = connectorStatus("error", {
       paired: true,

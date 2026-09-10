@@ -710,6 +710,7 @@ test("CanvasBrowserAdapter applies the browser sandbox and request route policy"
       url: () => "about:blank",
       async close() {
         startupBlankClosed = true;
+        return new Promise(() => {});
       },
     };
     let routeHandler;
@@ -817,7 +818,9 @@ test("fullscreen presentation cannot delay browser readiness", async () => {
       on() {},
       url: () => CANVAS_BASE,
       async goto() {},
-      async bringToFront() {},
+      async bringToFront() {
+        return new Promise(() => {});
+      },
     };
     const adapter = new CanvasBrowserAdapter({
       canvasBaseUrl: CANVAS_BASE,

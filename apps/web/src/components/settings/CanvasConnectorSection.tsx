@@ -20,7 +20,11 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { integrationRequest, reauthenticate } from "../../lib/integrationApi";
+import {
+  IntegrationRequestError,
+  integrationRequest,
+  reauthenticate,
+} from "../../lib/integrationApi";
 import {
   canvasConnectorIsConnected,
   parseCanvasConnectorStatus,
@@ -86,6 +90,13 @@ type BusyAction =
   | null;
 
 const defaultCanvasDomain = "emanuel.instructure.com";
+const browserReadyRetryDelayMs = 1_000;
+const browserReadyRetryAttempts = 60;
+const browserNotReadyMessage = "Wait for the sign-in browser to be ready.";
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
 
 const demoStatus: CanvasConnectorStatus = {
   enabled: true,
@@ -660,13 +671,27 @@ export function CanvasConnectorSection({
     setBusy("verify");
     setError(null);
     try {
-      parseOkResponse(
-        await requestJson("/api/integrations/canvas/connector/verify", {
-          method: "POST",
-          body: JSON.stringify({}),
-        }),
-        "Canvas account verification",
-      );
+      for (let attempt = 0; attempt < browserReadyRetryAttempts; attempt += 1) {
+        try {
+          parseOkResponse(
+            await requestJson("/api/integrations/canvas/connector/verify", {
+              method: "POST",
+              body: JSON.stringify({}),
+            }),
+            "Canvas account verification",
+          );
+          break;
+        } catch (verifyError) {
+          const browserIsStarting =
+            verifyError instanceof IntegrationRequestError &&
+            verifyError.message === browserNotReadyMessage;
+          if (!browserIsStarting || attempt === browserReadyRetryAttempts - 1) {
+            throw verifyError;
+          }
+          setActivityMessage("Finishing the Pi browser startup…");
+          await wait(browserReadyRetryDelayMs);
+        }
+      }
       setActivityMessage(
         "Canvas account found. Check the name before confirming.",
       );

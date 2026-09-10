@@ -1031,7 +1031,9 @@ export class CanvasBrowserAdapter {
       this.page = this.preferredPage(pages) ?? (await context.newPage());
       this.installPage(this.page);
       for (const extra of pages) {
-        if (extra !== this.page) await extra.close();
+        if (extra !== this.page) {
+          void extra.close({ runBeforeUnload: false }).catch(() => undefined);
+        }
       }
       this.context = context;
       void enterFullscreenAfterLaunch(context, this.page);
@@ -1087,7 +1089,7 @@ export class CanvasBrowserAdapter {
       );
     }
     if (typeof this.page.bringToFront === "function") {
-      await this.page.bringToFront().catch(() => undefined);
+      void this.page.bringToFront().catch(() => undefined);
     }
   }
 
