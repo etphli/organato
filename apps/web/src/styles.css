@@ -317,12 +317,52 @@ button:disabled {
 }
 
 .route-loading {
-  background: var(--border-strong);
-  height: 1px;
+  align-items: center;
+  background: transparent;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 0.85rem;
+  gap: 10px;
+  height: auto;
+  justify-content: center;
   left: 40%;
   position: fixed;
   right: 40%;
   top: 50%;
+}
+
+.route-loading__spinner {
+  animation: route-loading-spin 0.9s linear infinite;
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  border-top-color: var(--text-muted);
+  display: inline-block;
+  height: 14px;
+  width: 14px;
+}
+
+@keyframes route-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-loading__spinner {
+    animation: none;
+  }
+}
+
+.filter-badge {
+  color: var(--accent, #7cc4ff);
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+.search-dialog .is-active,
+.command-palette .is-active {
+  background: var(--surface-hover);
+  outline: 1px solid var(--border-strong);
 }
 
 .conflict-banner {

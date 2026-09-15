@@ -1,9 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  useOrganatoActions,
-  useOrganatoUi,
-  useOrganatoWorkspace,
-} from "../state/OrganatoProvider";
+import { useOrganatoActions, useOrganatoUi } from "../state/OrganatoProvider";
 import {
   TOAST_DISMISS_MS,
   TOAST_POLL_MS,
@@ -11,7 +7,6 @@ import {
 } from "../lib/timing";
 
 export function Toast() {
-  const { settings } = useOrganatoWorkspace();
   const { toast, toastSeq, undo } = useOrganatoUi();
   const { dispatch } = useOrganatoActions();
   const [held, setHeld] = useState(false);
@@ -33,8 +28,9 @@ export function Toast() {
   return toast ? (
     <div
       className="toast"
-      role={settings.screenReaderAnnouncements ? "status" : undefined}
-      aria-live={settings.screenReaderAnnouncements ? "polite" : "off"}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
       onMouseEnter={() => setHeld(true)}
       onMouseLeave={() => setHeld(false)}
       onFocus={() => setHeld(true)}

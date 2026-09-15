@@ -122,15 +122,31 @@ export function CommandPalette() {
             }
           }}
           placeholder="Type a command…"
-          aria-label="Command"
+          aria-label="Command palette — type to filter commands"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="organato-command-listbox"
+          aria-activedescendant={
+            filtered.length ? `command-option-${selectedIndex}` : undefined
+          }
+          aria-autocomplete="list"
         />
-        <div className="command-list">
+        <div
+          className="command-list"
+          role="listbox"
+          id="organato-command-listbox"
+          aria-label="Commands"
+        >
           {filtered.map((command, index) => {
             const { label, icon: Icon } = command;
             return (
               <button
                 key={label}
+                id={`command-option-${index}`}
+                role="option"
+                aria-selected={index === selectedIndex}
                 className={index === selectedIndex ? "active" : ""}
+                onMouseEnter={() => setSelectedIndex(index)}
                 onClick={() => runCommand(command)}
               >
                 <Icon size={17} aria-hidden="true" />

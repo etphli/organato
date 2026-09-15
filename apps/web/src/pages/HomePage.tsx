@@ -198,25 +198,32 @@ function ForecastStrip() {
   if (!total) return null;
   return (
     <section className="forecast-strip" aria-label="Workload forecast">
-      <h2>Next 14 days</h2>
+      <h2>Next 14 days · estimated effort</h2>
       {overloaded.length ? (
-        <p className="forecast-warning" role="alert">
+        <p className="forecast-warning" role="status">
           Crunch {overloaded.length === 1 ? "day" : "days"}:{" "}
           {overloaded
             .map(
               (day) => `${day.key.slice(5)} (${Math.round(day.minutes / 60)}h)`,
             )
             .join(", ")}{" "}
-          — start early.
+          — start early. <Link to="/calendar">Open calendar</Link>
         </p>
       ) : null}
-      <div className="forecast-bars">
+      <div className="forecast-bars" role="list" aria-label="Daily effort">
         {days.map((day) => (
-          <div key={day.key} title={`${day.key}: ${day.minutes} min`}>
+          <div
+            key={day.key}
+            role="listitem"
+            tabIndex={0}
+            aria-label={`${day.key}: ${Math.round(day.minutes / 60)} hours estimated`}
+            title={`${day.key}: ${day.minutes} min`}
+          >
             <span
+              aria-hidden="true"
               style={{ height: `${Math.max(2, (day.minutes / max) * 44)}px` }}
             />
-            <small>{day.label}</small>
+            <small aria-hidden="true">{day.label}</small>
           </div>
         ))}
       </div>
@@ -273,11 +280,38 @@ function ClassificationInbox() {
   const { items, subjectsById, settings, integrations } = useOrganatoData();
   const { dispatch } = useOrganatoActions();
   const today = useToday();
+  const [snoozedIds, setSnoozedIds] = useState<Record<string, number>>(() => {
+    try {
+      return JSON.parse(
+        localStorage.getItem("organato-classification-snoozed") ?? "{}",
+      ) as Record<string, number>;
+    } catch {
+      return {};
+    }
+  });
+  const snoozeActive = (id: string): boolean => {
+    const until = snoozedIds[id];
+    return typeof until === "number" && until > Date.now();
+  };
+  const snoozeItem = (id: string) => {
+    const next = { ...snoozedIds, [id]: Date.now() + 24 * 3_600_000 };
+    setSnoozedIds(next);
+    try {
+      localStorage.setItem(
+        "organato-classification-snoozed",
+        JSON.stringify(next),
+      );
+    } catch {
+      // Snooze still applies for this session when storage is unavailable.
+    }
+    dispatch({ type: "toast", message: "Hidden until tomorrow" });
+  };
   const unclassified = items.filter(
     (item) =>
       item.kind === "work" &&
       item.classification === "unclassified" &&
-      !item.archivedAt,
+      !item.archivedAt &&
+      !snoozeActive(item.id),
   );
   const active = unclassified[0];
   const navigate = useNavigate();
@@ -338,7 +372,7 @@ function ClassificationInbox() {
               role="menuitem"
               onClick={() => {
                 setOptionsOpen(false);
-                dispatch({ type: "toast", message: "Kept for later" });
+                if (active) snoozeItem(active.id);
               }}
             >
               Keep this item for later
@@ -384,7 +418,10 @@ function ClassificationInbox() {
         <button onClick={() => classify("checkpoint")}>Checkpoint</button>
         <button onClick={() => classify("both")}>Both</button>
         <button
-          onClick={() => dispatch({ type: "toast", message: "Kept for later" })}
+          onClick={() => {
+            if (active) snoozeItem(active.id);
+          }}
+          title="Hide this item from the inbox until tomorrow"
         >
           Later
         </button>
@@ -451,7 +488,7 @@ function MiniCalendar() {
     });
     return grouped;
   }, [activeItems, settings.timezone, today]);
-  const selectedKey = format(selectedDate, "yyyy-MM-dd");
+  const selectedKey = localDateKey(selectedDate, settings.timezone);
   const selectedItems = (itemsByDate.get(selectedKey) ?? []).slice(0, 3);
   return (
     <section className="mini-calendar" aria-label="Upcoming calendar">
@@ -486,16 +523,17 @@ function MiniCalendar() {
           <span key={day}>{day}</span>
         ))}
       </div>
-      <div className="mini-calendar-grid">
+      <div className="mini-calendar-grid" role="grid" aria-label="Month picker">
         {calendarDays.map((day) => {
-          const key = format(day, "yyyy-MM-dd");
+          const key = localDateKey(day, settings.timezone);
           const count = itemsByDate.get(key)?.length ?? 0;
           return (
             <button
               className={`${isSameDay(day, today) ? "today" : ""}${
                 isSameDay(day, selectedDate) ? " selected" : ""
               }${!isSameMonth(day, monthStart) ? " muted" : ""}`}
-              key={day.toISOString()}
+              key={key}
+              role="gridcell"
               onClick={() => setSelectedDate(day)}
               aria-label={`${format(day, "EEEE d MMMM")}${
                 count ? `, ${count} scheduled` : ""
@@ -757,13 +795,18 @@ function WorkloadStrip() {
   const today = useToday();
   const days = Array.from({ length: 7 }, (_, index) => {
     const date = addDays(today, index);
-    const count = items.filter(
-      (item) =>
-        !item.archivedAt &&
-        !["completed", "submitted"].includes(item.workingStatus) &&
-        itemDueDate(item, settings.timezone) &&
-        isSameDay(itemDueDate(item, settings.timezone)!, date),
-    ).length;
+    const dateKey = localDateKey(date, settings.timezone);
+    const count = items.filter((item) => {
+      if (
+        item.archivedAt ||
+        ["completed", "submitted"].includes(item.workingStatus)
+      ) {
+        return false;
+      }
+      const due = itemDueDate(item, settings.timezone);
+      if (!due) return false;
+      return localDateKey(due, settings.timezone) === dateKey;
+    }).length;
     const level =
       count === 0
         ? "Clear"
@@ -775,8 +818,10 @@ function WorkloadStrip() {
     return [format(date, "EEE d MMM"), level, count] as const;
   });
   return (
-    <section className="workload-strip">
-      <h2>7-day workload</h2>
+    <section className="workload-strip" aria-label="7-day item counts">
+      <h2>
+        7-day workload · item counts <Link to="/calendar">Open calendar</Link>
+      </h2>
       <div>
         {days.map(([date, level, count]) => (
           <span key={date}>

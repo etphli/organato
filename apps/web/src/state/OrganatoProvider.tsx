@@ -951,6 +951,8 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
         ]),
       );
       const integrationHealth = seedIntegrations.map((fallback) => {
+        // Worker stores a single `google` row for Calendar+Gmail; the UI
+        // splits it so each surface keeps its own label and last-success text.
         const provider = fallback.provider === "canvas" ? "canvas" : "google";
         const connection = integrations?.integrations.find(
           (entry) => entry.provider === provider,
@@ -1053,7 +1055,12 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
   );
   useEffect(() => {
     if (!state.selectedItemId) return;
-    void loadItemDetails(state.selectedItemId).catch(() => undefined);
+    void loadItemDetails(state.selectedItemId).catch(() =>
+      baseDispatch({
+        type: "toast",
+        message: "Item details could not be loaded — retry by reopening it.",
+      }),
+    );
   }, [loadItemDetails, state.selectedItemId]);
   const dispatch = useCallback(
     (action: Action) => {
@@ -1067,7 +1074,13 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
         demoMode || !["addTodo", "addWork"].includes(action.type);
       if (optimistic) baseDispatch(action);
       if (!demoMode && action.type === "select" && action.id) {
-        void loadItemDetails(action.id).catch(() => undefined);
+        void loadItemDetails(action.id).catch(() =>
+          baseDispatch({
+            type: "toast",
+            message:
+              "Item details could not be loaded — retry by reopening it.",
+          }),
+        );
       }
       if (isOffline() && isServerMutation(action)) {
         if (current) baseDispatch({ type: "rollbackItem", item: current });

@@ -46,10 +46,13 @@ export function SearchOverlay() {
       display_name: string;
     }>
   >([]);
+  const [historyError, setHistoryError] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   useEffect(() => {
     const needle = deferredQuery.trim();
     if (!searchOpen || needle.length < 2 || needle.includes(":")) {
       setHistoryHits([]);
+      setHistoryError(false);
       return;
     }
     let cancelled = false;
@@ -59,9 +62,17 @@ export function SearchOverlay() {
       })
         .then((response) => (response.ok ? response.json() : null))
         .then((result) => {
-          if (!cancelled && result) setHistoryHits(result.history ?? []);
+          if (cancelled) return;
+          if (result) {
+            setHistoryHits(result.history ?? []);
+            setHistoryError(false);
+          } else {
+            setHistoryError(true);
+          }
         })
-        .catch(() => undefined);
+        .catch(() => {
+          if (!cancelled) setHistoryError(true);
+        });
     }, 300);
     return () => {
       cancelled = true;
@@ -82,7 +93,11 @@ export function SearchOverlay() {
       6,
     );
     setRecent(next);
-    localStorage.setItem("organato_recent_searches", JSON.stringify(next));
+    try {
+      localStorage.setItem("organato_recent_searches", JSON.stringify(next));
+    } catch {
+      // Recent searches are a convenience; the search still works without them.
+    }
   };
   const matches = useMemo(() => {
     if (!searchOpen) return [];
@@ -123,6 +138,22 @@ export function SearchOverlay() {
     subjectsById,
   ]);
   if (!searchOpen) return null;
+  const allResults = [...matches, ...historyHits];
+  const openResult = (index: number) => {
+    const item = matches[index];
+    if (item) {
+      rememberSearch();
+      dispatch({ type: "select", id: item.id });
+      dispatch({ type: "search", open: false });
+      return;
+    }
+    const history = historyHits[index - matches.length];
+    if (history) {
+      rememberSearch();
+      dispatch({ type: "select", id: history.item_id });
+      dispatch({ type: "search", open: false });
+    }
+  };
   return (
     <div
       className="overlay search-layer"
@@ -142,12 +173,44 @@ export function SearchOverlay() {
           <input
             ref={inputRef}
             aria-label="Search Organato"
+            aria-expanded="true"
+            aria-controls="organato-search-listbox"
+            aria-activedescendant={
+              allResults.length
+                ? `search-option-${Math.min(activeIndex, allResults.length - 1)}`
+                : undefined
+            }
+            aria-describedby="search-hint"
+            role="combobox"
+            aria-autocomplete="list"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setActiveIndex(0);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setActiveIndex((current) =>
+                  Math.min(current + 1, allResults.length - 1),
+                );
+              } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setActiveIndex((current) => Math.max(current - 1, 0));
+              } else if (event.key === "Enter" && allResults.length) {
+                event.preventDefault();
+                openResult(Math.min(activeIndex, allResults.length - 1));
+              }
+            }}
             placeholder="Search work, todos, subjects, and notes…"
           />
         </label>
-        <div className="search-results">
+        <div
+          className="search-results"
+          role="listbox"
+          id="organato-search-listbox"
+          aria-label="Search results"
+        >
           {!query && settings.recentSearches && recent.length ? (
             <div className="recent-searches" aria-label="Recent searches">
               {recent.map((entry) => (
@@ -158,9 +221,20 @@ export function SearchOverlay() {
             </div>
           ) : null}
           <div className="search-group-label">Items</div>
-          {matches.map((item) => (
+          {matches.map((item, index) => (
             <button
               key={item.id}
+              id={`search-option-${index}`}
+              role="option"
+              aria-selected={
+                index === Math.min(activeIndex, allResults.length - 1)
+              }
+              className={
+                index === Math.min(activeIndex, allResults.length - 1)
+                  ? "is-active"
+                  : ""
+              }
+              onMouseEnter={() => setActiveIndex(index)}
               onClick={() => {
                 rememberSearch();
                 dispatch({ type: "select", id: item.id });
@@ -183,23 +257,43 @@ export function SearchOverlay() {
           {historyHits.length ? (
             <>
               <div className="search-group-label">History</div>
-              {historyHits.map((entry) => (
-                <button
-                  key={`${entry.item_id}-${entry.created_at}`}
-                  onClick={() => {
-                    rememberSearch();
-                    dispatch({ type: "select", id: entry.item_id });
-                    dispatch({ type: "search", open: false });
-                  }}
-                >
-                  <History size={15} aria-hidden="true" />
-                  <span>
-                    <strong>{entry.display_name}</strong>
-                    <small>{entry.summary}</small>
-                  </span>
-                </button>
-              ))}
+              {historyHits.map((entry, historyIndex) => {
+                const optionIndex = matches.length + historyIndex;
+                return (
+                  <button
+                    key={`${entry.item_id}-${entry.created_at}`}
+                    id={`search-option-${optionIndex}`}
+                    role="option"
+                    aria-selected={
+                      optionIndex ===
+                      Math.min(activeIndex, allResults.length - 1)
+                    }
+                    className={
+                      optionIndex ===
+                      Math.min(activeIndex, allResults.length - 1)
+                        ? "is-active"
+                        : ""
+                    }
+                    onMouseEnter={() => setActiveIndex(optionIndex)}
+                    onClick={() => {
+                      rememberSearch();
+                      dispatch({ type: "select", id: entry.item_id });
+                      dispatch({ type: "search", open: false });
+                    }}
+                  >
+                    <History size={15} aria-hidden="true" />
+                    <span>
+                      <strong>{entry.display_name}</strong>
+                      <small>{entry.summary}</small>
+                    </span>
+                  </button>
+                );
+              })}
             </>
+          ) : historyError ? (
+            <p className="empty-line" role="status">
+              History search is unavailable — item results above still work.
+            </p>
           ) : null}
           <button
             className="settings-result"
@@ -211,9 +305,9 @@ export function SearchOverlay() {
             <Settings2 size={16} /> Search settings
           </button>
         </div>
-        <footer>
+        <footer id="search-hint">
           Try <code>subject:english</code>, <code>priority:high</code>, or{" "}
-          <code>status:overdue</code>.
+          <code>status:overdue</code>. Use ↑ ↓ then Enter to open a result.
         </footer>
       </section>
     </div>

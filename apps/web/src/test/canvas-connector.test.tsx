@@ -265,7 +265,7 @@ describe("Canvas connector settings", () => {
 
     expect(
       screen.getByRole("progressbar", {
-        name: "Estimated Canvas loading progress",
+        name: "Canvas is loading",
       }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry viewing" }));

@@ -42,23 +42,29 @@ export function PageHeader({
             <span className="desktop-action-label">Search</span>
           </button>
           {showSync ? (
-            <button
-              className="text-button icon-labelled sync-action"
-              onClick={syncNow}
-              disabled={syncing || syncUnavailable}
-              title={
-                syncUnavailable
-                  ? "Connect Reshet in Settings to sync"
-                  : "Sync Canvas now"
-              }
-            >
-              <RefreshCw
-                size={16}
-                className={syncing ? "spin" : ""}
-                aria-hidden="true"
-              />
-              <span>{syncing ? "Syncing…" : "Sync"}</span>
-            </button>
+            syncUnavailable ? (
+              <a
+                className="text-button icon-labelled sync-action"
+                href="/settings/canvas"
+              >
+                <RefreshCw size={16} aria-hidden="true" />
+                <span>Connect Reshet</span>
+              </a>
+            ) : (
+              <button
+                className="text-button icon-labelled sync-action"
+                onClick={syncNow}
+                disabled={syncing}
+                aria-label={syncing ? "Syncing Canvas" : "Sync Canvas now"}
+              >
+                <RefreshCw
+                  size={16}
+                  className={syncing ? "spin" : ""}
+                  aria-hidden="true"
+                />
+                <span>{syncing ? "Syncing…" : "Sync"}</span>
+              </button>
+            )
           ) : null}
           <button
             className="shortcut-button"

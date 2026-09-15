@@ -530,7 +530,6 @@ export default function SettingsPage() {
             ? error.message
             : "Backup could not be exported",
       });
-      throw error;
     }
   };
   const exportCsvSet = async () => {
@@ -567,34 +566,53 @@ export default function SettingsPage() {
           exported.items.filter((item) => Boolean(item.archivedAt)),
         ],
       ];
+      let succeeded = 0;
+      const failed: string[] = [];
       for (const [filename, rows] of files) {
-        download(
-          filename,
-          `\uFEFF${itemCsv(rows, subjectNames)}`,
-          "text/csv;charset=utf-8",
-        );
+        try {
+          download(
+            filename,
+            `\uFEFF${itemCsv(rows, subjectNames)}`,
+            "text/csv;charset=utf-8",
+          );
+          // Space downloads so browsers do not block multiples as popups.
+          await new Promise((resolve) => setTimeout(resolve, 350));
+          succeeded += 1;
+        } catch {
+          failed.push(filename);
+        }
       }
-      download(
-        "organato-subjects.csv",
-        `\uFEFF${[
-          ["Name", "Short name", "Colour", "Active", "Canvas course ID"]
-            .map(csvCell)
-            .join(","),
-          ...exported.subjects.map((subject) =>
-            [
-              subject.displayName,
-              subject.shortName,
-              subject.colour,
-              subject.active ? "Yes" : "No",
-              subject.canvasCourseId,
-            ]
+      try {
+        download(
+          "organato-subjects.csv",
+          `\uFEFF${[
+            ["Name", "Short name", "Colour", "Active", "Canvas course ID"]
               .map(csvCell)
               .join(","),
-          ),
-        ].join("\r\n")}`,
-        "text/csv;charset=utf-8",
-      );
-      dispatch({ type: "toast", message: "Five complete CSV exports created" });
+            ...exported.subjects.map((subject) =>
+              [
+                subject.displayName,
+                subject.shortName,
+                subject.colour,
+                subject.active ? "Yes" : "No",
+                subject.canvasCourseId,
+              ]
+                .map(csvCell)
+                .join(","),
+            ),
+          ].join("\r\n")}`,
+          "text/csv;charset=utf-8",
+        );
+        succeeded += 1;
+      } catch {
+        failed.push("organato-subjects.csv");
+      }
+      dispatch({
+        type: "toast",
+        message: failed.length
+          ? `${succeeded} CSV exports created · blocked: ${failed.join(", ")} — allow multiple downloads and retry`
+          : "Five complete CSV exports created",
+      });
     } catch (error) {
       dispatch({
         type: "toast",
@@ -606,7 +624,13 @@ export default function SettingsPage() {
     }
   };
   const handleImport = async (file: File) => {
-    const text = await file.text();
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      setImportSummary("That file could not be read. Nothing was changed.");
+      return;
+    }
     if (text.length > 25_000_000) {
       setImportSummary("The file is too large. Nothing was changed.");
       return;
@@ -1565,6 +1589,20 @@ export default function SettingsPage() {
                     >
                       Export selected
                     </button>
+                    <button
+                      onClick={() => {
+                        archiveSelection.forEach((id) =>
+                          dispatch({ type: "restore", id }),
+                        );
+                        setArchiveSelection([]);
+                        dispatch({
+                          type: "toast",
+                          message: "Selected items restored",
+                        });
+                      }}
+                    >
+                      Restore selected
+                    </button>
                     <button onClick={() => setArchiveSelection([])}>
                       Clear
                     </button>
@@ -2019,7 +2057,15 @@ export default function SettingsPage() {
   }) {
     const integration = integrations.find(
       (entry) => entry.provider === provider,
-    )!;
+    ) ??
+      integrations.find((entry) => entry.provider.startsWith("google")) ?? {
+        provider,
+        state: "disconnected" as const,
+        label: provider === "gmail" ? "Email reminders" : "Google Calendar",
+        lastAttemptAt: null,
+        lastSuccessAt: null,
+        lastError: null,
+      };
     const connected = integration.state !== "disconnected";
     const stateLabels = {
       healthy: "Connected",

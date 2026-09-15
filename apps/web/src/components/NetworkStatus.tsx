@@ -14,8 +14,9 @@ export function NetworkStatus() {
   }, []);
 
   return online ? null : (
-    <div className="network-banner" role="status">
-      Offline · showing the last available view. Changes are disabled.
+    <div className="network-banner" role="alert">
+      Offline · showing the last available view. Changes won&apos;t save until
+      you reconnect.
     </div>
   );
 }

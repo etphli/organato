@@ -23,6 +23,7 @@ export function PwaUpdateNotice() {
       <span>A newer Organato is ready.</span>
       <button
         type="button"
+        autoFocus
         onClick={() => {
           applyServiceWorkerUpdate(registration);
           window.location.reload();
@@ -30,7 +31,11 @@ export function PwaUpdateNotice() {
       >
         Reload latest
       </button>
-      <button type="button" onClick={() => setRegistration(null)}>
+      <button
+        type="button"
+        aria-label="Dismiss update notice until next launch"
+        onClick={() => setRegistration(null)}
+      >
         Later
       </button>
     </div>

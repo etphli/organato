@@ -714,7 +714,11 @@ async function scheduled(
     executionContext.waitUntil(runHourlyForAllWorkspaces(env));
   }
   executionContext.waitUntil(drainStorageDeletions(env).catch(() => undefined));
+  // Each job self-guards by Sydney hour (digest 6am, evening 8pm, weekly
+  // Sun 6pm), so every cron tick can offer all of them without double-send.
   executionContext.waitUntil(runDigestForAllWorkspaces(env, now));
+  executionContext.waitUntil(runEveningForAllWorkspaces(env, now));
+  executionContext.waitUntil(runWeeklyForAllWorkspaces(env, now));
 }
 
 export default {

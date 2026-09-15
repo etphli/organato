@@ -61,22 +61,46 @@ const statusOptions = [
   { value: "completed", label: "Completed" },
 ];
 const assignmentsShowCompletedKey = "organato-assignments-show-completed-v1";
+const checkpointsShowCompletedKey = "organato-checkpoints-show-completed-v1";
 
-function loadShowCompletedPreference(): boolean {
+function showCompletedKey(page: "assignments" | "checkpoints"): string {
+  return page === "assignments"
+    ? assignmentsShowCompletedKey
+    : checkpointsShowCompletedKey;
+}
+
+function loadShowCompletedPreference(
+  page: "assignments" | "checkpoints",
+): boolean {
   try {
+    // Migrate the original assignments-only key so existing users keep it.
+    if (page === "checkpoints") {
+      return localStorage.getItem(checkpointsShowCompletedKey) === "true";
+    }
     return localStorage.getItem(assignmentsShowCompletedKey) === "true";
   } catch {
     return false;
   }
 }
 
-function saveShowCompletedPreference(value: boolean): void {
+function saveShowCompletedPreference(
+  page: "assignments" | "checkpoints",
+  value: boolean,
+): void {
   try {
-    localStorage.setItem(assignmentsShowCompletedKey, String(value));
+    localStorage.setItem(showCompletedKey(page), String(value));
   } catch {
     // The table still works when browser storage is unavailable.
   }
 }
+
+const sortFieldOptions = [
+  { value: "due", label: "Due date" },
+  { value: "priority", label: "Priority" },
+  { value: "name", label: "Name" },
+  { value: "status", label: "Status" },
+  { value: "subject", label: "Subject" },
+];
 
 export default function WorkPage({
   page,
@@ -96,8 +120,9 @@ export default function WorkPage({
   const [query, setQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [showColumns, setShowColumns] = useState(false);
-  const [showCompleted, setShowCompleted] = useState(
-    loadShowCompletedPreference,
+  const [showSort, setShowSort] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(() =>
+    loadShowCompletedPreference(page),
   );
   const [priorityFilter, setPriorityFilter] = useState("");
   const [viewName, setViewName] = useState("");
@@ -125,9 +150,14 @@ export default function WorkPage({
     };
   }, []);
   // Filtering to a smaller set must not strand the table on an empty page.
+  // Switching pages keeps each page's own completed-visibility choice.
   useEffect(() => {
     setPagination((current) => ({ ...current, pageIndex: 0 }));
   }, [query, priorityFilter, activeView, page]);
+  useEffect(() => {
+    setShowCompleted(loadShowCompletedPreference(page));
+    setRowSelection({});
+  }, [page]);
   const closeMobileActions = () => {
     if (mobileActionsRef.current) mobileActionsRef.current.open = false;
   };
@@ -513,12 +543,11 @@ export default function WorkPage({
     const next = !showCompleted;
     setShowCompleted(next);
     setRowSelection({});
-    saveShowCompletedPreference(next);
+    saveShowCompletedPreference(page, next);
   };
-  const completedVisibleCount =
-    page === "assignments"
-      ? data.filter((item) => item.workingStatus === "completed").length
-      : 0;
+  const completedVisibleCount = data.filter(
+    (item) => item.workingStatus === "completed",
+  ).length;
   const activeVisibleCount = data.length - completedVisibleCount;
   return (
     <div className="page work-page">
@@ -575,7 +604,8 @@ export default function WorkPage({
                     } catch {
                       dispatch({
                         type: "toast",
-                        message: "Link copy failed",
+                        message:
+                          "Link copy failed — copy it from the address bar",
                       });
                     }
                   }}
@@ -586,32 +616,52 @@ export default function WorkPage({
             ) : null}
             <button
               className="text-button icon-labelled work-secondary-action"
+              aria-pressed={showFilters}
               onClick={() => setShowFilters((value) => !value)}
             >
               <Filter size={16} /> Filter
+              {query || priorityFilter ? (
+                <span className="filter-badge" aria-label="Filters active">
+                  •
+                </span>
+              ) : null}
             </button>
             <button
               className="text-button icon-labelled work-secondary-action"
-              onClick={() => setSorting([{ id: "priority", desc: true }])}
+              aria-pressed={showSort}
+              aria-label={`Sort by ${sorting[0]?.id ?? "due"} ${
+                sorting[0]?.desc ? "descending" : "ascending"
+              } — open sort options`}
+              onClick={() => {
+                setShowSort((value) => !value);
+                setShowColumns(false);
+              }}
             >
               <SlidersHorizontal size={16} /> Sort
+              <span aria-hidden="true">
+                {" "}
+                · {sorting[0]?.id ?? "due"}
+                {sorting[0]?.desc ? " ↓" : " ↑"}
+              </span>
             </button>
             <button
               className="text-button icon-labelled work-secondary-action"
-              onClick={() => setShowColumns((value) => !value)}
+              aria-pressed={showColumns}
+              onClick={() => {
+                setShowColumns((value) => !value);
+                setShowSort(false);
+              }}
             >
               <Columns3 size={16} /> Columns
             </button>
-            {page === "assignments" ? (
-              <button
-                aria-pressed={showCompleted}
-                className="text-button icon-labelled work-secondary-action"
-                onClick={toggleCompleted}
-              >
-                {showCompleted ? <EyeOff size={16} /> : <Eye size={16} />}
-                {showCompleted ? "Hide completed" : "Show completed"}
-              </button>
-            ) : null}
+            <button
+              aria-pressed={showCompleted}
+              className="text-button icon-labelled work-secondary-action"
+              onClick={toggleCompleted}
+            >
+              {showCompleted ? <EyeOff size={16} /> : <Eye size={16} />}
+              {showCompleted ? "Hide completed" : "Show completed"}
+            </button>
             <CreateWorkControl
               page={page}
               subjects={subjects}
@@ -648,31 +698,31 @@ export default function WorkPage({
                 <button
                   role="menuitem"
                   onClick={() => {
-                    setSorting([{ id: "priority", desc: true }]);
+                    setShowSort((value) => !value);
+                    setShowColumns(false);
                     closeMobileActions();
                   }}
                 >
-                  <SlidersHorizontal size={16} /> Sort by priority
+                  <SlidersHorizontal size={16} /> Sort options
                 </button>
                 <button
                   role="menuitem"
                   onClick={() => {
                     setShowColumns((value) => !value);
+                    setShowSort(false);
                     closeMobileActions();
                   }}
                 >
                   <Columns3 size={16} /> Columns
                 </button>
-                {page === "assignments" ? (
-                  <button
-                    aria-pressed={showCompleted}
-                    onClick={toggleCompleted}
-                    role="menuitem"
-                  >
-                    {showCompleted ? <EyeOff size={16} /> : <Eye size={16} />}
-                    {showCompleted ? "Hide completed" : "Show completed"}
-                  </button>
-                ) : null}
+                <button
+                  aria-pressed={showCompleted}
+                  onClick={toggleCompleted}
+                  role="menuitem"
+                >
+                  {showCompleted ? <EyeOff size={16} /> : <Eye size={16} />}
+                  {showCompleted ? "Hide completed" : "Show completed"}
+                </button>
               </div>
             </details>
           </>
@@ -681,7 +731,8 @@ export default function WorkPage({
       {table.getFilteredSelectedRowModel().rows.length ? (
         <div className="bulk-bar" role="toolbar" aria-label="Bulk actions">
           <strong>
-            {table.getFilteredSelectedRowModel().rows.length} selected
+            {table.getFilteredSelectedRowModel().rows.length} of{" "}
+            {filteredRowCount} selected
           </strong>
           <button
             onClick={() => {
@@ -711,7 +762,58 @@ export default function WorkPage({
           >
             Checkpoint
           </button>
+          <button
+            onClick={() => {
+              const selected = table.getFilteredSelectedRowModel().rows;
+              const proceed =
+                !settings.confirmBulkArchive ||
+                window.confirm(
+                  `Archive ${selected.length} selected ${selected.length === 1 ? "item" : "items"}? You can restore them from Settings → Data.`,
+                );
+              if (!proceed) return;
+              selected.forEach((row) =>
+                dispatch({ type: "archive", id: row.original.id }),
+              );
+              setRowSelection({});
+            }}
+          >
+            Archive
+          </button>
           <button onClick={() => setRowSelection({})}>Clear</button>
+        </div>
+      ) : null}
+      {showSort ? (
+        <div
+          className="filter-bar sort-bar"
+          role="group"
+          aria-label="Sort options"
+        >
+          <OrganatoSelect
+            ariaLabel="Sort field"
+            options={sortFieldOptions}
+            value={sorting[0]?.id ?? "due"}
+            onChange={(value) =>
+              setSorting([{ id: value, desc: sorting[0]?.desc ?? false }])
+            }
+          />
+          <button
+            type="button"
+            aria-label={`Sort direction: ${sorting[0]?.desc ? "descending" : "ascending"} — activate to toggle`}
+            aria-pressed={Boolean(sorting[0]?.desc)}
+            onClick={() =>
+              setSorting([
+                { id: sorting[0]?.id ?? "due", desc: !sorting[0]?.desc },
+              ])
+            }
+          >
+            {sorting[0]?.desc ? "Descending ↓" : "Ascending ↑"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSorting([{ id: "due", desc: false }])}
+          >
+            Reset
+          </button>
         </div>
       ) : null}
       {showFilters ? (
@@ -868,9 +970,36 @@ export default function WorkPage({
                     )}
                     <span
                       className={`column-resizer${header.column.getIsResizing() ? " active" : ""}`}
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label={`Resize ${header.column.id} column`}
+                      aria-valuenow={Math.round(header.getSize())}
+                      tabIndex={0}
                       onMouseDown={header.getResizeHandler()}
                       onTouchStart={header.getResizeHandler()}
                       onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === "ArrowLeft" ||
+                          event.key === "ArrowRight"
+                        ) {
+                          event.preventDefault();
+                          const delta = event.key === "ArrowLeft" ? -12 : 12;
+                          const next = Math.max(60, header.getSize() + delta);
+                          table.setColumnSizing((old) => ({
+                            ...old,
+                            [header.column.id]: next,
+                          }));
+                        }
+                        if (event.key === "Home") {
+                          event.preventDefault();
+                          table.setColumnSizing((old) => {
+                            const next = { ...old };
+                            delete next[header.column.id];
+                            return next;
+                          });
+                        }
+                      }}
                     />
                   </th>
                 ))}
@@ -882,8 +1011,18 @@ export default function WorkPage({
               <tr
                 key={row.id}
                 tabIndex={0}
+                aria-label={`Open details for ${row.original.displayName}`}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") {
+                  // Let embedded controls handle their own keys.
+                  const target = event.target as HTMLElement;
+                  if (
+                    target !== event.currentTarget &&
+                    !["TR"].includes(target.tagName)
+                  ) {
+                    return;
+                  }
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
                     dispatch({ type: "select", id: row.original.id });
                   }
                   if (event.key === "ArrowDown") {
@@ -901,9 +1040,17 @@ export default function WorkPage({
                     )?.focus();
                   }
                 }}
-                onClick={() =>
-                  dispatch({ type: "select", id: row.original.id })
-                }
+                onClick={(event) => {
+                  // Clicks on inline selects/menus must not open the inspector.
+                  if (
+                    (event.target as HTMLElement).closest(
+                      "button, select, input, a",
+                    )
+                  ) {
+                    return;
+                  }
+                  dispatch({ type: "select", id: row.original.id });
+                }}
               >
                 {row.getVisibleCells().map((cell) => (
                   <td key={cell.id} className={`column-${cell.column.id}`}>

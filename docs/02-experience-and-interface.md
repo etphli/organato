@@ -293,7 +293,7 @@ Month is the default. The selected view and date persist per device.
 
 ### Interactions
 
-- Click empty date/time to create a todo by default.
+- Click a date to select it; use the explicit + control on that date to create a todo (empty-area click never creates by itself, avoiding accidental todos).
 - Drag an event to reschedule; imported items receive a user due-date override.
 - Resize a timed event to alter its planning block only if duration support is enabled later; due dates themselves remain a point in time.
 - Click an event to open the same detail inspector used by tables.

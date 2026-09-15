@@ -90,7 +90,6 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
       .then(([googleStatus]) => {
         if (!active) return;
         setGoogle(googleStatus);
-        setStep(1);
       })
       .catch((loadError) => {
         if (!active) return;
@@ -204,6 +203,16 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                 (entry.id === 3 && (!completed[1] || !completed[2])) ||
                 (entry.id === 4 &&
                   (!completed[1] || !completed[2] || !completed[3]))
+              }
+              title={
+                entry.id === 2 && !completed[1]
+                  ? "Connect Reshet first"
+                  : entry.id === 3 && (!completed[1] || !completed[2])
+                    ? "Connect Reshet and Google first"
+                    : entry.id === 4 &&
+                        (!completed[1] || !completed[2] || !completed[3])
+                      ? "Finish the earlier steps first"
+                      : undefined
               }
               key={entry.id}
               onClick={() => setStep(entry.id)}

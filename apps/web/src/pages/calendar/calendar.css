@@ -283,6 +283,12 @@
   grid-auto-rows: minmax(126px, 1fr);
 }
 
+/* Week wrappers exist for gridcell row semantics; contents keeps the
+   7-column day layout unchanged. */
+.oc-month__week {
+  display: contents;
+}
+
 .oc-month-day {
   border-right: 1px solid var(--border);
   border-top: 1px solid var(--border);

@@ -109,6 +109,7 @@ function LegacyCanvasConnectionSection({
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [cookieRejected, setCookieRejected] = useState(false);
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [recentAuthentication, setRecentAuthentication] = useState<
     boolean | null
   >(demoMode ? true : null);
@@ -247,15 +248,9 @@ function LegacyCanvasConnectionSection({
   };
 
   const disconnect = async () => {
-    if (
-      !window.confirm(
-        "Disconnect Reshet? Imported items will remain in Organato.",
-      )
-    ) {
-      return;
-    }
     setBusy("disconnect");
     setError(null);
+    setConfirmingDisconnect(false);
     try {
       if (demoMode) {
         setStatus(demoDisconnectedStatus);
@@ -514,19 +509,44 @@ function LegacyCanvasConnectionSection({
                 >
                   Replace session
                 </button>
-                <button
-                  type="button"
-                  className="canvas-connection__danger"
-                  disabled={busy === "disconnect"}
-                  onClick={(event) => {
-                    event.currentTarget
-                      .closest("details")
-                      ?.removeAttribute("open");
-                    void disconnect();
-                  }}
-                >
-                  Disconnect
-                </button>
+                {confirmingDisconnect ? (
+                  <>
+                    <p role="alert">
+                      Disconnect Reshet? Imported items will remain in Organato.
+                    </p>
+                    <button
+                      type="button"
+                      className="canvas-connection__danger"
+                      disabled={busy === "disconnect"}
+                      onClick={() => void disconnect()}
+                    >
+                      {busy === "disconnect"
+                        ? "Disconnecting…"
+                        : "Yes, disconnect"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy === "disconnect"}
+                      onClick={() => setConfirmingDisconnect(false)}
+                    >
+                      Keep connected
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="canvas-connection__danger"
+                    disabled={busy === "disconnect"}
+                    onClick={(event) => {
+                      event.currentTarget
+                        .closest("details")
+                        ?.removeAttribute("open");
+                      setConfirmingDisconnect(true);
+                    }}
+                  >
+                    Disconnect
+                  </button>
+                )}
               </div>
             </details>
           </div>

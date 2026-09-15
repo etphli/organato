@@ -33,7 +33,12 @@ const SetupWizard = lazy(() =>
 );
 
 function RouteFallback() {
-  return <div className="route-loading" aria-label="Loading page" />;
+  return (
+    <div className="route-loading" role="status" aria-label="Loading page">
+      <span className="route-loading__spinner" aria-hidden="true" />
+      <span>Loading…</span>
+    </div>
+  );
 }
 
 function AssignmentsRoute() {
@@ -65,7 +70,12 @@ function ItemDeepLink() {
   }, [dispatch, id, items, navigate, ready]);
 
   if (!ready)
-    return <div className="route-loading" aria-label="Loading item" />;
+    return (
+      <div className="route-loading" role="status" aria-label="Loading item">
+        <span className="route-loading__spinner" aria-hidden="true" />
+        <span>Loading item…</span>
+      </div>
+    );
   return null;
 }
 

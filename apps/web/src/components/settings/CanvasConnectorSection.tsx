@@ -194,8 +194,8 @@ export function CanvasConnectorSection({
   const [viewError, setViewError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activityMessage, setActivityMessage] = useState<string | null>(null);
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [rfbReady, setRfbReady] = useState(false);
-  const [loadingProgress, setLoadingProgress] = useState(8);
   const [now, setNow] = useState(() => Date.now());
   const viewerRef = useRef<HTMLDivElement>(null);
   const viewerSessionRef = useRef<CanvasRfbSession | null>(null);
@@ -204,26 +204,6 @@ export function CanvasConnectorSection({
   const viewRetryAttemptRef = useRef(0);
   const reportedConnectedRef = useRef(false);
   const createRfb = rfbFactory ?? defaultRfbFactory;
-  useEffect(() => {
-    if (rfbReady) {
-      setLoadingProgress(100);
-      return;
-    }
-    setLoadingProgress(8);
-    if (
-      status?.state !== "signing_in" &&
-      status?.state !== "awaiting_confirmation"
-    )
-      return;
-    const timer = window.setInterval(
-      () =>
-        setLoadingProgress((value) =>
-          Math.min(92, value + Math.max(1, (94 - value) / 9)),
-        ),
-      700,
-    );
-    return () => window.clearInterval(timer);
-  }, [rfbReady, status?.state]);
 
   const handleMobileKeyboardInput = useCallback(
     (event: FormEvent<HTMLInputElement>) => {
@@ -785,15 +765,9 @@ export function CanvasConnectorSection({
 
   const disconnect = async () => {
     if (!canMutate()) return;
-    if (
-      !window.confirm(
-        "Disconnect the Canvas Pi? Imported work stays in Organato. The Pi erases its Canvas session the next time it reconnects.",
-      )
-    ) {
-      return;
-    }
     setBusy("disconnect");
     setError(null);
+    setConfirmingDisconnect(false);
     clearLocalView(true);
     try {
       if (!demoMode) {
@@ -1100,14 +1074,8 @@ export function CanvasConnectorSection({
                         ? "Connecting to your Canvas screen…"
                         : "Opening Canvas on the Pi…"}
                     </span>
-                    <progress
-                      aria-label="Estimated Canvas loading progress"
-                      max={100}
-                      value={loadingProgress}
-                    />
-                    <small>
-                      Estimated progress · the first start may take longer
-                    </small>
+                    <progress aria-label="Canvas is loading" />
+                    <small>Loading — the first start may take longer</small>
                   </div>
                 ) : null}
               </div>
@@ -1262,13 +1230,41 @@ export function CanvasConnectorSection({
                     <ChevronDown size={16} />
                   </summary>
                   <div>
-                    <button
-                      type="button"
-                      disabled={busy !== null || recentAuthentication !== true}
-                      onClick={() => void disconnect()}
-                    >
-                      Disconnect Pi
-                    </button>
+                    {confirmingDisconnect ? (
+                      <>
+                        <p role="alert">
+                          Disconnect the Pi? Imported work stays. The Pi erases
+                          its Canvas session when it reconnects.
+                        </p>
+                        <button
+                          type="button"
+                          disabled={
+                            busy !== null || recentAuthentication !== true
+                          }
+                          onClick={() => void disconnect()}
+                        >
+                          {busy === "disconnect"
+                            ? "Disconnecting…"
+                            : "Yes, disconnect"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmingDisconnect(false)}
+                        >
+                          Keep connected
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={
+                          busy !== null || recentAuthentication !== true
+                        }
+                        onClick={() => setConfirmingDisconnect(true)}
+                      >
+                        Disconnect Pi
+                      </button>
+                    )}
                   </div>
                 </details>
               </div>

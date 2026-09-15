@@ -38,7 +38,7 @@ describe("Calendar", () => {
     renderCalendar();
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Sunday 26 July 2026, add todo",
+        name: "Add todo on 26 July",
       }),
     );
     expect(
@@ -93,7 +93,7 @@ describe("Calendar", () => {
     expect(screen.getByText("August 2026")).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
-        name: "Monday 24 August 2026, add todo",
+        name: /Monday 24 August 2026/,
       }),
     ).toHaveAttribute("tabindex", "0");
   });
