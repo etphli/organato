@@ -283,6 +283,15 @@ export async function runCanvasSync(
     const existingById = new Map(
       existingRows.results.map((item) => [item.canvas_assignment_id, item]),
     );
+    const tombstoneRows = await env.DB.prepare(
+      `SELECT canvas_assignment_id FROM canvas_item_tombstone
+       WHERE workspace_id = ? AND canvas_base_url_hash = ?`,
+    )
+      .bind(workspaceId, baseHash)
+      .all<{ canvas_assignment_id: string }>();
+    const deletedAssignmentIds = new Set(
+      tombstoneRows.results.map((row) => row.canvas_assignment_id),
+    );
     const courses = result.courses.map((course, index) => ({
       id: `${workspaceId}:canvas-course-${course.id}`,
       courseId: `${workspaceId}:${course.id}`,
@@ -304,6 +313,10 @@ export async function runCanvasSync(
         url: assignment.htmlUrl,
       };
       if (!existing) {
+        if (deletedAssignmentIds.has(assignment.id)) {
+          skipped += 1;
+          continue;
+        }
         if (!isCanvasImportCandidate(assignment, started)) {
           skipped += 1;
           continue;
@@ -451,8 +464,23 @@ export async function runCanvasSync(
           value ->> '$.assignmentId', value ->> '$.courseId', value ->> '$.url', value ->> '$.name', value ->> '$.due',
           value ->> '$.updated', value ->> '$.hash', value ->> '$.name', value ->> '$.due', (value ->> '$.due') IS NOT NULL,
           (SELECT id FROM subject WHERE workspace_id = ? AND canvas_course_id = value ->> '$.courseId'),
-          value ->> '$.workingStatus', value ->> '$.submittedAt', 1, 1, 'pending', ?, ? FROM json_each(?) WHERE ${guard}`,
-        ).bind(workspaceId, baseHash, workspaceId, now, now, json, ...fence),
+          value ->> '$.workingStatus', value ->> '$.submittedAt', 1, 1, 'pending', ?, ? FROM json_each(?) WHERE ${guard}
+          AND NOT EXISTS (
+            SELECT 1 FROM canvas_item_tombstone
+            WHERE workspace_id = ? AND canvas_base_url_hash = ?
+              AND canvas_assignment_id = value ->> '$.assignmentId'
+          )`,
+        ).bind(
+          workspaceId,
+          baseHash,
+          workspaceId,
+          now,
+          now,
+          json,
+          ...fence,
+          workspaceId,
+          baseHash,
+        ),
       ),
       ...jsonBatches(updates).map((json) =>
         env.DB.prepare(
