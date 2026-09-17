@@ -934,6 +934,18 @@ apiRoutes.post(
     const now = new Date().toISOString();
     const result = await context.env.DB.batch([
       context.env.DB.prepare(
+        `INSERT INTO canvas_item_tombstone
+          (workspace_id, canvas_base_url_hash, canvas_assignment_id, deleted_at)
+         SELECT workspace_id, canvas_base_url_hash, canvas_assignment_id, ?
+         FROM item
+         WHERE id = ? AND workspace_id = ? AND version = ?
+           AND source_type = 'canvas'
+           AND canvas_base_url_hash IS NOT NULL
+           AND canvas_assignment_id IS NOT NULL
+         ON CONFLICT(workspace_id, canvas_base_url_hash, canvas_assignment_id)
+         DO UPDATE SET deleted_at = excluded.deleted_at`,
+      ).bind(now, id, context.get("user").workspaceId, input.version),
+      context.env.DB.prepare(
         `DELETE FROM item WHERE id = ? AND workspace_id = ? AND version = ?`,
       ).bind(id, context.get("user").workspaceId, input.version),
       context.env.DB.prepare(
@@ -949,7 +961,7 @@ apiRoutes.post(
         now,
       ),
     ]);
-    if (!result[0]?.meta.changes) {
+    if (!result[1]?.meta.changes) {
       return context.json({ error: "Item changed elsewhere." }, 409);
     }
     if (storageKeys.length) {
