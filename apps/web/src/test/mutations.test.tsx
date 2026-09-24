@@ -200,6 +200,75 @@ describe("server-backed item mutations", () => {
     expect(screen.queryByText("Failed assignment")).not.toBeInTheDocument();
   }, 30_000);
 
+  it("keeps a checkpoint visible until the server confirms deletion", async () => {
+    vi.stubEnv("VITE_DEMO_MODE", "false");
+    const checkpoint: OrganatoItem = {
+      ...createdAssignment("Overdue checkpoint"),
+      classification: "checkpoint",
+      dueAt: "2026-01-01T00:00:00.000Z",
+    };
+    let confirmDeletion: (() => void) | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+        const path = String(input);
+        if (
+          path === `/api/items/${checkpoint.id}/permanent-delete` &&
+          init.method === "POST"
+        ) {
+          return new Promise<Response>((resolve) => {
+            confirmDeletion = () => resolve(json({ ok: true }));
+          });
+        }
+        if (path.startsWith("/api/items?")) {
+          return json({ items: [checkpoint] });
+        }
+        if (path === "/api/subjects") return json({ subjects: seedSubjects });
+        if (path === "/api/settings") return json({ settings: seedSettings });
+        if (path === "/api/integrations") return json({ integrations: [] });
+        if (path === "/api/views") return json({ views: [] });
+        return json({ error: "Unexpected request" }, 500);
+      }),
+    );
+    const { OrganatoProvider } = await import("../state/OrganatoProvider");
+    const { default: WorkPage } = await import("../pages/WorkPage");
+    const { Toast } = await import("../components/Toast");
+    render(
+      <MemoryRouter initialEntries={["/checkpoints"]}>
+        <OrganatoProvider>
+          <WorkPage page="checkpoints" />
+          <Toast />
+        </OrganatoProvider>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText(checkpoint.displayName);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `Actions for ${checkpoint.displayName}`,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Delete checkpoint" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "Type delete to confirm checkpoint deletion",
+      }),
+      { target: { value: "delete" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete checkpoint" }));
+
+    await waitFor(() => expect(confirmDeletion).not.toBeNull());
+    expect(screen.getByText(checkpoint.displayName)).toBeInTheDocument();
+    confirmDeletion!();
+    await waitFor(() =>
+      expect(
+        screen.queryByText(checkpoint.displayName),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
   it("carries notes through add actions so Duplicate keeps them", async () => {
     vi.stubEnv("VITE_DEMO_MODE", "false");
     let posted: Record<string, unknown> | null = null;

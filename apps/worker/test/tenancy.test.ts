@@ -5,12 +5,28 @@ import {
   type StatementSync,
 } from "node:sqlite";
 import { Hono } from "hono";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiRoutes } from "../src/api";
 import { provisionPersonalWorkspace } from "../src/auth";
 import { getItem, getSettings, listItems, listSubjects } from "../src/db";
 import { runCanvasSync } from "../src/sync";
 import type { Env, Variables } from "../src/types";
+
+const deletedGoogleEvents = vi.hoisted(() => new Array<string>());
+
+vi.mock("../src/google-connection", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/google-connection")>()),
+  loadGoogleConnection: async () => ({
+    metadata: { email: "friend@example.com", calendarId: "test-calendar" },
+    calendar: {
+      listChanges: async () => ({ events: [] }),
+      upsertEvent: async () => ({ id: "test-event" }),
+      deleteEvent: async (_calendarId: string, eventId: string) => {
+        deletedGoogleEvents.push(eventId);
+      },
+    },
+  }),
+}));
 
 class SqlitePreparedStatement {
   constructor(
@@ -153,6 +169,7 @@ function tenantApi(
 
 afterEach(() => {
   for (const database of databases.splice(0)) database.close();
+  deletedGoogleEvents.length = 0;
 });
 
 describe("per-account workspace isolation", () => {
@@ -472,6 +489,14 @@ describe("per-account workspace isolation", () => {
         item: { version: number; classification: string };
       };
       expect(classified.item.classification).toBe(classification);
+      await db
+        .prepare(
+          `INSERT INTO calendar_link
+            (item_id, workspace_id, google_calendar_id, google_event_id, sync_state)
+           VALUES (?, ?, 'test-calendar', 'test-event', 'synced')`,
+        )
+        .bind(importedId, "friend@example.com")
+        .run();
 
       const deletedResponse = await app.request(
         `/api/items/${importedId}/permanent-delete`,
@@ -486,6 +511,7 @@ describe("per-account workspace isolation", () => {
         env,
       );
       expect(deletedResponse.status).toBe(200);
+      expect(deletedGoogleEvents).toEqual(["test-event"]);
       expect(await getItem(db, "friend@example.com", importedId!)).toBeNull();
 
       await runCanvasSync(env, "friend@example.com", "manual", {
