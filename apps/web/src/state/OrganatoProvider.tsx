@@ -1071,7 +1071,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
           : null;
       const undoState = currentState.undo;
       const optimistic =
-        demoMode || !["addTodo", "addWork"].includes(action.type);
+        demoMode || !["addTodo", "addWork", "deleteItem"].includes(action.type);
       if (optimistic) baseDispatch(action);
       if (!demoMode && action.type === "select" && action.id) {
         void loadItemDetails(action.id).catch(() =>
@@ -1243,6 +1243,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
               },
             );
             serverVersions.current.delete(current.id);
+            baseDispatch(action);
             return;
           }
           if (action.type === "addTodo" || action.type === "addWork") {

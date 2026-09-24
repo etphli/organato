@@ -5,12 +5,28 @@ import {
   type StatementSync,
 } from "node:sqlite";
 import { Hono } from "hono";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiRoutes } from "../src/api";
 import { provisionPersonalWorkspace } from "../src/auth";
 import { getItem, getSettings, listItems, listSubjects } from "../src/db";
 import { runCanvasSync } from "../src/sync";
 import type { Env, Variables } from "../src/types";
+
+const deletedGoogleEvents = vi.hoisted(() => new Array<string>());
+
+vi.mock("../src/google-connection", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/google-connection")>()),
+  loadGoogleConnection: async () => ({
+    metadata: { email: "friend@example.com", calendarId: "test-calendar" },
+    calendar: {
+      listChanges: async () => ({ events: [] }),
+      upsertEvent: async () => ({ id: "test-event" }),
+      deleteEvent: async (_calendarId: string, eventId: string) => {
+        deletedGoogleEvents.push(eventId);
+      },
+    },
+  }),
+}));
 
 class SqlitePreparedStatement {
   constructor(
@@ -153,6 +169,7 @@ function tenantApi(
 
 afterEach(() => {
   for (const database of databases.splice(0)) database.close();
+  deletedGoogleEvents.length = 0;
 });
 
 describe("per-account workspace isolation", () => {
@@ -390,89 +407,123 @@ describe("per-account workspace isolation", () => {
     expect(await getItem(db, "friend@example.com", created.item.id)).toBeNull();
   });
 
-  it("does not reimport a permanently deleted Canvas assignment", async () => {
-    const db = tenantDatabase();
-    const { app, env } = tenantApi(db, "friend@example.com", {
-      demoMode: "false",
-    });
-    const now = new Date().toISOString();
-    await db
-      .prepare(
-        `UPDATE integration_connection
+  it.each(["assignment", "checkpoint"] as const)(
+    "does not reimport a permanently deleted Canvas %s",
+    async (classification) => {
+      const db = tenantDatabase();
+      const { app, env } = tenantApi(db, "friend@example.com", {
+        demoMode: "false",
+      });
+      const now = new Date().toISOString();
+      await db
+        .prepare(
+          `UPDATE integration_connection
          SET encrypted_credential = NULL, metadata_json = ?, updated_at = ?
          WHERE workspace_id = ? AND provider = 'canvas'`,
-      )
-      .bind(
-        JSON.stringify({
-          transport: "browser",
-          baseUrl: "https://canvas.example.edu",
-          hostname: "canvas.example.edu",
-          userId: "canvas-user",
-          userName: "Canvas User",
-          connectedAt: now,
-          lastValidatedAt: now,
-          credentialAad: "integration:canvas:https://canvas.example.edu",
-        }),
-        now,
+        )
+        .bind(
+          JSON.stringify({
+            transport: "browser",
+            baseUrl: "https://canvas.example.edu",
+            hostname: "canvas.example.edu",
+            userId: "canvas-user",
+            userName: "Canvas User",
+            connectedAt: now,
+            lastValidatedAt: now,
+            credentialAad: "integration:canvas:https://canvas.example.edu",
+          }),
+          now,
+          "friend@example.com",
+        )
+        .run();
+      const canvasResult = {
+        courses: [
+          { id: "course-1", name: "English", workflowState: "available" },
+        ],
+        assignments: [
+          {
+            id: "assignment-1",
+            courseId: "course-1",
+            name: "Canvas essay",
+            dueAt: "2026-10-01T06:00:00.000Z",
+            htmlUrl:
+              "https://canvas.example.edu/courses/course-1/assignments/assignment-1",
+            updatedAt: now,
+            published: true,
+            submitted: false,
+          },
+        ],
+        partialFailures: [],
+        successfulCourseIds: ["course-1"],
+        catalogueComplete: true,
+        skippedMalformedItems: 0,
+      };
+
+      const firstSync = await runCanvasSync(
+        env,
         "friend@example.com",
-      )
-      .run();
-    const canvasResult = {
-      courses: [
-        { id: "course-1", name: "English", workflowState: "available" },
-      ],
-      assignments: [
+        "manual",
         {
-          id: "assignment-1",
-          courseId: "course-1",
-          name: "Canvas essay",
-          dueAt: "2026-10-01T06:00:00.000Z",
-          htmlUrl:
-            "https://canvas.example.edu/courses/course-1/assignments/assignment-1",
-          updatedAt: now,
-          published: true,
-          submitted: false,
+          result: canvasResult,
+          deliveryId: "delivery-1",
         },
-      ],
-      partialFailures: [],
-      successfulCourseIds: ["course-1"],
-      catalogueComplete: true,
-      skippedMalformedItems: 0,
-    };
+      );
+      const importedId = firstSync.createdIds[0];
+      expect(importedId).toBeDefined();
+      const imported = await getItem(db, "friend@example.com", importedId!);
+      expect(imported).not.toBeNull();
+      const classifiedResponse = await app.request(
+        `/api/items/${importedId}/classify`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            version: imported!.version,
+            classification,
+          }),
+        },
+        env,
+      );
+      expect(classifiedResponse.status).toBe(200);
+      const classified = (await classifiedResponse.json()) as {
+        item: { version: number; classification: string };
+      };
+      expect(classified.item.classification).toBe(classification);
+      await db
+        .prepare(
+          `INSERT INTO calendar_link
+            (item_id, workspace_id, google_calendar_id, google_event_id, sync_state)
+           VALUES (?, ?, 'test-calendar', 'test-event', 'synced')`,
+        )
+        .bind(importedId, "friend@example.com")
+        .run();
 
-    const firstSync = await runCanvasSync(env, "friend@example.com", "manual", {
-      result: canvasResult,
-      deliveryId: "delivery-1",
-    });
-    const importedId = firstSync.createdIds[0];
-    expect(importedId).toBeDefined();
-    const imported = await getItem(db, "friend@example.com", importedId!);
-    expect(imported).not.toBeNull();
+      const deletedResponse = await app.request(
+        `/api/items/${importedId}/permanent-delete`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            version: classified.item.version,
+            confirmation: "delete",
+          }),
+        },
+        env,
+      );
+      expect(deletedResponse.status).toBe(200);
+      expect(deletedGoogleEvents).toEqual(["test-event"]);
+      expect(await getItem(db, "friend@example.com", importedId!)).toBeNull();
 
-    const deletedResponse = await app.request(
-      `/api/items/${importedId}/permanent-delete`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          version: imported!.version,
-          confirmation: "delete",
-        }),
-      },
-      env,
-    );
-    expect(deletedResponse.status).toBe(200);
-    expect(await getItem(db, "friend@example.com", importedId!)).toBeNull();
+      await runCanvasSync(env, "friend@example.com", "manual", {
+        result: canvasResult,
+        deliveryId: "delivery-2",
+      });
 
-    await runCanvasSync(env, "friend@example.com", "manual", {
-      result: canvasResult,
-      deliveryId: "delivery-2",
-    });
-
-    expect(
-      (await listItems(db, "friend@example.com", { all: true })).filter(
-        (item) => item.canvasAssignmentId === "assignment-1",
-      ),
-    ).toEqual([]);
-  });
+      expect(
+        (await listItems(db, "friend@example.com", { all: true })).filter(
+          (item) => item.canvasAssignmentId === "assignment-1",
+        ),
+      ).toEqual([]);
+    },
+  );
 });

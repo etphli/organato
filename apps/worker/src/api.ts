@@ -29,6 +29,7 @@ import {
   patchItem,
   updateSettings,
 } from "./db";
+import { loadGoogleConnection } from "./google-connection";
 import {
   canvasConnectionErrorCategory,
   canvasConnectionErrorCode,
@@ -49,7 +50,7 @@ import {
   requireRecentSession,
   sha256,
 } from "./security";
-import { runCalendarReconciliation, runCanvasSync } from "./sync";
+import { runCanvasSync } from "./sync";
 import {
   drainStorageDeletions,
   enqueueStorageDeletions,
@@ -874,29 +875,35 @@ apiRoutes.post(
       return context.json({ error: 'Type "delete" to confirm deletion.' }, 400);
     }
     const linkedEvent = await context.env.DB.prepare(
-      `SELECT google_event_id FROM calendar_link
+      `SELECT google_calendar_id, google_event_id FROM calendar_link
        WHERE workspace_id = ? AND item_id = ?`,
     )
       .bind(context.get("user").workspaceId, id)
-      .first<{ google_event_id: string | null }>();
+      .first<{
+        google_calendar_id: string;
+        google_event_id: string | null;
+      }>();
     if (linkedEvent?.google_event_id) {
-      // Mark the item pending (without bumping the optimistic version) so
-      // reconciliation treats the linked event as orphaned and deletes it
-      // from Google before the version-guarded DELETE below.
-      await context.env.DB.batch([
-        context.env.DB.prepare(
-          `UPDATE item SET calendar_enabled = 0, calendar_sync_state = 'pending'
-           WHERE id = ? AND workspace_id = ?`,
-        ).bind(id, context.get("user").workspaceId),
-        context.env.DB.prepare(
-          `UPDATE calendar_link SET sync_state = 'pending',
-             last_synced_at = ? WHERE item_id = ? AND workspace_id = ?`,
-        ).bind(new Date().toISOString(), id, context.get("user").workspaceId),
-      ]).catch(() => undefined);
+      // Stop reconciliation from recreating the event while deleting it.
+      // Keep the version stable for the final version-guarded item delete.
+      const marked = await context.env.DB.prepare(
+        `UPDATE item SET calendar_enabled = 0, calendar_sync_state = 'pending'
+         WHERE id = ? AND workspace_id = ? AND version = ?`,
+      )
+        .bind(id, context.get("user").workspaceId, input.version)
+        .run();
+      if (!marked.meta.changes) {
+        return context.json({ error: "Item changed elsewhere." }, 409);
+      }
       try {
-        await runCalendarReconciliation(
+        const connection = await loadGoogleConnection(
           context.env,
           context.get("user").workspaceId,
+        );
+        if (!connection) throw new Error("google_not_connected");
+        await connection.calendar.deleteEvent(
+          linkedEvent.google_calendar_id,
+          linkedEvent.google_event_id,
         );
       } catch {
         return context.json(
@@ -905,21 +912,6 @@ apiRoutes.post(
               "The linked Google event could not be removed. Reconnect Google and retry so Organato does not orphan an event.",
           },
           502,
-        );
-      }
-      const remaining = await context.env.DB.prepare(
-        `SELECT google_event_id FROM calendar_link
-         WHERE workspace_id = ? AND item_id = ? AND google_event_id IS NOT NULL`,
-      )
-        .bind(context.get("user").workspaceId, id)
-        .first();
-      if (remaining) {
-        return context.json(
-          {
-            error:
-              "Calendar cleanup is still pending. Reconcile Calendar and retry.",
-          },
-          409,
         );
       }
     }
