@@ -1,3 +1,4 @@
+import type { WorkingStatus } from "@organato/domain";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -11,7 +12,7 @@ type Conflict = {
   title: string;
   dueAt: string | null;
   dueDateLocal: string | null;
-  workingStatus: string;
+  workingStatus: WorkingStatus;
   archivedAt: string | null;
 };
 
@@ -98,7 +99,7 @@ export function CalendarConflicts() {
               (item.dueAt ? new Date(item.dueAt).toLocaleString() : "No date")}
             {item.archivedAt
               ? " · Archived"
-              : item.workingStatus === "complete" ||
+              : item.workingStatus === "completed" ||
                   item.workingStatus === "submitted"
                 ? " · Completed"
                 : ""}
