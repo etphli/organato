@@ -62,35 +62,21 @@ const moduleSchema = z.object({
   state: z.string().nullable().optional(),
 });
 
-const plannerItemSchema = z.object({
-  course_id: z
-    .union([z.string(), z.number()])
-    .transform(String)
-    .nullable()
-    .optional(),
-  plannable_id: z.union([z.string(), z.number()]).transform(String),
-  plannable_type: z.string(),
-  plannable_date: z.string().nullable().optional(),
-  plannable: z.unknown(),
-  submissions: z
-    .union([
-      z.literal(false),
-      z.object({
-        submitted: z.boolean().default(false),
-        graded: z.boolean().default(false),
-        excused: z.boolean().default(false),
-      }),
-    ])
-    .nullable()
-    .optional(),
+const assignmentSchema = z.object({
+  id: userIdSchema,
+  course_id: userIdSchema,
+  name: z.string(),
+  due_at: z.string().datetime({ offset: true }).nullable().optional(),
+  updated_at: z.string().datetime({ offset: true }),
   html_url: z.string(),
-});
-
-const plannerAssignmentSchema = z.object({
-  id: z.union([z.string(), z.number()]).transform(String),
-  title: z.string(),
-  due_at: z.string().nullable().optional(),
-  updated_at: z.string(),
+  published: z.boolean().default(true),
+  submission: z
+    .object({
+      workflow_state: z.string().optional(),
+      excused: z.boolean().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 export type CanvasConnectionErrorCode =
@@ -546,132 +532,76 @@ export class CanvasRestProvider implements CanvasProvider {
       });
     }
 
-    const start = new Date(Date.now() - 86_400_000);
-    const end = new Date(start);
-    end.setUTCFullYear(end.getUTCFullYear() + 1);
-    // Canvas excludes submitted assignments from the incomplete_items feed
-    // (see Planner API docs). Fetch both feeds so submitted work is observed
-    // instead of being mistaken for deleted work.
-    const plannerBase = {
-      start_date: start.toISOString(),
-      end_date: end.toISOString(),
-      per_page: "100",
-    };
-    let malformedPlannerCount = 0;
-    const onMalformed = () => {
-      malformedPlannerCount += 1;
-    };
-    const [incompleteRows, completeRows] = await Promise.all([
-      this.paginated(
-        `/api/v1/planner/items?${new URLSearchParams({
-          ...plannerBase,
-          filter: "incomplete_items",
-        }).toString()}`,
-        plannerItemSchema,
-        signal,
-        onMalformed,
-      ),
-      this.paginated(
-        `/api/v1/planner/items?${new URLSearchParams({
-          ...plannerBase,
-          filter: "complete_items",
-        }).toString()}`,
-        plannerItemSchema,
-        signal,
-        onMalformed,
-      ).catch(() => []),
-    ]);
-    // Deduplicate by assignment id; prefer the submitted view when an item
-    // appears in both feeds.
-    const seenPlannerKeys = new Set<string>();
-    const plannerRows: typeof incompleteRows = [];
-    for (const row of [...incompleteRows, ...completeRows]) {
-      const key = `${row.course_id ?? "none"}:${row.plannable_type}:${row.plannable_id}`;
-      if (seenPlannerKeys.has(key)) {
-        const existingIndex = plannerRows.findIndex(
-          (entry) =>
-            `${entry.course_id ?? "none"}:${entry.plannable_type}:${entry.plannable_id}` ===
-            key,
-        );
-        if (existingIndex >= 0) {
-          const existing = plannerRows[existingIndex]!;
-          const existingSubmitted =
-            existing.submissions !== false &&
-            Boolean(
-              existing.submissions?.submitted ||
-              existing.submissions?.graded ||
-              existing.submissions?.excused,
-            );
-          const nextSubmitted =
-            row.submissions !== false &&
-            Boolean(
-              row.submissions?.submitted ||
-              row.submissions?.graded ||
-              row.submissions?.excused,
-            );
-          if (nextSubmitted && !existingSubmitted) {
-            plannerRows[existingIndex] = row;
-          }
-        }
-        continue;
-      }
-      seenPlannerKeys.add(key);
-      plannerRows.push(row);
-    }
-    const courseIds = new Set(courses.map((course) => course.id));
-    const malformedCourseIds = new Set<string>();
-    for (const row of plannerRows) {
-      if (row.plannable_type !== "assignment") continue;
-      const assignment = plannerAssignmentSchema.safeParse(row.plannable);
-      const courseId =
-        row.course_id === null || row.course_id === undefined
-          ? null
-          : String(row.course_id);
-      let assignmentUrl: URL | null = null;
+    const successfulCourseIds: string[] = [];
+    for (const course of courses) {
+      let malformed = 0;
       try {
-        assignmentUrl = new URL(row.html_url, this.baseUrl);
-      } catch {
-        // Count this below with the other malformed planner cases.
+        const rows = await this.paginated(
+          `/api/v1/courses/${encodeURIComponent(course.id)}/assignments?override_assignment_dates=true&include[]=submission&per_page=100`,
+          assignmentSchema,
+          signal,
+          () => {
+            malformed += 1;
+          },
+        );
+        for (const row of rows) {
+          let url: URL;
+          try {
+            url = new URL(row.html_url, this.baseUrl);
+          } catch {
+            malformed += 1;
+            continue;
+          }
+          if (
+            url.origin !== this.baseUrl.origin ||
+            String(row.course_id) !== course.id
+          ) {
+            malformed += 1;
+            continue;
+          }
+          assignments.push({
+            id: String(row.id),
+            courseId: course.id,
+            name: row.name,
+            dueAt: row.due_at ?? null,
+            htmlUrl: url.href,
+            updatedAt: row.updated_at,
+            published: row.published ?? true,
+            submitted:
+              Boolean(row.submission?.excused) ||
+              ["submitted", "graded", "pending_review"].includes(
+                row.submission?.workflow_state ?? "",
+              ),
+          });
+        }
+        if (malformed)
+          partialFailures.push({
+            courseId: course.id,
+            category: "malformed_item",
+          });
+        else successfulCourseIds.push(course.id);
+      } catch (error) {
+        if (
+          signal?.aborted ||
+          (error instanceof CanvasConnectionError &&
+            error.code === "session_rejected")
+        )
+          throw error;
+        partialFailures.push({
+          courseId: course.id,
+          category:
+            error instanceof CanvasConnectionError
+              ? error.code
+              : "request_failed",
+        });
       }
-      if (
-        !assignment.success ||
-        !courseId ||
-        !courseIds.has(courseId) ||
-        assignment.data.id !== row.plannable_id ||
-        assignmentUrl?.origin !== this.baseUrl.origin
-      ) {
-        malformedPlannerCount += 1;
-        if (courseId) malformedCourseIds.add(courseId);
-        continue;
-      }
-      const submission = row.submissions === false ? null : row.submissions;
-      assignments.push({
-        id: assignment.data.id,
-        courseId,
-        name: assignment.data.title,
-        dueAt: assignment.data.due_at ?? row.plannable_date ?? null,
-        htmlUrl: assignmentUrl.href,
-        updatedAt: assignment.data.updated_at,
-        published: true,
-        submitted: Boolean(
-          submission?.submitted || submission?.graded || submission?.excused,
-        ),
-      });
-    }
-    skippedMalformedItems += malformedPlannerCount;
-    if (malformedPlannerCount) {
-      partialFailures.push({
-        courseId: [...malformedCourseIds].join(",") || "planner_feed",
-        category: "malformed_item",
-      });
+      skippedMalformedItems += malformed;
     }
     return {
       courses,
       assignments,
       partialFailures,
-      successfulCourseIds: courses
-        .filter((course) => !malformedCourseIds.has(course.id))
-        .map((course) => course.id),
+      successfulCourseIds,
       catalogueComplete: malformedCourseCount === 0,
       skippedMalformedItems,
     };

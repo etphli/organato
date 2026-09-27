@@ -429,7 +429,7 @@ app.post("/api/integrations/canvas/sync", async (context) => {
         ),
       ]).then(() => undefined),
     );
-    return context.json({ ok: true, runId: result.runId });
+    return context.json({ ok: true, status: "completed", ...result });
   } catch (error) {
     return context.json(
       {
@@ -637,6 +637,18 @@ app.post(
   },
 );
 
+app.get("/api/integrations/google/conflicts", async (context) => {
+  const rows = await context.env.DB.prepare(
+    `SELECT id, display_name AS title, due_at AS dueAt, due_date_local AS dueDateLocal,
+      working_status AS workingStatus, archived_at AS archivedAt
+     FROM item WHERE workspace_id = ? AND calendar_sync_state = 'conflict'
+     ORDER BY display_name`,
+  )
+    .bind(context.get("user").workspaceId)
+    .all();
+  return context.json({ conflicts: rows.results });
+});
+
 app.post("/api/integrations/google/resolve-conflict", async (context) => {
   const user = context.get("user");
   if (
@@ -662,19 +674,33 @@ app.post("/api/integrations/google/resolve-conflict", async (context) => {
       400,
     );
   }
-  const { resolved } = await resolveCalendarConflict(
-    context.env,
-    user.workspaceId,
-    body.itemId,
-    body.strategy,
-  );
-  if (!resolved) {
+  try {
+    const { resolved } = await resolveCalendarConflict(
+      context.env,
+      user.workspaceId,
+      body.itemId,
+      body.strategy,
+    );
+    if (!resolved) {
+      return context.json(
+        { error: "That item is not waiting for conflict resolution." },
+        404,
+      );
+    }
+    return context.json({ ok: true });
+  } catch (error) {
     return context.json(
-      { error: "That item is not waiting for conflict resolution." },
-      404,
+      {
+        error:
+          error instanceof GoogleApiError
+            ? "Google Calendar could not save that choice. The conflict is still available; try again."
+            : error instanceof Error
+              ? error.message
+              : "The conflict could not be resolved.",
+      },
+      502,
     );
   }
-  return context.json({ ok: true });
 });
 
 app.route("/api", apiRoutes);

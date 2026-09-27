@@ -9,9 +9,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiRoutes } from "../src/api";
 import { provisionPersonalWorkspace } from "../src/auth";
 import { getItem, getSettings, listItems, listSubjects } from "../src/db";
-import { runCanvasSync } from "../src/sync";
+import { runCanvasSync, resolveCalendarConflict } from "../src/sync";
 import type { Env, Variables } from "../src/types";
 
+const calendarMock = vi.hoisted(() => ({
+  fail: false,
+  pushed: new Array<{ summary: string; etag: string | undefined }>(),
+}));
 const deletedGoogleEvents = vi.hoisted(() => new Array<string>());
 
 vi.mock("../src/google-connection", async (importOriginal) => ({
@@ -20,7 +24,23 @@ vi.mock("../src/google-connection", async (importOriginal) => ({
     metadata: { email: "friend@example.com", calendarId: "test-calendar" },
     calendar: {
       listChanges: async () => ({ events: [] }),
-      upsertEvent: async () => ({ id: "test-event" }),
+      getEvent: async () => ({
+        id: "test-event",
+        etag: "latest",
+        status: "confirmed",
+        summary: "Latest Google title",
+        start: { dateTime: "2026-10-01T00:00:00Z" },
+      }),
+      upsertEvent: async (
+        _id: string,
+        projection: { summary: string },
+        _eventId?: string,
+        etag?: string,
+      ) => {
+        if (calendarMock.fail) throw new Error("Google unavailable");
+        calendarMock.pushed.push({ summary: projection.summary, etag });
+        return { id: "test-event", etag: "saved" };
+      },
       deleteEvent: async (_calendarId: string, eventId: string) => {
         deletedGoogleEvents.push(eventId);
       },
@@ -99,6 +119,7 @@ function tenantDatabase() {
     "0005_session_auth_stamp.sql",
     "0006_subtasks_links_effort.sql",
     "0007_oauth_idempotency.sql",
+    "0008_calendar_conflict.sql",
     "0011_canvas_item_tombstone.sql",
   ]) {
     sqlite.exec(
@@ -168,6 +189,8 @@ function tenantApi(
 }
 
 afterEach(() => {
+  calendarMock.fail = false;
+  calendarMock.pushed.length = 0;
   for (const database of databases.splice(0)) database.close();
   deletedGoogleEvents.length = 0;
 });
@@ -445,7 +468,7 @@ describe("per-account workspace isolation", () => {
             id: "assignment-1",
             courseId: "course-1",
             name: "Canvas essay",
-            dueAt: "2026-10-01T06:00:00.000Z",
+            dueAt: "2020-01-01T06:00:00.000Z",
             htmlUrl:
               "https://canvas.example.edu/courses/course-1/assignments/assignment-1",
             updatedAt: now,
@@ -526,4 +549,73 @@ describe("per-account workspace isolation", () => {
       ).toEqual([]);
     },
   );
+});
+
+describe("calendar conflict resolution", () => {
+  async function conflict() {
+    const db = tenantDatabase();
+    const { env } = tenantApi(db, "friend@example.com");
+    await db
+      .prepare(
+        "UPDATE item SET due_at='2026-10-01T00:00:00Z', calendar_enabled=1, calendar_sync_state='conflict' WHERE id='friend-item'",
+      )
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO calendar_link (item_id, workspace_id, google_calendar_id, google_event_id, google_etag, sync_state) VALUES ('friend-item', 'friend@example.com', 'test-calendar', 'test-event', 'stale', 'conflict')",
+      )
+      .run();
+    return { db, env };
+  }
+  it("writes the chosen Organato version to Google before reporting resolved", async () => {
+    const { db, env } = await conflict();
+    expect(
+      await resolveCalendarConflict(
+        env,
+        "friend@example.com",
+        "friend-item",
+        "mine",
+      ),
+    ).toEqual({ resolved: true });
+    expect(calendarMock.pushed).toEqual([
+      { summary: "Private friend assignment", etag: "latest" },
+    ]);
+    expect(
+      (await getItem(db, "friend@example.com", "friend-item"))
+        ?.calendarSyncState,
+    ).toBe("synced");
+  });
+  it("keeps a conflict actionable when the Google write fails", async () => {
+    const { db, env } = await conflict();
+    calendarMock.fail = true;
+    await expect(
+      resolveCalendarConflict(env, "friend@example.com", "friend-item", "mine"),
+    ).rejects.toThrow("Google unavailable");
+    expect(
+      (await getItem(db, "friend@example.com", "friend-item"))
+        ?.calendarSyncState,
+    ).toBe("conflict");
+  });
+  it("reads the current Google version and isolates other workspaces", async () => {
+    const { db, env } = await conflict();
+    expect(
+      await resolveCalendarConflict(
+        env,
+        "ethan.likht@gmail.com",
+        "friend-item",
+        "theirs",
+      ),
+    ).toEqual({ resolved: false });
+    expect(
+      await resolveCalendarConflict(
+        env,
+        "friend@example.com",
+        "friend-item",
+        "theirs",
+      ),
+    ).toEqual({ resolved: true });
+    expect(
+      (await getItem(db, "friend@example.com", "friend-item"))?.displayName,
+    ).toBe("Latest Google title");
+  });
 });

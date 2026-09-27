@@ -59,17 +59,11 @@ function subjectColour(index: number): string {
   ]!;
 }
 
-export function isCanvasImportCandidate(
-  assignment: CanvasAssignment,
-  now = new Date(),
-): boolean {
-  if (!assignment.published) return false;
-  // Submitted assignments are still imported so the submitted state is
-  // observable; they arrive via the complete_items planner feed.
-  if (assignment.submitted) return true;
-  if (!assignment.dueAt) return true;
-  const due = Date.parse(assignment.dueAt);
-  return Number.isFinite(due) && due >= now.getTime();
+export function isCanvasImportCandidate(assignment: CanvasAssignment): boolean {
+  return (
+    assignment.published &&
+    (!assignment.dueAt || Number.isFinite(Date.parse(assignment.dueAt)))
+  );
 }
 
 export function shouldAdvanceCanvasMissing(
@@ -317,7 +311,7 @@ export async function runCanvasSync(
           skipped += 1;
           continue;
         }
-        if (!isCanvasImportCandidate(assignment, started)) {
+        if (!isCanvasImportCandidate(assignment)) {
           skipped += 1;
           continue;
         }
@@ -1275,112 +1269,132 @@ export async function resolveCalendarConflict(
   itemId: string,
   strategy: "mine" | "theirs",
 ): Promise<{ resolved: boolean }> {
-  const item = await getItem(env.DB, workspaceId, itemId);
-  if (!item || item.calendarSyncState !== "conflict")
-    return { resolved: false };
-  const link = await env.DB.prepare(
-    `SELECT google_event_id, google_etag, conflict_event_json, conflict_etag,
-            google_calendar_id
-     FROM calendar_link WHERE workspace_id = ? AND item_id = ?`,
-  )
-    .bind(workspaceId, itemId)
-    .first<{
-      google_event_id: string | null;
-      google_etag: string | null;
-      conflict_event_json: string | null;
-      conflict_etag: string | null;
-      google_calendar_id: string;
-    }>();
-  const now = new Date().toISOString();
-  if (strategy === "mine") {
-    // Keep the local version and force-push it: clear the stale ETag so the
-    // next push issues an unconditional PATCH instead of another 412, drop
-    // the stored conflict snapshot, and re-queue for push.
+  const runId = await acquireCalendarRun(env, workspaceId);
+  if (!runId)
+    throw new Error(
+      "Calendar is syncing. Try resolving the conflict again shortly.",
+    );
+  try {
+    const item = await getItem(env.DB, workspaceId, itemId);
+    if (!item || item.calendarSyncState !== "conflict")
+      return { resolved: false };
+    const link = await env.DB.prepare(
+      `SELECT google_event_id, google_calendar_id FROM calendar_link
+       WHERE workspace_id = ? AND item_id = ?`,
+    )
+      .bind(workspaceId, itemId)
+      .first<{ google_event_id: string | null; google_calendar_id: string }>();
+    if (!link?.google_event_id) return { resolved: false };
+    const connection = await loadGoogleConnection(env, workspaceId);
+    if (!connection?.metadata.calendarId)
+      throw new Error(
+        "Reconnect Google Calendar before resolving this conflict.",
+      );
+    const calendarId = link.google_calendar_id;
+    const latest = await connection.calendar.getEvent(
+      calendarId,
+      link.google_event_id,
+    );
+    const now = new Date().toISOString();
+    let saved = latest;
+    let updated = item;
+    if (strategy === "mine") {
+      const [settings, subjects] = await Promise.all([
+        getSettings(env.DB, workspaceId),
+        listSubjects(env.DB, workspaceId),
+      ]);
+      const projection = projectCalendarEvent(
+        item,
+        subjects.find((subject) => subject.id === item.subjectId),
+        env.APP_ORIGIN,
+        settings.timezone,
+      );
+      if (projection) {
+        saved = await connection.calendar.upsertEvent(
+          calendarId,
+          projection,
+          latest && latest.status !== "cancelled"
+            ? link.google_event_id
+            : undefined,
+          latest?.status !== "cancelled" ? latest?.etag : undefined,
+        );
+      } else if (latest && latest.status !== "cancelled") {
+        await connection.calendar.deleteEvent(calendarId, link.google_event_id);
+        saved = null;
+      }
+    } else {
+      const patch =
+        latest && latest.status !== "cancelled"
+          ? calendarPatchFromEvent(item, latest)
+          : { calendarEnabled: false };
+      if (Object.keys(patch).length)
+        updated = await patchItem(
+          env.DB,
+          workspaceId,
+          item.id,
+          item.version,
+          patch,
+          "owner",
+          "google",
+        );
+    }
+    const state = updated.calendarEnabled ? "synced" : "suppressed";
     await env.DB.batch([
       env.DB.prepare(
-        `UPDATE item SET calendar_sync_state = 'pending'
-         WHERE id = ? AND workspace_id = ?`,
-      ).bind(item.id, workspaceId),
-      env.DB.prepare(
-        `UPDATE calendar_link SET sync_state = 'pending', last_synced_at = ?,
-           google_etag = NULL, conflict_event_json = NULL, conflict_etag = NULL
-         WHERE item_id = ? AND workspace_id = ?`,
-      ).bind(now, item.id, workspaceId),
-      env.DB.prepare(
-        `INSERT INTO item_history
-          (id, item_id, actor_type, actor_identity, action, summary, created_at)
-         VALUES (?, ?, 'user', 'owner', 'calendar_conflict_resolved',
-           'Calendar conflict resolved — kept the Organato version', ?)`,
-      ).bind(crypto.randomUUID(), item.id, now),
-    ]);
-    return { resolved: true };
-  }
-  // Google wins: apply the retained conflicting event explicitly instead of
-  // just marking resolved (the pull token has already advanced past it).
-  let conflictEvent: CalendarEventRecord | null = null;
-  if (link?.conflict_event_json) {
-    try {
-      conflictEvent = JSON.parse(
-        link.conflict_event_json,
-      ) as CalendarEventRecord;
-    } catch {
-      conflictEvent = null;
-    }
-  }
-  if (!conflictEvent && link?.google_event_id) {
-    try {
-      const connection = await loadGoogleConnection(env, workspaceId);
-      if (connection?.metadata.calendarId) {
-        conflictEvent = await connection.calendar.getEvent(
-          connection.metadata.calendarId,
-          link.google_event_id,
-        );
-      }
-    } catch {
-      conflictEvent = null;
-    }
-  }
-  if (!conflictEvent) return { resolved: false };
-  const patch = calendarPatchFromEvent(item, conflictEvent);
-  const updated = Object.keys(patch).length
-    ? await patchItem(
-        env.DB,
-        workspaceId,
-        item.id,
-        item.version,
-        patch,
-        "owner",
-        "google",
-      )
-    : item;
-  const etag = conflictEvent.etag ?? link?.conflict_etag ?? null;
-  await env.DB.batch([
-    env.DB.prepare(
-      `UPDATE calendar_link SET google_etag = ?,
+        `UPDATE calendar_link SET google_event_id = ?, google_etag = ?,
          last_google_updated_at = ?, last_pushed_item_version = ?,
-         sync_state = 'synced', last_synced_at = ?,
+         sync_state = ?, last_synced_at = ?, last_error_category = NULL,
          conflict_event_json = NULL, conflict_etag = NULL
          WHERE item_id = ? AND workspace_id = ?`,
-    ).bind(
-      etag,
-      conflictEvent.updated ?? now,
-      updated.version,
-      now,
-      item.id,
-      workspaceId,
-    ),
-    env.DB.prepare(
-      `UPDATE item SET calendar_sync_state = 'synced'
-       WHERE id = ? AND workspace_id = ?`,
-    ).bind(item.id, workspaceId),
-    env.DB.prepare(
-      `INSERT INTO item_history
-        (id, item_id, actor_type, actor_identity, action, summary, created_at)
-       VALUES (?, ?, 'user', 'owner', 'calendar_conflict_resolved',
-         'Calendar conflict resolved — kept the Google Calendar version', ?)`,
-    ).bind(crypto.randomUUID(), item.id, now),
-  ]);
-  return { resolved: true };
+      ).bind(
+        saved?.id ?? null,
+        saved?.etag ?? null,
+        saved?.updated ?? now,
+        updated.version,
+        state,
+        now,
+        item.id,
+        workspaceId,
+      ),
+      env.DB.prepare(
+        `UPDATE item SET calendar_sync_state = CASE WHEN version = ? THEN ? ELSE 'pending' END
+         WHERE id = ? AND workspace_id = ?`,
+      ).bind(updated.version, state, item.id, workspaceId),
+      env.DB.prepare(
+        `INSERT INTO item_history
+         (id, item_id, actor_type, actor_identity, action, summary, created_at)
+         VALUES (?, ?, 'user', 'owner', 'calendar_conflict_resolved', ?, ?)`,
+      ).bind(
+        crypto.randomUUID(),
+        item.id,
+        strategy === "mine"
+          ? "Saved the Organato version to Google Calendar"
+          : "Applied the current Google Calendar version",
+        now,
+      ),
+    ]);
+    const remaining = await env.DB.prepare(
+      `SELECT COUNT(*) AS count FROM item WHERE workspace_id = ?
+       AND calendar_sync_state IN ('conflict', 'pending', 'error')`,
+    )
+      .bind(workspaceId)
+      .first<{ count: number }>();
+    await updateGoogleHealth(env, workspaceId, {
+      status: remaining?.count ? "partial" : "healthy",
+      errorCategory: remaining?.count ? "calendar_partial_failure" : null,
+      success: true,
+    });
+    return { resolved: true };
+  } catch (error) {
+    await finishCalendarRun(env, runId, "failed", "conflict_resolution_failed");
+    throw error;
+  } finally {
+    await env.DB.prepare(
+      "UPDATE sync_run SET scheduled_key = 'completed:' || id, finished_at = ?, result = CASE WHEN result = 'running' THEN 'success' ELSE result END WHERE id = ?",
+    )
+      .bind(new Date().toISOString(), runId)
+      .run();
+  }
 }
 
 export type EmailDeliveryType =

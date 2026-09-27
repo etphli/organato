@@ -1,3 +1,4 @@
+import { syncCanvasAndWait, canvasSyncMessage } from "../lib/canvasSync";
 import {
   createContext,
   useCallback,
@@ -1518,17 +1519,11 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
     }
     if (!demoMode) {
       baseDispatch({ type: "syncing", value: true });
-      void apiRequest("/api/integrations/canvas/sync", {
-        method: "POST",
-        body: JSON.stringify({}),
-      })
-        .then(() => refresh())
-        .then(() =>
-          baseDispatch({
-            type: "toast",
-            message: "Canvas and Calendar are up to date",
-          }),
-        )
+      void syncCanvasAndWait(apiRequest)
+        .then(async (result) => {
+          await refresh();
+          baseDispatch({ type: "toast", message: canvasSyncMessage(result) });
+        })
         .catch((error) =>
           baseDispatch({
             type: "toast",

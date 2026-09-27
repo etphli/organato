@@ -260,7 +260,16 @@ try {
     skippedMalformedItems: 0,
   };
   const result = { commandId: poll.command.id, status: "sync", identity, data };
+  const queued = await ok(userRequest("/sync", "alice", {}));
+  assert.equal(queued.status, "queued");
+  assert.equal(queued.commandId, poll.command.id);
+
   await ok(deviceRequest("/result", paired.token, result));
+  const importedStatus = await ok(userRequest(""));
+  assert.equal(importedStatus.lastSync.commandId, result.commandId);
+  assert.equal(importedStatus.lastSync.created, 1);
+  assert.equal(importedStatus.lastSync.fetched, 1);
+
   await ok(deviceRequest("/result", paired.token, result));
   assert.equal(
     (

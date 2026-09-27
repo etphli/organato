@@ -134,6 +134,17 @@ export interface ConnectorState {
   identity: ConnectorIdentity | null;
   candidateIdentity: ConnectorIdentity | null;
   lastSyncAt: string | null;
+  lastSync?: {
+    commandId: string;
+    runId: string;
+    result: "success" | "partial";
+    courses: number;
+    fetched: number;
+    created: number;
+    updated: number;
+    archived: number;
+    skipped: number;
+  };
   error: string | null;
   loginSession: ConnectorSession | null;
   command: ConnectorCommand | null;

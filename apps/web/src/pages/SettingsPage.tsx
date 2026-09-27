@@ -1,3 +1,4 @@
+import { CalendarConflicts } from "../components/settings/CalendarConflicts";
 import {
   Archive,
   Check,
@@ -1155,6 +1156,7 @@ export default function SettingsPage() {
                 </label>
               </div>
               <IntegrationCard provider="google_calendar" />
+              <CalendarConflicts />
             </>
           ) : null}
           {active === "canvas" ? (

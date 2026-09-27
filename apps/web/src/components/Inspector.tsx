@@ -50,6 +50,7 @@ function ConflictBanner({ itemId }: { itemId: string }) {
             ? error.message
             : "The conflict could not be resolved.",
       });
+    } finally {
       setResolving(null);
     }
   };

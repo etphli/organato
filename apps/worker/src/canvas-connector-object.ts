@@ -186,6 +186,7 @@ export class CanvasConnector {
         identity: state.identity,
         candidateIdentity: state.candidateIdentity,
         lastSyncAt: state.lastSyncAt,
+        lastSync: state.lastSync ?? null,
         error: state.error,
         loginExpiresAt: state.loginSession?.expiresAt ?? null,
       });
@@ -314,11 +315,13 @@ export class CanvasConnector {
         return fail("Sign in to Canvas first.");
       if (state.loginSession)
         return fail("Finish or close Canvas sign-in first.");
+      if (state.command && state.command.kind !== "sync")
+        return fail("Finish the current Canvas action before syncing.", 409);
       if (!state.command) this.command(state, "sync");
       state.phase = "syncing";
       state.error = null;
       await this.save(state);
-      return json({ ok: true });
+      return json({ ok: true, status: "queued", commandId: state.command?.id });
     }
     if (url.pathname === "/view") {
       if (!state.loginSession || !this.ctx.getWebSockets("device").length) {
@@ -486,15 +489,49 @@ export class CanvasConnector {
           );
           if (outcome.result === "skipped") {
             const finished = await this.env.DB.prepare(
-              "SELECT result FROM sync_run WHERE id = ? AND workspace_id = ?",
+              "SELECT result, fetched_count, created_count, updated_count, archived_count, skipped_count FROM sync_run WHERE id = ? AND workspace_id = ?",
             )
               .bind(outcome.runId, state.workspaceId)
-              .first<{ result: string }>();
+              .first<{
+                result: string;
+                fetched_count: number;
+                created_count: number;
+                updated_count: number;
+                archived_count: number;
+                skipped_count: number;
+              }>();
             if (!finished || !["success", "partial"].includes(finished.result))
               return fail(
                 "A sync is still active. Retry this result shortly.",
                 503,
               );
+            state.lastSync = {
+              commandId: result.commandId,
+              runId: outcome.runId,
+              result: finished.result === "partial" ? "partial" : "success",
+              courses: result.data.courses.length,
+              fetched: finished.fetched_count,
+              created: finished.created_count,
+              updated: finished.updated_count,
+              archived: finished.archived_count,
+              skipped: finished.skipped_count,
+            };
+          }
+          if (outcome.result !== "skipped") {
+            const summary = {
+              runId: outcome.runId,
+              courses: outcome.courses,
+              fetched: outcome.fetched,
+              created: outcome.created,
+              updated: outcome.updated,
+              archived: outcome.archived,
+              skipped: outcome.skipped,
+            };
+            state.lastSync = {
+              ...summary,
+              result: outcome.result,
+              commandId: result.commandId,
+            };
           }
           state.phase = "connected";
           state.lastSyncAt = new Date().toISOString();

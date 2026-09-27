@@ -143,8 +143,8 @@ describe("Canvas connector settings", () => {
       screen.getByRole("button", { name: "Confirm this account" }),
     );
     expect(
-      await screen.findByRole("button", { name: "Sync now" }),
-    ).toBeInTheDocument();
+      await screen.findByRole("button", { name: "Syncing…" }),
+    ).toBeDisabled();
     expect(screen.getByText(/Connected as Ethan Likht/)).toBeInTheDocument();
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
     expect(disconnect).toHaveBeenCalledOnce();

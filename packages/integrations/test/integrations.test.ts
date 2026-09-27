@@ -433,83 +433,52 @@ describe("Canvas network boundaries", () => {
     });
   });
 
-  it("imports the personalized incomplete assignments shown in Canvas Planner", async () => {
-    const requestedPaths: string[] = [];
-    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+  it("reads all course assignments, including overdue, submitted and undated work", async () => {
+    const requested: string[] = [];
+    const fetcher: typeof fetch = async (input) => {
       const url = new URL(String(input));
-      requestedPaths.push(`${url.pathname}${url.search}`);
-      if (url.pathname === "/api/v1/courses") {
-        return new Response(
-          JSON.stringify([
-            { id: 12, name: "English", workflow_state: "available" },
-          ]),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-      expect(url.pathname).toBe("/api/v1/planner/items");
-      expect(["incomplete_items", "complete_items"]).toContain(
-        url.searchParams.get("filter"),
-      );
-      expect(url.searchParams.get("start_date")).toBeTruthy();
-      expect(url.searchParams.get("end_date")).toBeTruthy();
-      return new Response(
-        JSON.stringify([
-          {
-            course_id: 12,
-            plannable_id: 101,
-            plannable_type: "assignment",
-            plannable_date: "2026-08-15T06:00:00Z",
-            plannable: {
-              id: 101,
-              title: "Comparative essay draft",
-              due_at: "2026-08-15T06:00:00Z",
-              updated_at: "2026-07-30T00:10:00Z",
-            },
-            submissions: { submitted: false, graded: false, excused: false },
-            html_url: "/courses/12/assignments/101",
-          },
-          {
-            course_id: 12,
-            plannable_id: 202,
-            plannable_type: "calendar_event",
-            plannable_date: "2026-08-16T06:00:00Z",
-            plannable: {},
-            submissions: false,
-            html_url: "/calendar?event_id=202",
-          },
-        ]),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }) as unknown as typeof fetch;
+      requested.push(url.pathname);
+      if (url.pathname === "/api/v1/courses")
+        return Response.json([{ id: 12, name: "English" }]);
+      expect(url.pathname).toBe("/api/v1/courses/12/assignments");
+      expect(url.searchParams.get("bucket")).toBeNull();
+      expect(url.searchParams.get("override_assignment_dates")).toBe("true");
+      return Response.json([
+        {
+          id: 101,
+          course_id: 12,
+          name: "Overdue essay",
+          due_at: "2020-01-01T00:00:00Z",
+          updated_at: "2020-01-01T00:00:00Z",
+          html_url: "/courses/12/assignments/101",
+          published: true,
+        },
+        {
+          id: 102,
+          course_id: 12,
+          name: "Submitted essay",
+          due_at: null,
+          updated_at: "2020-01-01T00:00:00Z",
+          html_url: "/courses/12/assignments/102",
+          submission: { workflow_state: "submitted" },
+        },
+      ]);
+    };
     const provider = new CanvasRestProvider(
       "https://emanuel.instructure.com",
-      "private-token",
+      "test-session",
       fetcher,
     );
-
-    await expect(provider.fetchUpcomingAssignments()).resolves.toMatchObject({
-      assignments: [
-        {
-          id: "101",
-          courseId: "12",
-          name: "Comparative essay draft",
-          dueAt: "2026-08-15T06:00:00Z",
-          htmlUrl: "https://emanuel.instructure.com/courses/12/assignments/101",
-          updatedAt: "2026-07-30T00:10:00Z",
-          published: true,
-          submitted: false,
-        },
-      ],
-      successfulCourseIds: ["12"],
-      skippedMalformedItems: 0,
-    });
-    expect(requestedPaths).toHaveLength(3);
+    const result = await provider.fetchUpcomingAssignments();
     expect(
-      requestedPaths.some((path) => path.includes("bucket=upcoming")),
-    ).toBe(false);
-    expect(
-      requestedPaths.filter((path) => path.includes("/api/v1/planner/items")),
-    ).toHaveLength(2);
+      result.assignments.map((row) => [row.name, row.dueAt, row.submitted]),
+    ).toEqual([
+      ["Overdue essay", "2020-01-01T00:00:00Z", false],
+      ["Submitted essay", null, true],
+    ]);
+    expect(result.successfulCourseIds).toEqual(["12"]);
+    expect(result.partialFailures).toEqual([]);
+    expect(requested).toHaveLength(2);
   });
 });
 

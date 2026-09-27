@@ -1,3 +1,4 @@
+import { canvasSyncMessage } from "../../lib/canvasSync";
 import {
   AlertCircle,
   Aperture,
@@ -867,7 +868,7 @@ export function CanvasConnectorSection({
           </h2>
           <p>
             {connected
-              ? "Upcoming school work flows into Organato automatically."
+              ? "Published school work, including overdue and submitted items, flows into Organato."
               : "Sign in through a real Canvas browser running on your paired Pi."}
           </p>
         </div>
@@ -1217,13 +1218,15 @@ export function CanvasConnectorSection({
                 <button
                   type="button"
                   className="canvas-connector__primary canvas-connector__primary--quiet"
-                  disabled={busy !== null}
+                  disabled={busy !== null || status.state === "syncing"}
                   onClick={() => void sync()}
                 >
                   <span className={busy === "sync" ? "is-spinning" : ""}>
                     <RefreshCw size={14} />
                   </span>
-                  {busy === "sync" ? "Syncing…" : "Sync now"}
+                  {busy === "sync" || status.state === "syncing"
+                    ? "Syncing…"
+                    : "Sync now"}
                 </button>
                 <details className="canvas-connector__menu">
                   <summary aria-label="More Canvas actions">
@@ -1334,6 +1337,9 @@ export function CanvasConnectorSection({
                 </>
               )}
             </p>
+            {status.lastSync && status.state !== "syncing" ? (
+              <p role="status">{canvasSyncMessage(status.lastSync)}</p>
+            ) : null}
           </div>
         </>
       )}

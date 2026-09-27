@@ -1,3 +1,7 @@
+import {
+  parseCanvasSyncSummary,
+  type CanvasSyncSummary,
+} from "../../lib/canvasSync";
 import { IntegrationRequestError } from "../../lib/integrationApi";
 
 const connectorStates = [
@@ -30,6 +34,7 @@ export interface CanvasConnectorStatus {
   identity: CanvasConnectorIdentity | null;
   candidateIdentity: CanvasConnectorIdentity | null;
   lastSyncAt: string | null;
+  lastSync?: CanvasSyncSummary | null;
   error: string | null;
   loginExpiresAt: string | null;
 }
@@ -146,6 +151,7 @@ export function parseCanvasConnectorStatus(
       "Canvas candidate identity",
     ),
     lastSyncAt: nullableString(record, "lastSyncAt", "Canvas connector status"),
+    lastSync: record.lastSync ? parseCanvasSyncSummary(record.lastSync) : null,
     error: nullableString(record, "error", "Canvas connector status"),
     loginExpiresAt: nullableString(
       record,
