@@ -17,7 +17,7 @@ import {
   subMonths,
 } from "date-fns";
 import {
-  compareItems,
+  createItemComparator,
   dateOnlyCutoffUtc,
   daysRemainingLabel,
   isInView,
@@ -25,7 +25,7 @@ import {
   visibleStatus,
   type Classification,
   type OrganatoItem,
-} from "@organato/domain";
+} from "@organato/domain/core";
 import { PageHeader } from "../components/PageHeader";
 import { SubjectDot } from "../components/SubjectDot";
 import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
@@ -96,7 +96,7 @@ function TopBriefing() {
             item.workingStatus !== "completed" &&
             itemDueDate(item, settings.timezone),
         )
-        .toSorted((a, b) => compareItems(a, b, today, settings.timezone))
+        .toSorted(createItemComparator(today, settings.timezone))
         .slice(0, 3),
     [items, settings.timezone, today],
   );
@@ -481,9 +481,7 @@ function MiniCalendar() {
     grouped.forEach((entries, key) => {
       grouped.set(
         key,
-        entries.toSorted((a, b) =>
-          compareItems(a, b, today, settings.timezone),
-        ),
+        entries.toSorted(createItemComparator(today, settings.timezone)),
       );
     });
     return grouped;
@@ -578,7 +576,7 @@ function TodayList() {
   const today = useToday();
   const todos = items
     .filter((item) => item.kind === "todo" && !item.archivedAt)
-    .toSorted((a, b) => compareItems(a, b, today, settings.timezone))
+    .toSorted(createItemComparator(today, settings.timezone))
     .slice(0, 3);
   const create = () => {
     if (!name.trim()) return;
@@ -680,7 +678,7 @@ function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
             (settings.includeBothInPanels || item.classification !== "both")
           );
         })
-        .toSorted((a, b) => compareItems(a, b, today, settings.timezone))
+        .toSorted(createItemComparator(today, settings.timezone))
         .slice(0, limit),
     [
       items,
@@ -755,7 +753,7 @@ function OverdueList() {
             !item.archivedAt &&
             visibleStatus(item, today, settings.timezone) === "overdue",
         )
-        .toSorted((a, b) => compareItems(a, b, today, settings.timezone))
+        .toSorted(createItemComparator(today, settings.timezone))
         .slice(0, 8),
     [items, settings.timezone, today],
   );

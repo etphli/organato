@@ -66,7 +66,7 @@ describe("long-session performance regressions", () => {
   beforeEach(() => localStorage.clear());
   afterEach(cleanup);
 
-  it("unmounts the Inspector cleanly through repeated open and close cycles", () => {
+  it("unmounts the Inspector cleanly through repeated open and close cycles", async () => {
     render(
       <MemoryRouter>
         <OrganatoProvider>
@@ -80,18 +80,22 @@ describe("long-session performance regressions", () => {
     expect(row).not.toBeNull();
     fireEvent.click(row!);
     for (let index = 0; index < 10; index += 1) {
-      fireEvent.click(screen.getByRole("button", { name: "Close details" }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Close details" }),
+      );
       expect(
         screen.queryByRole("dialog", { name: "Details for Group lab report" }),
       ).not.toBeInTheDocument();
       fireEvent.click(row!);
       expect(
-        screen.getByRole("dialog", { name: "Details for Group lab report" }),
+        await screen.findByRole("dialog", {
+          name: "Details for Group lab report",
+        }),
       ).toBeVisible();
     }
   }, 60_000);
 
-  it("opens the global search and command overlays", () => {
+  it("opens the global search and command overlays", async () => {
     render(
       <MemoryRouter>
         <OrganatoProvider>
@@ -103,7 +107,7 @@ describe("long-session performance regressions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Search Organato" }));
     expect(
-      screen.getByRole("dialog", { name: "Search Organato" }),
+      await screen.findByRole("dialog", { name: "Search Organato" }),
     ).toBeVisible();
     fireEvent.keyDown(window, { key: "Escape" });
 
@@ -111,7 +115,7 @@ describe("long-session performance regressions", () => {
       screen.getByRole("button", { name: "Open command palette" }),
     );
     expect(
-      screen.getByRole("dialog", { name: "Command palette" }),
+      await screen.findByRole("dialog", { name: "Command palette" }),
     ).toBeVisible();
   });
 

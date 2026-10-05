@@ -1,7 +1,7 @@
 import { History, Search, Settings2 } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { visibleStatus } from "@organato/domain";
+import { visibleStatus } from "@organato/domain/core";
 import {
   useOrganatoActions,
   useOrganatoData,

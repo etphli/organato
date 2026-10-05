@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  compareItems,
+  createItemComparator,
   assertSecretFreeBackup,
   dateOnlyCutoffUtc,
   daysBetweenLocalDates,
@@ -315,4 +317,43 @@ describe("domain invariants", () => {
       ).success,
     ).toBe(false);
   });
+});
+
+it("cached sorting matches deadline, overdue, priority, and name ordering across timezones", () => {
+  const items = Array.from({ length: 150 }, (_, index) =>
+    item({
+      id: `sort-${index}`,
+      displayName: `Work ${index % 11}`,
+      dueAt: index % 3 === 0 ? "2026-10-08T04:00:00.000Z" : null,
+      dueDateLocal:
+        index % 3 === 1
+          ? `2026-10-${String(1 + (index % 28)).padStart(2, "0")}`
+          : null,
+      dueHasExplicitTime: index % 3 === 0,
+      priority: index % 2 ? "high" : "low",
+      workingStatus: index % 7 === 0 ? "completed" : "not_started",
+      archivedAt: index % 13 === 0 ? "2026-10-01T00:00:00.000Z" : null,
+    }),
+  );
+  for (const timezone of [
+    "Australia/Sydney",
+    "America/New_York",
+    "Pacific/Auckland",
+    "UTC",
+  ]) {
+    for (const now of [
+      new Date("2026-10-05T05:00:00.000Z"),
+      new Date("2026-10-09T05:00:00.000Z"),
+    ]) {
+      expect(
+        items
+          .toSorted(createItemComparator(now, timezone))
+          .map((entry) => entry.id),
+      ).toEqual(
+        items
+          .toSorted((a, b) => compareItems(a, b, now, timezone))
+          .map((entry) => entry.id),
+      );
+    }
+  }
 });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { OrganatoItem } from "./types";
 import { isValidLocalDate } from "./items";
 
 const stringOrNull = z.string().max(20_000).nullable();
@@ -51,7 +52,7 @@ const historySchema = z
   })
   .strict();
 
-const itemSchema = z
+const itemFieldsSchema = z
   .object({
     id: z.string().min(1),
     version: z.number().int().positive(),
@@ -223,41 +224,56 @@ const itemSchema = z
       })
       .default({ blockedBy: [], blocking: [] }),
   })
-  .strict()
-  .superRefine((item, context) => {
-    const hasTimedDeadline = Boolean(item.dueAt);
-    const hasDateOnlyDeadline = Boolean(item.dueDateLocal);
-    if (
-      (hasTimedDeadline && hasDateOnlyDeadline) ||
-      item.dueHasExplicitTime !== hasTimedDeadline
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["dueHasExplicitTime"],
-        message: "Backup item deadline fields are inconsistent.",
-      });
-    }
-    if (
-      item.sourceType === "canvas" &&
-      (!item.canvasAssignmentId || !item.canvasCourseId || !item.canvasHtmlUrl)
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["sourceType"],
-        message: "Canvas backup items require their external identity.",
-      });
-    }
-    if (
-      item.sourceType === "manual" &&
-      (item.canvasAssignmentId || item.canvasCourseId || item.canvasHtmlUrl)
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["sourceType"],
-        message: "Manual backup items cannot claim a Canvas identity.",
-      });
-    }
-  });
+  .strict();
+
+function refineItem(
+  item: Pick<
+    OrganatoItem,
+    | "dueAt"
+    | "dueDateLocal"
+    | "dueHasExplicitTime"
+    | "sourceType"
+    | "canvasAssignmentId"
+    | "canvasCourseId"
+    | "canvasHtmlUrl"
+  >,
+  context: z.RefinementCtx,
+) {
+  const hasTimedDeadline = Boolean(item.dueAt);
+  const hasDateOnlyDeadline = Boolean(item.dueDateLocal);
+  if (
+    (hasTimedDeadline && hasDateOnlyDeadline) ||
+    item.dueHasExplicitTime !== hasTimedDeadline
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["dueHasExplicitTime"],
+      message: "Backup item deadline fields are inconsistent.",
+    });
+  }
+  if (
+    item.sourceType === "canvas" &&
+    (!item.canvasAssignmentId || !item.canvasCourseId || !item.canvasHtmlUrl)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["sourceType"],
+      message: "Canvas backup items require their external identity.",
+    });
+  }
+  if (
+    item.sourceType === "manual" &&
+    (item.canvasAssignmentId || item.canvasCourseId || item.canvasHtmlUrl)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["sourceType"],
+      message: "Manual backup items cannot claim a Canvas identity.",
+    });
+  }
+}
+
+const itemSchema = itemFieldsSchema.superRefine(refineItem);
 
 const savedViewSchema = z
   .object({
@@ -421,3 +437,23 @@ export function assertSecretFreeBackup(serialized: string): boolean {
   ];
   return forbidden.every((pattern) => !pattern.test(serialized));
 }
+
+const cachedLinkSchema = z
+  .object({ itemId: z.string().min(1), linkId: z.string().min(1) })
+  .strict();
+export const workspaceCacheSchema = workspaceBackupSchema.extend({
+  items: z
+    .array(
+      itemFieldsSchema
+        .extend({
+          links: z
+            .object({
+              blockedBy: z.array(cachedLinkSchema),
+              blocking: z.array(cachedLinkSchema),
+            })
+            .strict(),
+        })
+        .superRefine(refineItem),
+    )
+    .max(2000),
+});

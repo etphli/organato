@@ -227,26 +227,60 @@ const priorityRank: Record<NonNullable<Priority>, number> = {
   urgent: 4,
 };
 
+function itemOrder(item: OrganatoItem, now: Date, timezone: string) {
+  return {
+    overdue: visibleStatus(item, now, timezone) === "overdue",
+    deadline:
+      itemDeadline(item, timezone)?.getTime() ?? Number.MAX_SAFE_INTEGER,
+  };
+}
+
+function compareDeadlineOrder(
+  a: OrganatoItem,
+  b: OrganatoItem,
+  aDeadline: number,
+  bDeadline: number,
+): number {
+  if (aDeadline !== bDeadline) return aDeadline - bDeadline;
+  const priorityDifference =
+    (priorityRank[b.priority ?? "low"] ?? 0) -
+    (priorityRank[a.priority ?? "low"] ?? 0);
+  return priorityDifference || a.displayName.localeCompare(b.displayName);
+}
+
 export function compareItems(
   a: OrganatoItem,
   b: OrganatoItem,
   now = new Date(),
   timezone = "Australia/Sydney",
 ): number {
-  const aStatus = visibleStatus(a, now, timezone);
-  const bStatus = visibleStatus(b, now, timezone);
-  if (aStatus === "overdue" && bStatus !== "overdue") return -1;
-  if (bStatus === "overdue" && aStatus !== "overdue") return 1;
-  const aDeadline =
-    itemDeadline(a, timezone)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-  const bDeadline =
-    itemDeadline(b, timezone)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-  if (aDeadline !== bDeadline) return aDeadline - bDeadline;
-  const priorityDifference =
-    (priorityRank[b.priority ?? "low"] ?? 0) -
-    (priorityRank[a.priority ?? "low"] ?? 0);
-  if (priorityDifference !== 0) return priorityDifference;
-  return a.displayName.localeCompare(b.displayName);
+  const aOverdue = visibleStatus(a, now, timezone) === "overdue";
+  const bOverdue = visibleStatus(b, now, timezone) === "overdue";
+  if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+  return compareDeadlineOrder(
+    a,
+    b,
+    itemDeadline(a, timezone)?.getTime() ?? Number.MAX_SAFE_INTEGER,
+    itemDeadline(b, timezone)?.getTime() ?? Number.MAX_SAFE_INTEGER,
+  );
+}
+
+export function createItemComparator(now: Date, timezone: string) {
+  const orders = new WeakMap<OrganatoItem, ReturnType<typeof itemOrder>>();
+  const order = (item: OrganatoItem) => {
+    let value = orders.get(item);
+    if (!value) {
+      value = itemOrder(item, now, timezone);
+      orders.set(item, value);
+    }
+    return value;
+  };
+  return (a: OrganatoItem, b: OrganatoItem) => {
+    const aOrder = order(a);
+    const bOrder = order(b);
+    if (aOrder.overdue !== bOrder.overdue) return aOrder.overdue ? -1 : 1;
+    return compareDeadlineOrder(a, b, aOrder.deadline, bOrder.deadline);
+  };
 }
 
 function addDays(date: Date, amount: number): Date {

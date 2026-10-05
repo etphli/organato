@@ -1,3 +1,7 @@
+import {
+  assertSecretFreeBackup,
+  validateBackup,
+} from "@organato/domain/backup";
 import { CalendarConflicts } from "../components/settings/CalendarConflicts";
 import {
   Archive,
@@ -13,12 +17,10 @@ import { POST_RESTORE_RELOAD_DELAY_MS } from "../lib/timing";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
-  assertSecretFreeBackup,
-  validateBackup,
   visibleStatus,
   type OrganatoItem,
   type WorkspaceSnapshot,
-} from "@organato/domain";
+} from "@organato/domain/core";
 import { PageHeader } from "../components/PageHeader";
 import { OrganatoSelect } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";

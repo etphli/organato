@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { visibleStatus, type OrganatoItem } from "@organato/domain";
+import { visibleStatus, type OrganatoItem } from "@organato/domain/core";
 import { localDateTimeToIso } from "../pages/calendar/model";
 import {
   useOrganatoActions,
