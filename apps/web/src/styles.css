@@ -2893,7 +2893,7 @@ details.inspector-section > summary::marker {
     right: 14px;
     top: 14px;
     width: 36px;
-    z-index: 45;
+    z-index: var(--z-shell);
   }
 
   .page {
