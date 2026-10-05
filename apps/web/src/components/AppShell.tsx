@@ -1,3 +1,4 @@
+import { prefetchRoute } from "../lib/routeModules";
 import type { ReactNode } from "react";
 import {
   CalendarDays,
@@ -102,6 +103,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       </a>
       <NavLink
         to="/settings"
+        onMouseEnter={() => prefetchRoute("/settings")}
+        onFocus={() => prefetchRoute("/settings")}
+        onTouchStart={() => prefetchRoute("/settings")}
         className="mobile-account-link"
         aria-label={`Open Settings for ${displayName}`}
       >
@@ -112,6 +116,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className="sidebar" aria-label="Sidebar navigation">
         <NavLink
           to="/"
+          onMouseEnter={() => prefetchRoute("/")}
+          onFocus={() => prefetchRoute("/")}
+          onTouchStart={() => prefetchRoute("/")}
           className="wordmark brand-lockup"
           aria-label="Organato Home"
         >
@@ -126,6 +133,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               end={to === "/"}
               aria-label={label}
               onClick={closeInspector}
+              onMouseEnter={() => prefetchRoute(to)}
+              onFocus={() => prefetchRoute(to)}
+              onTouchStart={() => prefetchRoute(to)}
               className={({ isActive }: NavLinkRenderProps) =>
                 `nav-item${isActive ? " active" : ""}`
               }
@@ -139,6 +149,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           {syncStatus.to ? (
             <NavLink
               to={syncStatus.to}
+              onMouseEnter={() => prefetchRoute(syncStatus.to ?? "/settings")}
+              onFocus={() => prefetchRoute(syncStatus.to ?? "/settings")}
+              onTouchStart={() => prefetchRoute(syncStatus.to ?? "/settings")}
               className={`sync-quiet sync-state sync-state--${syncStatus.tone} sync-state--link`}
               aria-label={`${syncStatus.label}: open ${syncStatus.targetLabel} settings`}
               title={`Open ${syncStatus.targetLabel} settings`}
@@ -160,6 +173,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
           <NavLink
             to="/settings"
+            onMouseEnter={() => prefetchRoute("/settings")}
+            onFocus={() => prefetchRoute("/settings")}
+            onTouchStart={() => prefetchRoute("/settings")}
             className="account-link"
             aria-label={`${displayName} Settings`}
           >
@@ -182,6 +198,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             end={to === "/"}
             aria-label={label}
             onClick={closeInspector}
+            onMouseEnter={() => prefetchRoute(to)}
+            onFocus={() => prefetchRoute(to)}
+            onTouchStart={() => prefetchRoute(to)}
             className={({ isActive }: NavLinkRenderProps) =>
               isActive ? "active" : ""
             }

@@ -93,6 +93,23 @@ describe("domain invariants", () => {
     );
   });
 
+  it("keeps cached timezone formatters correct across daylight-saving dates", () => {
+    for (let repeat = 0; repeat < 3; repeat += 1) {
+      expect(
+        dateOnlyCutoffUtc("2026-07-25", "Australia/Sydney").toISOString(),
+      ).toBe("2026-07-25T13:59:00.000Z");
+      expect(
+        dateOnlyCutoffUtc("2026-01-15", "Australia/Sydney").toISOString(),
+      ).toBe("2026-01-15T12:59:00.000Z");
+      expect(dateOnlyCutoffUtc("2026-01-15", "UTC").toISOString()).toBe(
+        "2026-01-15T23:59:00.000Z",
+      );
+      expect(
+        dateOnlyCutoffUtc("2026-01-15", "Asia/Kolkata").toISOString(),
+      ).toBe("2026-01-15T18:29:00.000Z");
+    }
+  });
+
   it("resolves date-only deadlines in the workspace timezone", () => {
     const work = item({
       dueAt: null,

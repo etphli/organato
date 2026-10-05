@@ -17,15 +17,16 @@ import {
   useOrganatoItems,
   useOrganatoWorkspace,
 } from "./state/OrganatoProvider";
+import { routeModules } from "./lib/routeModules";
 import { KEY_SEQUENCE_TIMEOUT_MS } from "./lib/timing";
 
 // Route-split: each page (and the one-shot wizard) loads on demand instead
 // of inflating the first paint for every route.
-const CalendarPage = lazy(() => import("./pages/CalendarPage"));
-const HomePage = lazy(() => import("./pages/HomePage"));
-const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const TodoPage = lazy(() => import("./pages/TodoPage"));
-const WorkPage = lazy(() => import("./pages/WorkPage"));
+const CalendarPage = routeModules.calendar.Page;
+const HomePage = routeModules.home.Page;
+const SettingsPage = routeModules.settings.Page;
+const TodoPage = routeModules.todo.Page;
+const WorkPage = routeModules.work.Page;
 const SetupWizard = lazy(() =>
   import("./components/setup/SetupWizard").then((module) => ({
     default: module.SetupWizard,
