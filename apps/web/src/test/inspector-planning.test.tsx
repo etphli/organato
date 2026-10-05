@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import { Inspector } from "../components/Inspector";
@@ -15,6 +21,44 @@ afterEach(() => {
 });
 
 describe("Inspector planning sections", () => {
+  it("keeps a focused name draft through a server update and resets it for another item", async () => {
+    const target = seedItems[0]!;
+    const next = seedItems[1]!;
+    let update: (() => void) | undefined;
+    let selectNext: (() => void) | undefined;
+    function LiveUpdates() {
+      const { dispatch } = useOrganatoActions();
+      useEffect(() => {
+        dispatch({ type: "select", id: target.id });
+        update = () =>
+          dispatch({
+            type: "replaceItem",
+            item: { ...target, version: 2, displayName: "Server revision" },
+          });
+        selectNext = () => dispatch({ type: "select", id: next.id });
+      }, [dispatch]);
+      return null;
+    }
+    render(
+      <MemoryRouter>
+        <OrganatoProvider>
+          <LiveUpdates />
+          <Inspector />
+        </OrganatoProvider>
+      </MemoryRouter>,
+    );
+    const name = await screen.findByRole("textbox", { name: "Item name" });
+    act(() => name.focus());
+    act(() => update?.());
+    expect(name).toHaveValue("Server revision");
+    fireEvent.change(name, { target: { value: "My unsaved name" } });
+    act(() => update?.());
+    expect(name).toHaveValue("My unsaved name");
+    expect(name).toHaveFocus();
+    act(() => selectNext?.());
+    expect(name).toHaveValue(next.displayName);
+  });
+
   it("shows checklist, dependencies, and effort controls", async () => {
     const target = seedItems.find((item) => item.kind === "work")!;
     localStorage.setItem(

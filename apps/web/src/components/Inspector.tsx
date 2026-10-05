@@ -551,6 +551,7 @@ export function Inspector() {
   const item = selectedItem ?? retainedItemRef.current;
   const inspectorRef = useRef<HTMLElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const nameDraftItemRef = useRef<OrganatoItem | null>(null);
   const notesRef = useRef<HTMLTextAreaElement>(null);
   const [nameDraft, setNameDraft] = useState("");
   const [addingLink, setAddingLink] = useState(false);
@@ -696,7 +697,16 @@ export function Inspector() {
     item?.id ?? "inspector-closed",
   );
   useEffect(() => {
-    if (selectedItem) setNameDraft(selectedItem.displayName);
+    if (selectedItem) {
+      const previous = nameDraftItemRef.current;
+      const editingName =
+        previous !== null &&
+        previous.id === selectedItem.id &&
+        document.activeElement === nameInputRef.current &&
+        nameInputRef.current?.value !== previous.displayName;
+      if (!editingName) setNameDraft(selectedItem.displayName);
+    }
+    nameDraftItemRef.current = selectedItem;
   }, [selectedItem]);
   useEffect(() => {
     if (selectedItem) return;
