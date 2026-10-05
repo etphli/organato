@@ -1,4 +1,5 @@
 const dayMs = 86_400_000;
+const cutoffFormatters = new Map<string, Intl.DateTimeFormat>();
 const localDateFormatters = new Map<string, Intl.DateTimeFormat>();
 
 function localDateFormatter(timezone: string): Intl.DateTimeFormat {
@@ -63,11 +64,15 @@ export function dateOnlyCutoffUtc(
   // Determine the UTC offset at local midday, then construct local 23:59.
   const [year = 0, month = 1, day = 1] = localDate.split("-").map(Number);
   const guess = new Date(Date.UTC(year, month - 1, day, 12));
-  const formatter = new Intl.DateTimeFormat("en-AU", {
-    timeZone: timezone,
-    timeZoneName: "longOffset",
-    hour: "2-digit",
-  });
+  let formatter = cutoffFormatters.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-AU", {
+      timeZone: timezone,
+      timeZoneName: "longOffset",
+      hour: "2-digit",
+    });
+    cutoffFormatters.set(timezone, formatter);
+  }
   const offsetName =
     formatter.formatToParts(guess).find((part) => part.type === "timeZoneName")
       ?.value ?? "GMT+10:00";

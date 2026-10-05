@@ -1,3 +1,4 @@
+import { requestNavigationData } from "../../lib/navigationData";
 import { Laptop, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useOrganatoActions } from "../../state/OrganatoProvider";
@@ -73,7 +74,7 @@ export function ActiveSessions() {
 
   useEffect(() => {
     if (demoMode) return;
-    void fetch("/api/sessions", { credentials: "same-origin" })
+    void requestNavigationData("/api/sessions")
       .then(async (response) => {
         if (!response.ok) throw new Error("sessions_unavailable");
         return (await response.json()) as { sessions: SessionSummary[] };

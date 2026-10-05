@@ -1,3 +1,4 @@
+import { requestNavigationData } from "../../lib/navigationData";
 import { useEffect, useState } from "react";
 import { useAuthOwner } from "../AuthGate";
 import { useOrganatoWorkspace } from "../../state/OrganatoProvider";
@@ -52,7 +53,7 @@ export function AccountAccessSection() {
 
   useEffect(() => {
     if (demoMode) return;
-    void fetch("/api/identities", { credentials: "same-origin" })
+    void requestNavigationData("/api/identities")
       .then(async (response) => {
         if (!response.ok)
           throw new Error("Account details could not be loaded.");
