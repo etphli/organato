@@ -5,7 +5,7 @@ import {
   type Priority,
   type Subject,
   type WorkspaceSettings,
-} from "@organato/domain";
+} from "@organato/domain/core";
 import {
   addDays,
   addMonths,

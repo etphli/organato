@@ -5,10 +5,12 @@ import { installClientDiagnostics } from "./clientDiagnostics";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { AuthGate } from "./components/AuthGate";
 import { OrganatoProvider } from "./state/OrganatoProvider";
+import { preloadRoute } from "./lib/routeModules";
 import { registerServiceWorker } from "./sw-register";
 import "./styles.css";
 import "./polish.css";
 
+preloadRoute(window.location.pathname);
 installClientDiagnostics();
 registerServiceWorker();
 

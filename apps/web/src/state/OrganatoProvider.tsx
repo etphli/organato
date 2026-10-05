@@ -6,6 +6,8 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useState,
+  startTransition,
   useRef,
   type ReactNode,
 } from "react";
@@ -19,7 +21,13 @@ import type {
   Subject,
   WorkspaceSettings,
 } from "@organato/domain";
-import { nextRecurrenceDeadline } from "@organato/domain";
+import { nextRecurrenceDeadline } from "@organato/domain/core";
+import { useAuthOwner } from "../components/AuthGate";
+import {
+  loadWorkspaceCache,
+  saveWorkspaceCache,
+  clearWorkspaceCache,
+} from "../lib/workspaceCache";
 import { BrandMark } from "../components/BrandMark";
 import {
   seedIntegrations,
@@ -35,6 +43,8 @@ interface State {
   settings: WorkspaceSettings;
   integrations: IntegrationHealth[];
   views: SavedView[];
+  revalidating: boolean;
+  mutationRevision: number;
   ready: boolean;
   archivedReady: boolean;
   bootError: string | null;
@@ -55,6 +65,7 @@ interface State {
 type Action =
   | {
       type: "hydrate";
+      revision?: number;
       items: OrganatoItem[];
       subjects: Subject[];
       settings: WorkspaceSettings;
@@ -141,6 +152,8 @@ type Action =
   | { type: "search"; open: boolean }
   | { type: "syncing"; value: boolean }
   | { type: "toast"; message: string | null }
+  | { type: "revalidating"; value: boolean }
+  | { type: "mutationStarted" }
   | { type: "bootStarted" }
   | { type: "bootFailed"; message: string }
   | { type: "undo" }
@@ -189,6 +202,8 @@ function initialState(): State {
           ...parsed,
           integrations: seedIntegrations,
           views: "views" in parsed ? (parsed as State).views : seedViews,
+          revalidating: false,
+          mutationRevision: 0,
           ready: true,
           archivedReady: true,
           bootError: null,
@@ -212,6 +227,8 @@ function initialState(): State {
     settings: seedSettings,
     integrations: seedIntegrations,
     views: demoMode ? seedViews : [],
+    revalidating: false,
+    mutationRevision: 0,
     ready: demoMode,
     archivedReady: demoMode,
     bootError: null,
@@ -234,27 +251,57 @@ function listItem(item: OrganatoItem): OrganatoItem {
   return demoMode ? item : { ...item, attachments: [], history: [] };
 }
 
+function retainEqual<T>(previous: T, next: T): T {
+  return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+}
+
 function baseReducer(state: State, action: Action): State {
+  if (action.type === "revalidating")
+    return { ...state, revalidating: action.value };
+  if (action.type === "mutationStarted")
+    return { ...state, mutationRevision: state.mutationRevision + 1 };
   if (action.type === "hydrate") {
+    if (
+      action.revision !== undefined &&
+      action.revision !== state.mutationRevision
+    )
+      return state;
     const nextItems = action.preserveArchived
       ? [
           ...action.items.filter((item) => !item.archivedAt),
           ...state.items.filter((item) => item.archivedAt),
         ]
       : action.items;
+    const previous = new Map(state.items.map((item) => [item.id, item]));
+    const stableItems = nextItems.map((item) => {
+      const existing = previous.get(item.id);
+      return existing &&
+        JSON.stringify(listItem(existing)) === JSON.stringify(listItem(item))
+        ? existing
+        : item;
+    });
     const selectedStillExists =
       state.selectedItemId != null &&
       nextItems.some((item) => item.id === state.selectedItemId);
     return persist({
       ...state,
-      items: nextItems,
-      subjects: action.subjects,
-      settings: action.settings,
-      integrations: action.integrations,
-      views: action.views,
+      items:
+        stableItems.length === state.items.length &&
+        stableItems.every((item, index) => item === state.items[index])
+          ? state.items
+          : stableItems,
+      subjects: retainEqual(state.subjects, action.subjects),
+      settings: retainEqual(state.settings, action.settings),
+      integrations: retainEqual(state.integrations, action.integrations),
+      views: retainEqual(state.views, action.views),
       ready: true,
       archivedReady: action.archivedReady ?? state.archivedReady,
-      selectedItemDetail: selectedStillExists ? state.selectedItemDetail : null,
+      selectedItemDetail:
+        selectedStillExists &&
+        state.selectedItemDetail?.version ===
+          stableItems.find((item) => item.id === state.selectedItemId)?.version
+          ? state.selectedItemDetail
+          : null,
       bootError: null,
     });
   }
@@ -800,6 +847,7 @@ type WorkspaceContextValue = Pick<
 > & { subjectsById: Map<string, Subject> };
 type UiContextValue = Pick<
   State,
+  | "revalidating"
   | "selectedItemId"
   | "commandOpen"
   | "searchOpen"
@@ -817,18 +865,27 @@ const OrganatoUiContext = createContext<UiContextValue | null>(null);
 const OrganatoActionsContext = createContext<ActionsContextValue | null>(null);
 
 export function OrganatoProvider({ children }: { children: ReactNode }) {
+  const owner = useAuthOwner();
+  const cacheKey = owner
+    ? `${owner.email}:${owner.workspaceId ?? owner.email}`
+    : null;
+  const [cacheRevision, setCacheRevision] = useState(0);
+  const mutationRevision = useRef(0);
+  const cacheBlocked = useRef(true);
+  const settingsSaving = useRef(0);
   const [state, baseDispatch] = useReducer(reducer, undefined, initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
   const archivedRequest = useRef<Promise<{ items: OrganatoItem[] }> | null>(
     null,
   );
-  const detailedItemRequest = useRef<{
-    id: string;
-    promise: Promise<OrganatoItem>;
-  } | null>(null);
-  const lastDetailedItem = useRef<OrganatoItem | null>(null);
+  const detailRequests = useRef(new Map<string, Promise<void>>());
+  const detailCache = useRef(
+    new Map<string, { item: OrganatoItem; loadedAt: number }>(),
+  );
+  const detailGeneration = useRef(0);
   const serverVersions = useRef(new Map<string, number>());
+  const mutationQueues = useRef(new Map<string, Promise<void>>());
   useEffect(() => {
     if (!demoMode) return;
     const timeout = window.setTimeout(() => {
@@ -911,6 +968,8 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
           },
         );
       }
+      await Promise.allSettled([...mutationQueues.current.values()]);
+      const revision = mutationRevision.current;
       // Partial hydration: a single failing slice (views, integrations,
       // …) no longer blocks the whole workspace. Only items are critical.
       const [active, archived, subjects, settings, integrations, views] =
@@ -937,14 +996,29 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
           }>("/api/integrations").catch(() => null),
           apiRequest<{ views: SavedView[] }>("/api/views").catch(() => null),
         ]);
+      if (
+        revision !== mutationRevision.current ||
+        mutationQueues.current.size
+      ) {
+        return refresh(options);
+      }
+      // Never regress a confirmed mutation to an older list response.
+      const currentItems = new Map(
+        stateRef.current.items.map((item) => [item.id, item]),
+      );
+      active.items = active.items.map((item) => {
+        const existing = currentItems.get(item.id);
+        return existing && existing.version > item.version ? existing : item;
+      });
       const degraded = [
         !subjects && "subjects",
         !settings && "settings",
         !integrations && "integrations",
         !views && "views",
       ].filter(Boolean) as string[];
-      detailedItemRequest.current = null;
-      lastDetailedItem.current = null;
+      detailGeneration.current += 1;
+      detailRequests.current.clear();
+      detailCache.current.clear();
       serverVersions.current = new Map(
         [...active.items, ...(archived?.items ?? [])].map((item) => [
           item.id,
@@ -977,16 +1051,25 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
           lastError: connection.last_error_category,
         };
       });
-      baseDispatch({
-        type: "hydrate",
-        items: archived ? [...active.items, ...archived.items] : active.items,
-        subjects: subjects?.subjects ?? [],
-        settings: { ...seedSettings, ...settings?.settings },
-        integrations: integrationHealth,
-        views: views?.views ?? [],
-        preserveArchived: archived === null,
-        ...(archived ? { archivedReady: true } : {}),
-      });
+      cacheBlocked.current = false;
+      startTransition(() =>
+        baseDispatch({
+          type: "hydrate",
+          revision,
+          items: archived ? [...active.items, ...archived.items] : active.items,
+          subjects: subjects?.subjects ?? stateRef.current.subjects,
+          settings:
+            settingsFlushTimer.current || settingsSaving.current
+              ? stateRef.current.settings
+              : settings
+                ? { ...seedSettings, ...settings.settings }
+                : stateRef.current.settings,
+          integrations: integrationHealth,
+          views: views?.views ?? stateRef.current.views,
+          preserveArchived: archived === null,
+          ...(archived ? { archivedReady: true } : {}),
+        }),
+      );
       if (degraded.length) {
         baseDispatch({
           type: "toast",
@@ -999,61 +1082,149 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
 
   const loadWorkspace = useCallback(async () => {
     baseDispatch({ type: "bootStarted" });
+    baseDispatch({ type: "revalidating", value: !demoMode });
+    let settled = false;
+    const cached =
+      cacheKey && !demoMode
+        ? loadWorkspaceCache(cacheKey)
+        : Promise.resolve(null);
+    const cachedHydration = cached.then((snapshot) => {
+      if (!snapshot || settled || stateRef.current.ready) return false;
+      serverVersions.current = new Map(
+        snapshot.items.map((item) => [item.id, item.version]),
+      );
+      baseDispatch({
+        type: "hydrate",
+        items: snapshot.items,
+        subjects: snapshot.subjects,
+        settings: snapshot.settings,
+        views: snapshot.savedViews,
+        integrations: seedIntegrations.map((integration) => ({
+          ...integration,
+          state: "delayed",
+          lastError: null,
+        })),
+      });
+      return true;
+    });
     try {
       await refresh();
+      settled = true;
     } catch (error) {
+      cacheBlocked.current = true;
+      const fromCache = await cachedHydration;
+      settled = true;
+      if (fromCache || stateRef.current.ready) {
+        baseDispatch({
+          type: "toast",
+          message: "Showing saved workspace data. Refresh to retry the server.",
+        });
+        return;
+      }
       const message = error instanceof Error ? error.message : "";
       baseDispatch({
         type: "bootFailed",
-        message:
-          typeof navigator !== "undefined" && !navigator.onLine
-            ? "Reconnect to load your private workspace, then try again."
-            : /session|authentication|sign-in/i.test(message)
-              ? "Your sign-in expired. Sign in again to reload your workspace."
-              : "One or more workspace requests failed. Your data is safe; try again.",
+        message: !navigator.onLine
+          ? "Reconnect to load your private workspace, then try again."
+          : /session|authentication|sign-in/i.test(message)
+            ? "Your sign-in expired. Sign in again to reload your workspace."
+            : "One or more workspace requests failed. Your data is safe; try again.",
       });
+    } finally {
+      baseDispatch({ type: "revalidating", value: false });
     }
-  }, [refresh]);
+  }, [cacheKey, refresh]);
 
   useEffect(() => {
     void loadWorkspace();
   }, [loadWorkspace]);
 
-  const mutationQueues = useRef(new Map<string, Promise<void>>());
   // Text settings (checklist templates, gateway address, …) dispatch on
   // every keystroke. Optimistic state applies immediately, but the server
   // PATCH is debounced and merged so typing never spams the API.
   const settingsPendingPatch = useRef<Record<string, unknown>>({});
   const settingsFlushTimer = useRef(0);
+  useEffect(() => {
+    if (demoMode || !cacheKey || !state.ready) return;
+    const timer = window.setTimeout(() => {
+      if (
+        cacheBlocked.current ||
+        mutationQueues.current.size ||
+        settingsFlushTimer.current ||
+        settingsSaving.current
+      )
+        return;
+      void saveWorkspaceCache(cacheKey, {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        items: state.items
+          .filter((item) => !item.archivedAt)
+          .map((item) => ({ ...item, attachments: [], history: [] })),
+        subjects: state.subjects,
+        settings: state.settings,
+        savedViews: state.views,
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [
+    cacheKey,
+    cacheRevision,
+    state.ready,
+    state.items,
+    state.subjects,
+    state.settings,
+    state.views,
+  ]);
+
   const loadItemDetails = useCallback(
     async (id: string) => {
-      if (demoMode) return;
-      if (lastDetailedItem.current?.id === id) {
-        baseDispatch({ type: "detailLoaded", item: lastDetailedItem.current });
+      if (demoMode || mutationQueues.current.has(`item:${id}`)) return;
+      const version = serverVersions.current.get(id);
+      const cached = detailCache.current.get(id);
+      if (
+        cached &&
+        cached.item.version === version &&
+        Date.now() - cached.loadedAt < 60_000
+      ) {
+        detailCache.current.delete(id);
+        detailCache.current.set(id, cached);
+        baseDispatch({ type: "detailLoaded", item: cached.item });
         return;
       }
-      const pending = detailedItemRequest.current;
-      if (pending?.id === id) {
-        const item = await pending.promise;
-        baseDispatch({ type: "detailLoaded", item });
-        return;
-      }
-      const promise = apiRequest<{ item: OrganatoItem }>(
+      const pending = detailRequests.current.get(id);
+      if (pending) return pending;
+      const generation = detailGeneration.current;
+      const request = apiRequest<{ item: OrganatoItem }>(
         `/api/items/${encodeURIComponent(id)}`,
-      ).then((result) => result.item);
-      detailedItemRequest.current = { id, promise };
-      try {
-        const item = await promise;
-        lastDetailedItem.current = item;
-        baseDispatch({ type: "detailLoaded", item });
-      } finally {
-        if (detailedItemRequest.current?.promise === promise) {
-          detailedItemRequest.current = null;
-        }
-      }
+      )
+        .then(({ item }) => {
+          if (
+            generation !== detailGeneration.current ||
+            version !== serverVersions.current.get(id) ||
+            item.version < (version ?? 0)
+          )
+            return;
+          serverVersions.current.set(id, item.version);
+          detailCache.current.delete(id);
+          detailCache.current.set(id, { item, loadedAt: Date.now() });
+          if (detailCache.current.size > 30) {
+            const oldest = detailCache.current.keys().next().value;
+            if (oldest !== undefined) detailCache.current.delete(oldest);
+          }
+          baseDispatch({ type: "detailLoaded", item });
+        })
+        .finally(() => {
+          if (detailRequests.current.get(id) === request)
+            detailRequests.current.delete(id);
+        });
+      detailRequests.current.set(id, request);
+      return request;
     },
     [apiRequest],
   );
+  const selectedVersion = state.items.find(
+    (item) => item.id === state.selectedItemId,
+  )?.version;
   useEffect(() => {
     if (!state.selectedItemId) return;
     void loadItemDetails(state.selectedItemId).catch(() =>
@@ -1062,9 +1233,17 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
         message: "Item details could not be loaded — retry by reopening it.",
       }),
     );
-  }, [loadItemDetails, state.selectedItemId]);
+  }, [loadItemDetails, state.selectedItemId, selectedVersion]);
   const dispatch = useCallback(
     (action: Action) => {
+      if (!demoMode && isServerMutation(action) && !isOffline()) {
+        detailGeneration.current += 1;
+        detailRequests.current.clear();
+        detailCache.current.clear();
+        mutationRevision.current += 1;
+        baseDispatch({ type: "mutationStarted" });
+        void clearWorkspaceCache();
+      }
       const currentState = stateRef.current;
       const current =
         "id" in action
@@ -1084,6 +1263,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
         );
       }
       if (isOffline() && isServerMutation(action)) {
+        cacheBlocked.current = true;
         if (current) baseDispatch({ type: "rollbackItem", item: current });
         baseDispatch({
           type: "toast",
@@ -1104,18 +1284,25 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
           const patch = settingsPendingPatch.current;
           settingsPendingPatch.current = {};
           if (!Object.keys(patch).length) return;
+          settingsSaving.current += 1;
           void apiRequest("/api/settings", {
             method: "PATCH",
             body: JSON.stringify(patch),
-          }).catch((error: unknown) =>
-            baseDispatch({
-              type: "toast",
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "Settings could not be saved.",
-            }),
-          );
+          })
+            .catch((error: unknown) => {
+              cacheBlocked.current = true;
+              baseDispatch({
+                type: "toast",
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Settings could not be saved.",
+              });
+            })
+            .finally(() => {
+              settingsSaving.current -= 1;
+              setCacheRevision((value) => value + 1);
+            });
         }, 600);
         return;
       }
@@ -1133,6 +1320,8 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
           "search",
           "syncing",
           "toast",
+          "revalidating",
+          "mutationStarted",
           "bootStarted",
           "bootFailed",
           "reset",
@@ -1481,6 +1670,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
             error instanceof Error
               ? error.message
               : "The change could not be saved.";
+          cacheBlocked.current = true;
           let recoveryFailed = false;
           if (current) {
             try {
@@ -1504,6 +1694,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
           if (mutationQueues.current.get(queueKey) === operation) {
             mutationQueues.current.delete(queueKey);
           }
+          setCacheRevision((value) => value + 1);
         });
       mutationQueues.current.set(queueKey, operation);
     },
@@ -1582,6 +1773,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
   );
   const uiValue = useMemo<UiContextValue>(
     () => ({
+      revalidating: state.revalidating,
       selectedItemId: state.selectedItemId,
       selectedItem,
       commandOpen: state.commandOpen,
@@ -1593,6 +1785,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
     }),
     [
       selectedItem,
+      state.revalidating,
       state.commandOpen,
       state.searchOpen,
       state.selectedItemId,

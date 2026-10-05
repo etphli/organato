@@ -1,5 +1,5 @@
-import { prefetchRoute } from "../lib/routeModules";
-import type { ReactNode } from "react";
+import { prefetchRoute, warmSidebarRoutes } from "../lib/routeModules";
+import { useEffect, type ReactNode } from "react";
 import {
   CalendarDays,
   CheckSquare2,
@@ -79,13 +79,16 @@ export function getShellSyncStatus(
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  useEffect(warmSidebarRoutes, []);
   const owner = useAuthOwner();
   const { integrations } = useOrganatoWorkspace();
-  const { syncing } = useOrganatoUi();
+  const { syncing, revalidating } = useOrganatoUi();
   const { dispatch } = useOrganatoActions();
   const closeInspector = () => dispatch({ type: "select", id: null });
   const displayName = owner?.displayName || owner?.email || "Owner";
-  const syncStatus = getShellSyncStatus(integrations, syncing);
+  const syncStatus = revalidating
+    ? { label: "Refreshing…", tone: "busy" as const }
+    : getShellSyncStatus(integrations, syncing);
   const initials =
     displayName
       .trim()

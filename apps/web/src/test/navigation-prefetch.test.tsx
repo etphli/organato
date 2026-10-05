@@ -5,7 +5,10 @@ import { AppShell } from "../components/AppShell";
 import { OrganatoProvider } from "../state/OrganatoProvider";
 
 const { prefetchRoute } = vi.hoisted(() => ({ prefetchRoute: vi.fn() }));
-vi.mock("../lib/routeModules", () => ({ prefetchRoute }));
+vi.mock("../lib/routeModules", () => ({
+  prefetchRoute,
+  warmSidebarRoutes: () => () => undefined,
+}));
 
 beforeEach(() => {
   localStorage.clear();

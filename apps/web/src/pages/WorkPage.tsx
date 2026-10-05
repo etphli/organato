@@ -34,7 +34,7 @@ import {
   visibleStatus,
   type OrganatoItem,
   type SavedView,
-} from "@organato/domain";
+} from "@organato/domain/core";
 import { PageHeader } from "../components/PageHeader";
 import {
   OrganatoActionMenu,

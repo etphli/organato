@@ -1,11 +1,11 @@
 import { CalendarPlus, Check, MoreHorizontal, Repeat2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  compareItems,
+  createItemComparator,
   daysRemainingLabel,
   itemDeadline,
   visibleStatus,
-} from "@organato/domain";
+} from "@organato/domain/core";
 import { PageHeader } from "../components/PageHeader";
 import { OrganatoSelect } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
@@ -43,7 +43,7 @@ export default function TodoPage() {
             return false;
           return true;
         })
-        .toSorted((a, b) => compareItems(a, b, new Date(), settings.timezone)),
+        .toSorted(createItemComparator(new Date(), settings.timezone)),
     [items, settings.timezone, showCompleted],
   );
   const activeCount = useMemo(

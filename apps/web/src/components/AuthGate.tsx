@@ -10,14 +10,17 @@ import {
   EXCHANGE_RETRY_DELAY_MS,
   SESSION_RETRY_DELAY_MS,
 } from "../lib/timing";
+import { clearWorkspaceCache } from "../lib/workspaceCache";
 import { BrandMark } from "./BrandMark";
 
 interface SessionOwner {
+  workspaceId?: string;
   email: string;
   displayName: string;
 }
 
 interface SessionResponse {
+  workspace?: { id: string };
   authenticated: true;
   owner: SessionOwner;
   csrfToken: string;
@@ -193,10 +196,21 @@ export function AuthGate({ children }: { children: ReactNode }) {
         );
       }
       if (networkFailed) throw new Error("network_unavailable");
-      if (!response || !response.ok) throw new Error("signed_out");
+      if (!response || !response.ok) {
+        if (response?.status === 401 || response?.status === 403) {
+          void clearWorkspaceCache();
+        }
+        throw new Error("signed_out");
+      }
       const session = (await response.json()) as SessionResponse;
       sessionStorage.setItem("organato_csrf", session.csrfToken);
-      setState({ status: "signed_in", owner: session.owner });
+      setState({
+        status: "signed_in",
+        owner: {
+          ...session.owner,
+          ...(session.workspace ? { workspaceId: session.workspace.id } : {}),
+        },
+      });
     }
 
     void finishSignIn().catch((error: unknown) => {

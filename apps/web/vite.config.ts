@@ -18,6 +18,7 @@ export default defineConfig({
           vendor: ["react", "react-dom", "react-router-dom"],
           table: ["@tanstack/react-table"],
           dates: ["date-fns"],
+          icons: ["lucide-react"],
         },
       },
     },

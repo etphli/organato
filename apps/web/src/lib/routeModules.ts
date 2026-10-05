@@ -9,18 +9,41 @@ export const routeModules = {
   settings: prefetchablePage(() => import("../pages/SettingsPage")),
 };
 
+function loaderForPath(path: string): (() => Promise<unknown>) | undefined {
+  if (path === "/") return routeModules.home.preload;
+  if (path === "/assignments" || path === "/checkpoints")
+    return routeModules.work.preload;
+  if (path === "/calendar") return routeModules.calendar.preload;
+  if (path === "/todo") return routeModules.todo.preload;
+  if (path === "/settings" || path.startsWith("/settings/"))
+    return routeModules.settings.preload;
+  return undefined;
+}
+
+export function preloadRoute(path: string): void {
+  if (!navigator.onLine) return;
+  void loaderForPath(path)?.().catch(() => undefined);
+}
+
 export function prefetchRoute(path: string): void {
   if (!navigator.onLine) return;
-  let load: (() => Promise<unknown>) | undefined;
-  if (path === "/") load = routeModules.home.preload;
-  else if (path === "/assignments" || path === "/checkpoints")
-    load = routeModules.work.preload;
-  else if (path === "/calendar") load = routeModules.calendar.preload;
-  else if (path === "/todo") load = routeModules.todo.preload;
-  else if (path === "/settings" || path.startsWith("/settings/")) {
-    load = routeModules.settings.preload;
-    if (path === "/settings" || path === "/settings/account")
-      prefetchAccountData();
-  }
-  void load?.().catch(() => undefined);
+  preloadRoute(path);
+  if (path === "/settings" || path === "/settings/account")
+    prefetchAccountData();
+}
+
+export function warmSidebarRoutes(): () => void {
+  const timer = window.setTimeout(() => {
+    if (
+      "connection" in navigator &&
+      typeof navigator.connection === "object" &&
+      navigator.connection !== null &&
+      "saveData" in navigator.connection &&
+      navigator.connection.saveData === true
+    )
+      return;
+    for (const path of ["/", "/assignments", "/calendar", "/todo"])
+      preloadRoute(path);
+  }, 500);
+  return () => window.clearTimeout(timer);
 }
