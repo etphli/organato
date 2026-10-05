@@ -21,6 +21,39 @@ afterEach(() => {
 });
 
 describe("Inspector planning sections", () => {
+  it("refreshes untouched focused notes and preserves notes being edited", async () => {
+    const target = seedItems[0]!;
+    let update: ((notesMarkdown: string) => void) | undefined;
+    function LiveUpdates() {
+      const { dispatch } = useOrganatoActions();
+      useEffect(() => {
+        dispatch({ type: "select", id: target.id });
+        update = (notesMarkdown) =>
+          dispatch({
+            type: "replaceItem",
+            item: { ...target, version: 2, notesMarkdown },
+          });
+      }, [dispatch]);
+      return null;
+    }
+    render(
+      <MemoryRouter>
+        <OrganatoProvider>
+          <LiveUpdates />
+          <Inspector />
+        </OrganatoProvider>
+      </MemoryRouter>,
+    );
+    const notes = await screen.findByPlaceholderText("Add notes in Markdown…");
+    act(() => notes.focus());
+    act(() => update?.("Latest server notes"));
+    expect(notes).toHaveValue("Latest server notes");
+    fireEvent.change(notes, { target: { value: "My unsaved notes" } });
+    act(() => update?.("Another server revision"));
+    expect(notes).toHaveValue("My unsaved notes");
+    expect(notes).toHaveFocus();
+  });
+
   it("keeps a focused name draft through a server update and resets it for another item", async () => {
     const target = seedItems[0]!;
     const next = seedItems[1]!;
