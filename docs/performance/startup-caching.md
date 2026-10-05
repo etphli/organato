@@ -4,13 +4,13 @@ Measured against `0ce61e6` on 5 October 2026, using production builds, Chromium,
 
 | Measurement                                               |    Before |    After | Reduction |
 | --------------------------------------------------------- | --------: | -------: | --------: |
-| Cold Home                                                 |  1,143 ms |   826 ms |       28% |
-| Cold Assignments                                          |  1,125 ms | 1,009 ms |       10% |
-| Repeat Home                                               |    758 ms |   264 ms |       65% |
-| Repeat Assignments                                        |    754 ms |   301 ms |       60% |
-| First Assignments click, no hover, after 1 second on Home |    344 ms |    62 ms |       82% |
+| Cold Home                                                 |  1,143 ms |   845 ms |       26% |
+| Cold Assignments                                          |  1,125 ms |   996 ms |       11% |
+| Repeat Home                                               |    758 ms |   280 ms |       63% |
+| Repeat Assignments                                        |    754 ms |   322 ms |       57% |
+| First Assignments click, no hover, after 1 second on Home |    344 ms |    71 ms |       79% |
 | Sort 480 mixed-deadline items, median of 25 samples       |   21.8 ms |   1.8 ms |       92% |
-| Main JavaScript bundle, gzip                              | 104.78 kB | 76.25 kB |       27% |
+| Main JavaScript bundle, gzip                              | 104.78 kB | 76.34 kB |       27% |
 
 The main bundle excludes vendor chunks; icons now have a separate 5.06 kB gzip chunk. These are controlled client benchmarks, not measurements of production database or integration latency. Raw timing samples are in [startup-caching-results.json](startup-caching-results.json).
 
