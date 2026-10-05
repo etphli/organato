@@ -9,7 +9,7 @@ Measured against `0ce61e6` on 5 October 2026, using production builds, Chromium,
 | Repeat Home                                               |    758 ms |   280 ms |       63% |
 | Repeat Assignments                                        |    754 ms |   322 ms |       57% |
 | First Assignments click, no hover, after 1 second on Home |    344 ms |    71 ms |       79% |
-| Sort 480 mixed-deadline items, median of 25 samples       |   21.8 ms |   1.8 ms |       92% |
+| Sort 480 mixed-deadline items, median of 25 samples       |   21.7 ms |   1.7 ms |       92% |
 | Main JavaScript bundle, gzip                              | 104.78 kB | 76.34 kB |       27% |
 
 The main bundle excludes vendor chunks; icons now have a separate 5.06 kB gzip chunk. These are controlled client benchmarks, not measurements of production database or integration latency. Raw timing samples are in [startup-caching-results.json](startup-caching-results.json).
