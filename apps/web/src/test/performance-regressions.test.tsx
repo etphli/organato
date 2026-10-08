@@ -70,7 +70,7 @@ describe("long-session performance regressions", () => {
     render(
       <MemoryRouter>
         <OrganatoProvider>
-          <WorkPage page="assignments" />
+          <WorkPage />
           <DeferredOverlays />
         </OrganatoProvider>
       </MemoryRouter>,
@@ -99,7 +99,7 @@ describe("long-session performance regressions", () => {
     render(
       <MemoryRouter>
         <OrganatoProvider>
-          <WorkPage page="assignments" />
+          <WorkPage />
           <DeferredOverlays />
         </OrganatoProvider>
       </MemoryRouter>,

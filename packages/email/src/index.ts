@@ -1,4 +1,5 @@
 import {
+  classificationLabel,
   groupDigestItems,
   itemDeadline,
   type CanvasCourseSignals,
@@ -31,8 +32,7 @@ function escapeHtml(value: string): string {
 
 function typeLabel(item: OrganatoItem): string {
   if (item.kind === "todo") return "Todo";
-  if (item.classification === "both") return "Assignment + checkpoint";
-  return item.classification[0]?.toUpperCase() + item.classification.slice(1);
+  return classificationLabel(item.classification);
 }
 
 export interface DigestInput {

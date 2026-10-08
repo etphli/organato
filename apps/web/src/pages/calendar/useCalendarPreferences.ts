@@ -21,9 +21,14 @@ function readFilters(value: unknown): CalendarFilters {
   if (!value || typeof value !== "object") return defaultCalendarFilters;
   const candidate = value as Partial<CalendarFilters>;
   return {
-    types: stringArray(candidate.types).filter(
-      (entry): entry is CalendarFilters["types"][number] =>
-        ["assignment", "checkpoint", "todo", "unclassified"].includes(entry),
+    types: [
+      ...new Set(
+        stringArray(candidate.types).map((entry) =>
+          entry === "checkpoint" ? "assignment" : entry,
+        ),
+      ),
+    ].filter((entry): entry is CalendarFilters["types"][number] =>
+      ["assignment", "checkpoint", "todo", "unclassified"].includes(entry),
     ),
     subjectIds: stringArray(candidate.subjectIds),
     priorities: stringArray(candidate.priorities).filter(

@@ -13,7 +13,6 @@ import {
 import {
   Archive,
   Columns3,
-  Combine,
   Eye,
   EyeOff,
   ExternalLink,
@@ -30,7 +29,7 @@ import { useSearchParams } from "react-router-dom";
 import {
   daysRemainingLabel,
   itemDeadline,
-  isInView,
+  isAssignmentClassification,
   visibleStatus,
   type OrganatoItem,
   type SavedView,
@@ -61,34 +60,21 @@ const statusOptions = [
   { value: "completed", label: "Completed" },
 ];
 const assignmentsShowCompletedKey = "organato-assignments-show-completed-v1";
-const checkpointsShowCompletedKey = "organato-checkpoints-show-completed-v1";
-
-function showCompletedKey(page: "assignments" | "checkpoints"): string {
-  return page === "assignments"
-    ? assignmentsShowCompletedKey
-    : checkpointsShowCompletedKey;
-}
-
-function loadShowCompletedPreference(
-  page: "assignments" | "checkpoints",
-): boolean {
+function loadShowCompletedPreference(): boolean {
   try {
-    // Migrate the original assignments-only key so existing users keep it.
-    if (page === "checkpoints") {
-      return localStorage.getItem(checkpointsShowCompletedKey) === "true";
-    }
-    return localStorage.getItem(assignmentsShowCompletedKey) === "true";
+    return (
+      (localStorage.getItem(assignmentsShowCompletedKey) ??
+        localStorage.getItem("organato-checkpoints-show-completed-v1")) ===
+      "true"
+    );
   } catch {
     return false;
   }
 }
 
-function saveShowCompletedPreference(
-  page: "assignments" | "checkpoints",
-  value: boolean,
-): void {
+function saveShowCompletedPreference(value: boolean): void {
   try {
-    localStorage.setItem(showCompletedKey(page), String(value));
+    localStorage.setItem(assignmentsShowCompletedKey, String(value));
   } catch {
     // The table still works when browser storage is unavailable.
   }
@@ -102,11 +88,8 @@ const sortFieldOptions = [
   { value: "subject", label: "Subject" },
 ];
 
-export default function WorkPage({
-  page,
-}: {
-  page: "assignments" | "checkpoints";
-}) {
+export default function WorkPage() {
+  const page = "assignments";
   const { items, subjects, subjectsById, views, settings } = useOrganatoData();
   const { dispatch } = useOrganatoActions();
   const [sorting, setSorting] = useState<SortingState>([
@@ -122,7 +105,7 @@ export default function WorkPage({
   const [showColumns, setShowColumns] = useState(false);
   const [showSort, setShowSort] = useState(false);
   const [showCompleted, setShowCompleted] = useState(() =>
-    loadShowCompletedPreference(page),
+    loadShowCompletedPreference(),
   );
   const [priorityFilter, setPriorityFilter] = useState("");
   const [viewName, setViewName] = useState("");
@@ -134,7 +117,7 @@ export default function WorkPage({
     null,
   );
   const mobileActionsRef = useRef<HTMLDetailsElement>(null);
-  const itemNoun = page === "assignments" ? "assignment" : "checkpoint";
+  const itemNoun = "assignment";
   // Recompute "now" every minute (and when the tab regains focus) so
   // overnight tabs do not keep stale overdue/week/remaining-day values.
   const [now, setNow] = useState(() => new Date());
@@ -150,20 +133,18 @@ export default function WorkPage({
     };
   }, []);
   // Filtering to a smaller set must not strand the table on an empty page.
-  // Switching pages keeps each page's own completed-visibility choice.
   useEffect(() => {
     setPagination((current) => ({ ...current, pageIndex: 0 }));
-  }, [query, priorityFilter, activeView, page]);
-  useEffect(() => {
-    setShowCompleted(loadShowCompletedPreference(page));
-    setRowSelection({});
-  }, [page]);
+  }, [query, priorityFilter, activeView]);
   const closeMobileActions = () => {
     if (mobileActionsRef.current) mobileActionsRef.current.open = false;
   };
   const pageViews = useMemo(
-    () => views.filter((view) => view.page === page),
-    [page, views],
+    () =>
+      views.filter(
+        (view) => view.page === "assignments" || view.page === "checkpoints",
+      ),
+    [views],
   );
   const createWork = useCallback(
     (item: NewWorkItem) => {
@@ -184,13 +165,15 @@ export default function WorkPage({
       { value: "active", label: "All active" },
       {
         value: "all",
-        label: page === "assignments" ? "All assignments" : "All checkpoints",
+        label: "All assignments",
       },
       ...views
-        .filter((view) => view.page === page)
+        .filter(
+          (view) => view.page === "assignments" || view.page === "checkpoints",
+        )
         .map((view) => ({ value: view.id, label: view.name })),
     ],
-    [page, views],
+    [views],
   );
   const data = useMemo(
     () =>
@@ -198,7 +181,7 @@ export default function WorkPage({
         if (
           item.kind !== "work" ||
           item.archivedAt ||
-          !isInView(item.classification, page)
+          !isAssignmentClassification(item.classification)
         ) {
           return false;
         }
@@ -227,7 +210,6 @@ export default function WorkPage({
       activeView,
       items,
       now,
-      page,
       pageViews,
       priorityFilter,
       settings.showSubmittedActive,
@@ -287,11 +269,6 @@ export default function WorkPage({
             {settings.showSourceIcons && row.original.overrides.length ? (
               <small title="Manual override" aria-label="Manual override">
                 <GitCompareArrows size={12} />
-              </small>
-            ) : null}
-            {row.original.classification === "both" ? (
-              <small title="Assignment and checkpoint" aria-label="Both">
-                <Combine size={12} />
               </small>
             ) : null}
           </span>
@@ -543,7 +520,7 @@ export default function WorkPage({
     const next = !showCompleted;
     setShowCompleted(next);
     setRowSelection({});
-    saveShowCompletedPreference(page, next);
+    saveShowCompletedPreference(next);
   };
   const completedVisibleCount = data.filter(
     (item) => item.workingStatus === "completed",
@@ -552,7 +529,7 @@ export default function WorkPage({
   return (
     <div className="page work-page">
       <PageHeader
-        title={page === "assignments" ? "Assignments" : "Checkpoints"}
+        title="Assignments"
         meta={
           completedVisibleCount
             ? `${activeVisibleCount} active · ${completedVisibleCount} completed`
@@ -561,7 +538,7 @@ export default function WorkPage({
         actions={
           <>
             <OrganatoSelect
-              ariaLabel={`${page === "assignments" ? "Assignment" : "Checkpoint"} view`}
+              ariaLabel="Assignment view"
               className="view-picker"
               options={viewOptions}
               value={activeView}
@@ -663,7 +640,6 @@ export default function WorkPage({
               {showCompleted ? "Hide completed" : "Show completed"}
             </button>
             <CreateWorkControl
-              page={page}
               subjects={subjects}
               timezone={settings.timezone}
               settings={settings}
@@ -677,7 +653,7 @@ export default function WorkPage({
                 <label>
                   View
                   <OrganatoSelect
-                    ariaLabel={`${page === "assignments" ? "Assignment" : "Checkpoint"} view`}
+                    ariaLabel="Assignment view"
                     options={viewOptions}
                     value={activeView}
                     onChange={(value) => {
@@ -747,20 +723,6 @@ export default function WorkPage({
             }}
           >
             Assignment
-          </button>
-          <button
-            onClick={() => {
-              table.getFilteredSelectedRowModel().rows.forEach((row) =>
-                dispatch({
-                  type: "classify",
-                  id: row.original.id,
-                  classification: "checkpoint",
-                }),
-              );
-              setRowSelection({});
-            }}
-          >
-            Checkpoint
           </button>
           <button
             onClick={() => {

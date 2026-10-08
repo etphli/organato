@@ -1,4 +1,5 @@
 import {
+  isAssignmentClassification,
   localDateKey,
   visibleStatus,
   type OrganatoItem,
@@ -113,7 +114,9 @@ export function todayKey(
 
 function entryType(item: OrganatoItem): CalendarEntryType {
   if (item.kind === "todo") return "todo";
-  return item.classification;
+  return isAssignmentClassification(item.classification)
+    ? "assignment"
+    : "unclassified";
 }
 
 function timeParts(
@@ -163,7 +166,7 @@ function typeMatches(
   selected: CalendarTypeFilter[],
 ): boolean {
   if (!selected.length) return true;
-  if (type === "both") {
+  if (type === "both" || type === "assignment" || type === "checkpoint") {
     return selected.includes("assignment") || selected.includes("checkpoint");
   }
   return selected.includes(type);
@@ -395,6 +398,6 @@ export function filtersActiveCount(filters: CalendarFilters): number {
 }
 
 export function calendarEntryTypeLabel(type: CalendarEntryType): string {
-  if (type === "both") return "Assignment and checkpoint";
+  if (type === "both" || type === "checkpoint") return "Assignment";
   return `${type[0]?.toUpperCase() ?? ""}${type.slice(1)}`;
 }

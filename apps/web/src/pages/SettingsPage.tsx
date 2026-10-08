@@ -17,6 +17,8 @@ import { POST_RESTORE_RELOAD_DELAY_MS } from "../lib/timing";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
+  isAssignmentClassification,
+  classificationLabel,
   visibleStatus,
   type OrganatoItem,
   type WorkspaceSnapshot,
@@ -47,7 +49,6 @@ const genericOptions: Record<string, Array<[string, string]>> = {
     ],
     ["Show mini calendar", "Use the compact month on desktop."],
     ["Show quick todo", "Keep fast creation on Home."],
-    ["Include Both in both panels", "Both remains one underlying record."],
     ["Show workload strip", "Summarise the next seven days."],
   ],
   work: [
@@ -146,7 +147,6 @@ function ToggleRows({ category }: { category: string }) {
     "Auto-expand classification inbox": "autoExpandClassification",
     "Show mini calendar": "showMiniCalendar",
     "Show quick todo": "showQuickTodo",
-    "Include Both in both panels": "includeBothInPanels",
     "Show workload strip": "showWorkloadStrip",
     "Sticky Name column": "stickyNameColumn",
     "Inline editing": "inlineEditing",
@@ -547,15 +547,7 @@ export default function SettingsPage() {
           exported.items.filter(
             (item) =>
               !item.archivedAt &&
-              ["assignment", "both"].includes(item.classification),
-          ),
-        ],
-        [
-          "organato-checkpoints.csv",
-          exported.items.filter(
-            (item) =>
-              !item.archivedAt &&
-              ["checkpoint", "both"].includes(item.classification),
+              isAssignmentClassification(item.classification),
           ),
         ],
         [
@@ -1076,13 +1068,14 @@ export default function SettingsPage() {
               <h3>Checklist templates</h3>
               <p>
                 One step per line. From an item, “Add template checklist” copies
-                the matching list into subtasks.
+                the matching list into subtasks. Legacy templates are kept for
+                existing assignments.
               </p>
               {(
                 [
                   ["assignment", "Assignment"],
-                  ["checkpoint", "Checkpoint"],
-                  ["both", "Assignment + checkpoint"],
+                  ["checkpoint", "Legacy checkpoint template"],
+                  ["both", "Legacy combined template"],
                   ["todo", "Todo"],
                 ] as const
               ).map(([key, label]) => (
@@ -1649,7 +1642,9 @@ export default function SettingsPage() {
                         <strong>{item.displayName}</strong>
                         <small>
                           {item.archiveReason ?? "Archived"} ·{" "}
-                          {item.classification}
+                          {item.kind === "todo"
+                            ? "Todo"
+                            : classificationLabel(item.classification)}
                         </small>
                       </button>
                       <button
@@ -1708,7 +1703,7 @@ export default function SettingsPage() {
                       <span>
                         {archivePreview.kind === "todo"
                           ? "Todo"
-                          : archivePreview.classification}
+                          : classificationLabel(archivePreview.classification)}
                       </span>
                       <button
                         aria-label="Close archive preview"

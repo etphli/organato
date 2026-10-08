@@ -21,7 +21,10 @@ import type {
   Subject,
   WorkspaceSettings,
 } from "@organato/domain";
-import { nextRecurrenceDeadline } from "@organato/domain/core";
+import {
+  classificationLabel,
+  nextRecurrenceDeadline,
+} from "@organato/domain/core";
 import { useAuthOwner } from "../components/AuthGate";
 import {
   loadWorkspaceCache,
@@ -659,7 +662,7 @@ function baseReducer(state: State, action: Action): State {
             }
           : item,
       ),
-      toast: `Classified as ${action.classification}`,
+      toast: `Classified as ${classificationLabel(action.classification).toLowerCase()}`,
       undo: state.items.find((item) => item.id === action.id)
         ? {
             kind: "classify",
@@ -718,14 +721,7 @@ function baseReducer(state: State, action: Action): State {
     const current = state.items.find((item) => item.id === action.id);
     if (!current || action.confirmation.trim().toLowerCase() !== "delete")
       return state;
-    const itemLabel =
-      current.kind === "todo"
-        ? "Todo"
-        : current.classification === "checkpoint"
-          ? "Checkpoint"
-          : current.classification === "both"
-            ? "Assignment and checkpoint"
-            : "Assignment";
+    const itemLabel = current.kind === "todo" ? "Todo" : "Assignment";
     return persist({
       ...state,
       items: state.items.filter((item) => item.id !== action.id),
@@ -1490,13 +1486,7 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
             baseDispatch({ type: "replaceItem", item: result.item });
             baseDispatch({
               type: "toast",
-              message: isTodo
-                ? "Todo created"
-                : action.classification === "checkpoint"
-                  ? "Checkpoint created"
-                  : action.classification === "both"
-                    ? "Assignment and checkpoint created"
-                    : "Assignment created",
+              message: isTodo ? "Todo created" : "Assignment created",
             });
             return;
           }

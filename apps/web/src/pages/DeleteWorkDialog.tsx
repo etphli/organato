@@ -4,7 +4,7 @@ import { useDialogFocus } from "../components/useDialogFocus";
 
 interface DeleteWorkDialogProps {
   candidate: OrganatoItem;
-  itemNoun: "assignment" | "checkpoint" | "todo";
+  itemNoun: "assignment" | "todo";
   onCancel(): void;
   onDelete(confirmation: string): void;
 }

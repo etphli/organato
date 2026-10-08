@@ -22,7 +22,6 @@ describe("primary navigation lifecycle", () => {
 
     const destinations = [
       { name: "Assignments", heading: "Assignments" },
-      { name: "Checkpoints", heading: "Checkpoints" },
       { name: "Calendar", heading: "Calendar" },
       { name: "Todo", heading: "Todo" },
       { name: "Home", heading: "Home" },

@@ -4,7 +4,6 @@ import {
   CheckSquare2,
   ClipboardList,
   Download,
-  Flag,
   Home,
   Moon,
   RefreshCw,
@@ -22,7 +21,6 @@ import { useDialogFocus } from "./useDialogFocus";
 const baseCommands = [
   { label: "Go to Home", icon: Home, path: "/" },
   { label: "Go to Assignments", icon: ClipboardList, path: "/assignments" },
-  { label: "Go to Checkpoints", icon: Flag, path: "/checkpoints" },
   { label: "Go to Calendar", icon: CalendarDays, path: "/calendar" },
   { label: "Create todo", icon: CheckSquare2, path: "/todo?new=1" },
   { label: "Search archive", icon: Archive, path: "/settings/data" },
