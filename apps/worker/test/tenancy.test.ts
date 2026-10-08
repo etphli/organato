@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiRoutes } from "../src/api";
+import { aiRoutes } from "../src/ai";
 import { provisionPersonalWorkspace } from "../src/auth";
 import { getItem, getSettings, listItems, listSubjects } from "../src/db";
 import { runCanvasSync, resolveCalendarConflict } from "../src/sync";
@@ -181,6 +182,7 @@ function tenantApi(
     await next();
   });
   app.route("/api", apiRoutes);
+  app.route("/api/ai", aiRoutes);
   const env = {
     DB: db,
     APP_ORIGIN: "https://organato.example",
@@ -687,5 +689,245 @@ describe("calendar conflict resolution", () => {
     expect(
       (await getItem(db, "friend@example.com", "friend-item"))?.displayName,
     ).toBe("Latest Google title");
+  });
+});
+
+describe("AI planning with real workspace data", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const body = (value: unknown): RequestInit => ({
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  });
+  const liveApi = () => {
+    const db = tenantDatabase();
+    const { app, env } = tenantApi(db, "friend@example.com", {
+      demoMode: "false",
+    });
+    env.AI_ENABLED = "true";
+    env.OPENROUTER_API_KEY = "test-provider-key";
+    return { app, env, db };
+  };
+  const completion = (suggestion: unknown) =>
+    new Response(
+      JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(suggestion) } }],
+      }),
+      { headers: { "Content-Type": "application/json" } },
+    );
+
+  it("keeps AI off by default and refuses a paid model", async () => {
+    const { app, env } = liveApi();
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    env.AI_ENABLED = "false";
+    expect(
+      (
+        await app.request(
+          "/api/ai/suggest",
+          body({ kind: "task", text: "Do homework" }),
+          env,
+        )
+      ).status,
+    ).toBe(503);
+    env.AI_ENABLED = "true";
+    env.OPENROUTER_MODEL = "paid/model";
+    expect(
+      (
+        await app.request(
+          "/api/ai/suggest",
+          body({ kind: "task", text: "Do homework" }),
+          env,
+        )
+      ).status,
+    ).toBe(503);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("sends only the owner's requested context and restricts routing to zero cost", async () => {
+    const { app, env } = liveApi();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        completion({ steps: [{ title: "Make an outline", minutes: 20 }] }),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    const response = await app.request(
+      "/api/ai/suggest",
+      body({
+        kind: "breakdown",
+        itemId: "friend-item",
+        brief: "Write an essay",
+      }),
+      env,
+    );
+    expect(response.status).toBe(200);
+    const [, init] = fetcher.mock.calls[0] ?? [];
+    const payload = JSON.parse(init.body);
+    expect(payload.model).toMatch(/:free$/);
+    expect(payload.provider).toEqual({
+      max_price: { prompt: 0, completion: 0, request: 0 },
+      allow_fallbacks: false,
+    });
+    expect(init.headers.Authorization).toBe("Bearer test-provider-key");
+    expect(payload.messages[1].content).toContain("Private friend assignment");
+    expect(payload.messages[1].content).not.toContain(
+      "Private owner assignment",
+    );
+    expect(payload.messages[1].content).not.toContain("notesMarkdown");
+    expect(JSON.stringify(await response.json())).not.toContain(
+      "test-provider-key",
+    );
+  });
+
+  it("rejects another tenant's assignment before contacting OpenRouter", async () => {
+    const { app, env } = liveApi();
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    expect(
+      (
+        await app.request(
+          "/api/ai/suggest",
+          body({ kind: "breakdown", itemId: "owner-item", brief: "" }),
+          env,
+        )
+      ).status,
+    ).toBe(404);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("rejects hallucinated subject IDs, invalid dates and unrelated recommendations", async () => {
+    const { app, env } = liveApi();
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const task = {
+      name: "Draft",
+      subjectId: "owner-subject",
+      date: null,
+      time: null,
+      priority: null,
+      clarification: null,
+    };
+    fetcher.mockResolvedValueOnce(completion(task));
+    expect(
+      (
+        await app.request(
+          "/api/ai/suggest",
+          body({ kind: "task", text: "Draft" }),
+          env,
+        )
+      ).status,
+    ).toBe(502);
+    fetcher.mockResolvedValueOnce(
+      completion({ ...task, subjectId: null, date: "2026-02-30" }),
+    );
+    expect(
+      (
+        await app.request(
+          "/api/ai/suggest",
+          body({ kind: "task", text: "Draft" }),
+          env,
+        )
+      ).status,
+    ).toBe(502);
+    fetcher.mockResolvedValueOnce(
+      completion({
+        itemId: "owner-item",
+        action: "Draft",
+        reason: "Urgent",
+        minutes: 15,
+      }),
+    );
+    expect(
+      (
+        await app.request(
+          "/api/ai/suggest",
+          body({ kind: "next", minutes: 15 }),
+          env,
+        )
+      ).status,
+    ).toBe(502);
+  });
+
+  it("bounds requests and output and does not retry provider rate limits", async () => {
+    const { app, env } = liveApi();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(new Response("", { status: 429 }));
+    vi.stubGlobal("fetch", fetcher);
+    const first = await app.request(
+      "/api/ai/suggest",
+      body({ kind: "task", text: "Draft" }),
+      env,
+    );
+    expect(first.status).toBe(502);
+    expect(await first.json()).toMatchObject({
+      error: expect.stringContaining("limit"),
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    for (let index = 0; index < 3; index++)
+      await app.request(
+        "/api/ai/suggest",
+        body({ kind: "task", text: "Draft" }),
+        env,
+      );
+    expect(
+      (
+        await app.request(
+          "/api/ai/suggest",
+          body({ kind: "task", text: "Draft" }),
+          env,
+        )
+      ).status,
+    ).toBe(429);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(
+      (
+        await app.request(
+          "/api/ai/suggest",
+          body({ kind: "task", text: "x".repeat(13000) }),
+          env,
+        )
+      ).status,
+    ).toBe(413);
+  });
+
+  it("adds accepted checklist steps once across retries and preserves existing work", async () => {
+    const { app, env, db } = liveApi();
+    const before = await getItem(db, "friend@example.com", "friend-item");
+    const steps = [
+      { id: crypto.randomUUID(), title: "My edited first step" },
+      { id: crypto.randomUUID(), title: "Proofread" },
+    ];
+    for (let index = 0; index < 2; index++) {
+      expect(
+        (
+          await app.request(
+            "/api/items/friend-item/subtasks/batch",
+            body({ steps }),
+            env,
+          )
+        ).status,
+      ).toBe(201);
+    }
+    const after = await getItem(db, "friend@example.com", "friend-item");
+    expect(after?.subtasks.map((step) => step.title)).toEqual(
+      steps.map((step) => step.title),
+    );
+    expect(after?.dueAt).toBe(before?.dueAt);
+    expect(after?.classification).toBe(before?.classification);
+    expect(after?.notesMarkdown).toBe(before?.notesMarkdown);
+    expect(
+      (
+        await app.request(
+          "/api/items/owner-item/subtasks/batch",
+          body({ steps }),
+          env,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (await getItem(db, "ethan.likht@gmail.com", "owner-item"))?.subtasks,
+    ).toEqual([]);
   });
 });

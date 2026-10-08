@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { demoTask, aiTaskSchema, nextCandidates } from "../src/ai";
 import {
   compareItems,
   createItemComparator,
@@ -362,4 +363,81 @@ it("cached sorting matches deadline, overdue, priority, and name ordering across
       );
     }
   }
+});
+
+describe("AI planning boundaries", () => {
+  it("parses a demo todo using the workspace date and leaves ambiguous times unresolved", () => {
+    const now = new Date("2026-10-08T23:30:00Z");
+    const subjects = [{ id: "english", displayName: "English" }];
+    expect(
+      demoTask(
+        "Finish my English draft next Thursday at 5pm, high priority",
+        subjects,
+        "Australia/Sydney",
+        now,
+      ),
+    ).toMatchObject({
+      name: "Finish my English draft",
+      subjectId: "english",
+      date: "2026-10-15",
+      time: "17:00",
+      priority: "high",
+    });
+    expect(
+      demoTask("Study tomorrow at 5", subjects, "Australia/Sydney", now),
+    ).toMatchObject({
+      date: "2026-10-10",
+      time: null,
+      clarification: expect.stringContaining("AM or PM"),
+    });
+    expect(
+      demoTask("Study today", subjects, "Australia/Sydney", now).date,
+    ).toBe("2026-10-09");
+  });
+
+  it("rejects invalid calendar dates and times without dates", () => {
+    const task = {
+      name: "Study",
+      subjectId: null,
+      date: null,
+      time: null,
+      priority: null,
+      clarification: null,
+    };
+    expect(
+      aiTaskSchema.safeParse({ ...task, date: "2026-02-30" }).success,
+    ).toBe(false);
+    expect(aiTaskSchema.safeParse({ ...task, time: "17:00" }).success).toBe(
+      false,
+    );
+  });
+
+  it("excludes finished, archived and blocked work while ordering the rest by deadline", () => {
+    const blocker = item({ id: "blocker", dueAt: "2026-10-15T00:00:00Z" });
+    const blocked = item({
+      id: "blocked",
+      links: {
+        blockedBy: [{ itemId: "blocker", linkId: "link" }],
+        blocking: [],
+      },
+    });
+    const earliest = item({ id: "early", dueAt: "2026-10-10T00:00:00Z" });
+    const entries = [
+      blocked,
+      blocker,
+      earliest,
+      item({ id: "done", workingStatus: "completed" }),
+      item({ id: "submitted", workingStatus: "submitted" }),
+      item({ id: "archive", archivedAt: "2026-10-01T00:00:00Z" }),
+    ];
+    expect(
+      nextCandidates(entries, "Australia/Sydney").map((entry) => entry.id),
+    ).toEqual(["early", "blocker"]);
+    blocker.workingStatus = "completed";
+    expect(
+      nextCandidates(entries, "Australia/Sydney").some(
+        (entry) => entry.id === "blocked",
+      ),
+    ).toBe(true);
+  });
 });

@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./core": "./src/core.ts",
+    "./ai": "./src/ai.ts",
     "./backup": "./src/backup.ts"
   },
   "scripts": {

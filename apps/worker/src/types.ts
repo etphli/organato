@@ -17,6 +17,9 @@ export interface Env {
   SCHEDULER_MODE?: "cloudflare" | "local";
   STUDATO_ISSUER?: string;
   DEMO_MODE?: string;
+  AI_ENABLED?: string;
+  OPENROUTER_API_KEY?: string;
+  OPENROUTER_MODEL?: string;
 }
 
 export interface SessionUser {

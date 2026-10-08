@@ -67,6 +67,11 @@ interface State {
 
 type Action =
   | {
+      type: "appendSubtasks";
+      itemId: string;
+      steps: Array<{ id: string; title: string }>;
+    }
+  | {
       type: "hydrate";
       revision?: number;
       items: OrganatoItem[];
@@ -259,6 +264,39 @@ function retainEqual<T>(previous: T, next: T): T {
 }
 
 function baseReducer(state: State, action: Action): State {
+  if (action.type === "appendSubtasks") {
+    if (!demoMode) return state;
+    const now = new Date().toISOString();
+    const append = (item: OrganatoItem) => {
+      if (item.id !== action.itemId) return item;
+      const fresh = action.steps.filter(
+        (step) => !item.subtasks.some((existing) => existing.id === step.id),
+      );
+      const rank =
+        Math.max(-1, ...item.subtasks.map((step) => step.sortRank)) + 1;
+      return {
+        ...item,
+        subtasks: [
+          ...item.subtasks,
+          ...fresh.map((step, index) => ({
+            ...step,
+            completed: false,
+            sortRank: rank + index,
+            createdAt: now,
+            updatedAt: now,
+          })),
+        ],
+      };
+    };
+    return {
+      ...state,
+      items: state.items.map(append),
+      selectedItemDetail: state.selectedItemDetail
+        ? append(state.selectedItemDetail)
+        : null,
+      toast: "Checklist steps added",
+    };
+  }
   if (action.type === "revalidating")
     return { ...state, revalidating: action.value };
   if (action.type === "mutationStarted")

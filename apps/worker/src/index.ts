@@ -10,6 +10,7 @@ import { GoogleApiError } from "@organato/integrations";
 import { EMAIL_TEMPLATE_VERSION } from "@organato/email";
 import { Hono } from "hono";
 import { apiRoutes } from "./api";
+import { aiRoutes } from "./ai";
 import { authRoutes } from "./auth";
 import {
   googleIntegrationCallback,
@@ -704,6 +705,7 @@ app.post("/api/integrations/google/resolve-conflict", async (context) => {
 });
 
 app.route("/api", apiRoutes);
+app.route("/api/ai", aiRoutes);
 
 app.all("/api/*", (context) => context.json({ error: "Not found." }, 404));
 

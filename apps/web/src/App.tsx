@@ -8,6 +8,7 @@ import {
   useParams,
 } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
+import { AiDemoBanner } from "./components/ai/AiDemoBanner";
 import { RouteErrorBoundary } from "./components/AppErrorBoundary";
 import { DeferredOverlays } from "./components/DeferredOverlays";
 import { NetworkStatus } from "./components/NetworkStatus";
@@ -181,6 +182,7 @@ export function App() {
     <>
       <NetworkStatus />
       <AppShell>
+        <AiDemoBanner />
         {/* The wizard overlays instead of replacing routes so deep links
             and settings stay reachable until onboarding is dismissed. */}
         <RouteErrorBoundary>

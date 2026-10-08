@@ -27,6 +27,8 @@ import {
   type OrganatoItem,
 } from "@organato/domain/core";
 import { PageHeader } from "../components/PageHeader";
+import { AiQuickAdd } from "../components/ai/AiQuickAdd";
+import { AiNextAction } from "../components/ai/AiNextAction";
 import { SubjectDot } from "../components/SubjectDot";
 import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
 
@@ -831,6 +833,8 @@ export default function HomePage() {
       <TopBriefing />
       <RiskStrip />
       <ClassificationInbox />
+      <AiQuickAdd />
+      <AiNextAction />
       <OverdueList />
       <div
         className={`home-middle${settings.showMiniCalendar ? "" : " single"}`}

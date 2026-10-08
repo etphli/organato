@@ -1378,6 +1378,68 @@ const subtaskPatchSchema = z.object({
   completed: z.boolean().optional(),
 });
 
+apiRoutes.post(
+  "/items/:id/subtasks/batch",
+  zValidator(
+    "json",
+    z
+      .object({
+        steps: z
+          .array(
+            z
+              .object({
+                id: z.string().uuid(),
+                title: z.string().trim().min(1).max(500),
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(8)
+          .refine(
+            (steps) =>
+              new Set(steps.map((step) => step.id)).size === steps.length,
+          ),
+      })
+      .strict(),
+  ),
+  async (context) => {
+    const workspaceId = context.get("user").workspaceId;
+    const item = await getItem(
+      context.env.DB,
+      workspaceId,
+      context.req.param("id"),
+    );
+    if (!item || item.archivedAt)
+      return context.json({ error: "Item not found." }, 404);
+    const steps = context.req.valid("json").steps;
+    const now = new Date().toISOString();
+    const existing = await context.env.DB.prepare(
+      "SELECT COALESCE(MAX(sort_rank), -1) AS max_rank FROM subtask WHERE workspace_id = ? AND item_id = ?",
+    )
+      .bind(workspaceId, item.id)
+      .first<{ max_rank: number }>();
+    await context.env.DB.batch(
+      steps.map((step, index) =>
+        context.env.DB.prepare(
+          "INSERT OR IGNORE INTO subtask (id, workspace_id, item_id, title, completed, sort_rank, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
+        ).bind(
+          step.id,
+          workspaceId,
+          item.id,
+          step.title,
+          Number(existing?.max_rank ?? -1) + 1 + index,
+          now,
+          now,
+        ),
+      ),
+    );
+    return context.json(
+      { item: await getItem(context.env.DB, workspaceId, item.id) },
+      201,
+    );
+  },
+);
+
 async function requireWorkspaceItem(
   db: D1Database,
   workspaceId: string,

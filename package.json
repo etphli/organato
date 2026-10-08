@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "pnpm --parallel --filter @organato/web --filter @organato/worker dev",
     "dev:web": "pnpm --filter @organato/web dev",
+    "demo:ai": "pnpm --filter @organato/web dev --host 127.0.0.1 --port 5173 --strictPort",
     "dev:worker": "pnpm --filter @organato/worker dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",

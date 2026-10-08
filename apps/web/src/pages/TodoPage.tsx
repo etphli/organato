@@ -7,6 +7,7 @@ import {
   visibleStatus,
 } from "@organato/domain/core";
 import { PageHeader } from "../components/PageHeader";
+import { AiQuickAdd } from "../components/ai/AiQuickAdd";
 import { OrganatoSelect } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
 import { useOrganatoActions, useOrganatoData } from "../state/OrganatoProvider";
@@ -119,6 +120,7 @@ export default function TodoPage() {
           </>
         }
       />
+      <AiQuickAdd />
       <section className="todo-list" aria-label="Todos">
         <div className="todo-list-head">
           <span>Task</span>

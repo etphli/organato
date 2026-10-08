@@ -93,6 +93,10 @@ flowchart LR
 - Archived work is hidden from normal views but recoverable from Settings.
 - Normal personal usage stays far below every free-tier ceiling.
 
+## AI planning preview
+
+Run `pnpm demo:ai` to try natural-language todo entry, assignment breakdown, and next-action suggestions with local sample data and no API key. Live AI remains off until explicitly configured. See [AI planning preview](docs/15-ai-planning.md) for the test flows, privacy boundaries, and OpenRouter limits.
+
 ## Owner activation still required
 
 The deployment, database, generated secrets, Google OAuth client, Calendar API, and Gmail API are configured. Emanuel School's Reshet installation is pinned server-side. Sign in with any verified Google identity to receive a private workspace, then paste the session cookie of a signed-in Reshet browser tab through Organato's protected Settings flow — no Canvas API token exists anywhere in this product. Provider credentials never belong in Git.
