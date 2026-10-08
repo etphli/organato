@@ -20,7 +20,7 @@ import {
   createItemComparator,
   dateOnlyCutoffUtc,
   daysRemainingLabel,
-  isInView,
+  isAssignmentClassification,
   localDateKey,
   visibleStatus,
   type Classification,
@@ -415,8 +415,6 @@ function ClassificationInbox() {
         >
           Assignment
         </button>
-        <button onClick={() => classify("checkpoint")}>Checkpoint</button>
-        <button onClick={() => classify("both")}>Both</button>
         <button
           onClick={() => {
             if (active) snoozeItem(active.id);
@@ -649,14 +647,12 @@ function TodayList() {
   );
 }
 
-function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
+function UpcomingList() {
+  const page = "assignments";
   const { items, subjectsById, settings } = useOrganatoData();
   const { dispatch } = useOrganatoActions();
   const today = useToday();
-  const limit =
-    page === "assignments"
-      ? settings.upcomingAssignmentCount
-      : settings.upcomingCheckpointCount;
+  const limit = settings.upcomingAssignmentCount;
   const upcoming = useMemo(
     () =>
       items
@@ -674,20 +670,12 @@ function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
               dueLocalDate &&
               dueLocalDate >= localDateKey(today, settings.timezone),
             ) &&
-            isInView(item.classification, page) &&
-            (settings.includeBothInPanels || item.classification !== "both")
+            isAssignmentClassification(item.classification)
           );
         })
         .toSorted(createItemComparator(today, settings.timezone))
         .slice(0, limit),
-    [
-      items,
-      limit,
-      page,
-      settings.includeBothInPanels,
-      settings.timezone,
-      today,
-    ],
+    [items, limit, settings.timezone, today],
   );
   return (
     <section className="upcoming-list">
@@ -732,9 +720,7 @@ function UpcomingList({ page }: { page: "assignments" | "checkpoints" }) {
         </button>
       ))}
       {!upcoming.length ? (
-        <p className="home-empty-state">
-          No upcoming {page === "assignments" ? "assignments" : "checkpoints"}.
-        </p>
+        <p className="home-empty-state">No upcoming assignments.</p>
       ) : null}
       <Link to={`/${page}`}>View all {page} →</Link>
     </section>
@@ -853,8 +839,7 @@ export default function HomePage() {
         <TodayList />
       </div>
       <div className="home-upcoming">
-        <UpcomingList page="assignments" />
-        <UpcomingList page="checkpoints" />
+        <UpcomingList />
       </div>
       {settings.showWorkloadStrip ? <WorkloadStrip /> : null}
       <ForecastStrip />

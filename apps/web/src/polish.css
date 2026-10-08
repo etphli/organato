@@ -1788,6 +1788,20 @@ textarea::placeholder {
   }
 }
 
+@media (min-width: 901px) and (max-width: 1400px) {
+  .work-page .page-header {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 12px 0 8px;
+  }
+
+  .work-page .page-actions {
+    justify-content: space-between;
+    margin-top: 8px;
+    max-width: none;
+    width: 100%;
+  }
+}
+
 @media (max-width: 900px) and (min-width: 761px) {
   .page-header {
     grid-template-columns: minmax(0, 1fr);

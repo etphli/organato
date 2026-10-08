@@ -6,7 +6,7 @@ export const settingsCategories = [
   ["account", "Account & access"],
   ["appearance", "Appearance"],
   ["home", "Home"],
-  ["work", "Assignments & checkpoints"],
+  ["work", "Assignments"],
   ["todo", "Todo"],
   ["calendar", "Calendar"],
   ["canvas", "Canvas / Reshet"],

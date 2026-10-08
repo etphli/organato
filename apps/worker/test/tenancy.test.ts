@@ -5,6 +5,7 @@ import {
   type StatementSync,
 } from "node:sqlite";
 import { Hono } from "hono";
+import { z } from "zod";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiRoutes } from "../src/api";
 import { provisionPersonalWorkspace } from "../src/auth";
@@ -120,6 +121,8 @@ function tenantDatabase() {
     "0006_subtasks_links_effort.sql",
     "0007_oauth_idempotency.sql",
     "0008_calendar_conflict.sql",
+    "0009_storage_deletion_queue.sql",
+    "0010_attachment_size.sql",
     "0011_canvas_item_tombstone.sql",
   ]) {
     sqlite.exec(
@@ -196,6 +199,73 @@ afterEach(() => {
 });
 
 describe("per-account workspace isolation", () => {
+  it("reads all legacy assignments once without changing records or related data", async () => {
+    const db = tenantDatabase();
+    const sqlite = databases.at(-1);
+    if (!sqlite) throw new Error("Database fixture was not created");
+    sqlite.exec(`
+      UPDATE item SET classification = 'checkpoint', notes_markdown = 'Keep my notes', due_date_local = '2026-10-15', canvas_assignment_id = 'canvas-original' WHERE id = 'friend-item';
+      INSERT INTO item (id, workspace_id, kind, classification, source_type, display_name, working_status, created_at, updated_at)
+      VALUES ('friend-both', 'friend@example.com', 'work', 'both', 'manual', 'Combined work', 'in_progress', datetime('now'), datetime('now'));
+      INSERT INTO subtask (id, workspace_id, item_id, title, completed, created_at, updated_at)
+      VALUES ('step', 'friend@example.com', 'friend-item', 'Existing step', 1, datetime('now'), datetime('now'));
+      INSERT INTO attachment_link (id, workspace_id, item_id, label, url, link_type, created_at)
+      VALUES ('attachment', 'friend@example.com', 'friend-item', 'Notes', 'https://example.com/notes', 'external', datetime('now'));
+      INSERT INTO item_history (id, workspace_id, item_id, actor_type, actor_identity, action, summary, created_at)
+      VALUES ('history', 'friend@example.com', 'friend-item', 'user', 'friend@example.com', 'edited', 'Existing history', datetime('now'));
+      INSERT INTO field_override (workspace_id, item_id, field_name, override_value_json, origin, created_at, updated_at)
+      VALUES ('friend@example.com', 'friend-item', 'displayName', '"Private friend assignment"', 'organato', datetime('now'), datetime('now'));
+      INSERT INTO calendar_link (workspace_id, item_id, google_calendar_id, google_event_id, sync_state)
+      VALUES ('friend@example.com', 'friend-item', 'calendar', 'event-original', 'synced');
+      INSERT INTO item_link (id, workspace_id, from_item_id, to_item_id, created_at)
+      VALUES ('dependency', 'friend@example.com', 'friend-item', 'friend-both', datetime('now'));
+      INSERT INTO saved_view (id, workspace_id, page, name, created_at, updated_at)
+      VALUES ('legacy-view', 'friend@example.com', 'checkpoints', 'Existing view', datetime('now'), datetime('now'));
+    `);
+    const tables = [
+      "item",
+      "subtask",
+      "attachment_link",
+      "item_history",
+      "field_override",
+      "calendar_link",
+      "item_link",
+      "saved_view",
+      "workspace",
+    ];
+    const snapshot = () =>
+      tables.map((table) =>
+        sqlite.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),
+      );
+    const before = snapshot();
+    const { app, env } = tenantApi(db, "friend@example.com");
+    const response = await app.request("/api/home", {}, env);
+    expect(response.status).toBe(200);
+    const body = z
+      .object({ assignments: z.array(z.object({ id: z.string() })) })
+      .parse(await response.json());
+    expect(body.assignments.map((item) => item.id).toSorted()).toEqual([
+      "friend-both",
+      "friend-item",
+    ]);
+    const checkpoint = await getItem(db, "friend@example.com", "friend-item");
+    expect(checkpoint).toMatchObject({
+      classification: "checkpoint",
+      canvasAssignmentId: "canvas-original",
+      notesMarkdown: "Keep my notes",
+      dueDateLocal: "2026-10-15",
+      subtasks: [{ id: "step", completed: true }],
+      attachments: [{ id: "attachment" }],
+      history: [{ id: "history" }],
+      overrides: [{ fieldName: "displayName" }],
+    });
+    expect(snapshot()).toEqual(before);
+    expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    expect(sqlite.prepare("PRAGMA integrity_check").get()).toEqual({
+      integrity_check: "ok",
+    });
+  });
+
   it("provisions a new verified account with an empty personal workspace", async () => {
     const db = tenantDatabase();
     await provisionPersonalWorkspace(db, {

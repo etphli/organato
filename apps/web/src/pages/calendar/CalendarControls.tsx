@@ -101,7 +101,6 @@ export function CalendarFilterMenu({
   const activeCount = filtersActiveCount(filters);
   const typeOptions: Array<[CalendarTypeFilter, string]> = [
     ["assignment", "Assignments"],
-    ["checkpoint", "Checkpoints"],
     ["todo", "Todos"],
     ["unclassified", "Unclassified"],
   ];

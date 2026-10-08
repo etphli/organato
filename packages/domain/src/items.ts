@@ -201,14 +201,20 @@ export function visibleStatus(
   return item.workingStatus;
 }
 
-export function isInView(
+export function isAssignmentClassification(
   classification: Classification,
-  page: "assignments" | "checkpoints",
 ): boolean {
-  if (page === "assignments") {
-    return classification === "assignment" || classification === "both";
-  }
-  return classification === "checkpoint" || classification === "both";
+  return (
+    classification === "assignment" ||
+    classification === "checkpoint" ||
+    classification === "both"
+  );
+}
+
+export function classificationLabel(classification: Classification): string {
+  return isAssignmentClassification(classification)
+    ? "Assignment"
+    : "Unclassified";
 }
 
 export function effectiveField<T>(

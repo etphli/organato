@@ -7,6 +7,7 @@ import { zValidator } from "@hono/zod-validator";
 import {
   assertSecretFreeBackup,
   classifications,
+  isAssignmentClassification,
   InvalidDeadlineError,
   localDateKey,
   mergeDeadlineFields,
@@ -466,7 +467,7 @@ apiRoutes.get("/home", async (context) => {
     ),
     todos: items.filter((item) => item.kind === "todo").slice(0, 10),
     assignments: items
-      .filter((item) => ["assignment", "both"].includes(item.classification))
+      .filter((item) => isAssignmentClassification(item.classification))
       .slice(0, 8),
     checkpoints: items
       .filter((item) => ["checkpoint", "both"].includes(item.classification))

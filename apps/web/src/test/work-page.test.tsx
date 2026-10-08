@@ -8,7 +8,7 @@ function renderAssignments() {
   return render(
     <MemoryRouter>
       <OrganatoProvider>
-        <WorkPage page="assignments" />
+        <WorkPage />
       </OrganatoProvider>
     </MemoryRouter>,
   );

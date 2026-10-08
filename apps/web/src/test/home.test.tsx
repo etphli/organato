@@ -21,7 +21,10 @@ describe("Home", () => {
       </MemoryRouter>,
     );
     expect(screen.getByText("3 items to classify")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Both" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Assignment" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Both" })).toBeNull();
   });
 
   it("shows only unfinished future work in upcoming panels", () => {

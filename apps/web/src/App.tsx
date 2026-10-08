@@ -3,6 +3,7 @@ import {
   Navigate,
   Route,
   Routes,
+  useLocation,
   useNavigate,
   useParams,
 } from "react-router-dom";
@@ -43,11 +44,12 @@ function RouteFallback() {
 }
 
 function AssignmentsRoute() {
-  return <WorkPage page="assignments" />;
+  return <WorkPage />;
 }
 
 function CheckpointsRoute() {
-  return <WorkPage page="checkpoints" />;
+  const { search, hash } = useLocation();
+  return <Navigate to={`/assignments${search}${hash}`} replace />;
 }
 
 function ItemDeepLink() {
@@ -148,7 +150,7 @@ export function App() {
       const paths: Record<string, string> = {
         gh: "/",
         ga: "/assignments",
-        gc: "/checkpoints",
+        gc: "/assignments",
         gt: "/todo",
         gl: "/calendar",
       };

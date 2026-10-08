@@ -13,7 +13,7 @@ describe("Primary navigation", () => {
     cleanup();
   });
 
-  it("switches between assignments and checkpoints without retaining route state", async () => {
+  it("switches between assignments and calendar without retaining route state", async () => {
     render(
       <MemoryRouter initialEntries={["/assignments"]}>
         <OrganatoProvider>
@@ -33,12 +33,12 @@ describe("Primary navigation", () => {
       screen.getByRole("textbox", { name: "Work item name" }),
     ).toBeVisible();
 
-    fireEvent.click(screen.getAllByRole("link", { name: "Checkpoints" })[0]!);
+    fireEvent.click(screen.getAllByRole("link", { name: "Calendar" })[0]!);
 
     expect(
       await screen.findByRole(
         "heading",
-        { name: "Checkpoints" },
+        { name: "Calendar" },
         { timeout: 15_000 },
       ),
     ).toBeInTheDocument();

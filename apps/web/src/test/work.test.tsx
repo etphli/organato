@@ -17,7 +17,7 @@ function renderAssignments({ creating = false } = {}) {
       initialEntries={[creating ? "/assignments?new=1" : "/assignments"]}
     >
       <OrganatoProvider>
-        <WorkPage page="assignments" />
+        <WorkPage />
       </OrganatoProvider>
     </MemoryRouter>,
   );
@@ -46,7 +46,14 @@ describe("Assignment controls", () => {
     fireEvent.click(assignmentViewButton());
     fireEvent.click(screen.getByRole("option", { name: "All assignments" }));
 
-    expect(screen.getByText("6 items")).toBeInTheDocument();
+    const count = seedItems.filter(
+      (item) =>
+        item.kind === "work" &&
+        !item.archivedAt &&
+        item.classification !== "unclassified",
+    ).length;
+    expect(screen.getByText(`${count} items`)).toBeInTheDocument();
+    expect(screen.getByText("Poetry analysis checkpoint")).toBeInTheDocument();
     expect(screen.getByText("Scene rehearsal")).toBeInTheDocument();
 
     fireEvent.click(assignmentViewButton());

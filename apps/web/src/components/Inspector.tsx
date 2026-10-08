@@ -1093,11 +1093,13 @@ export function Inspector() {
                     ariaLabel="Classification"
                     options={[
                       { value: "assignment", label: "Assignment" },
-                      { value: "checkpoint", label: "Checkpoint" },
-                      { value: "both", label: "Both" },
                       { value: "unclassified", label: "Decide later" },
                     ]}
-                    value={item.classification}
+                    value={
+                      item.classification === "unclassified"
+                        ? "unclassified"
+                        : "assignment"
+                    }
                     onChange={(value) =>
                       dispatch({
                         type: "classify",

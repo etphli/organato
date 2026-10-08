@@ -97,8 +97,7 @@ export function projectStudatoSources(
       priority: item.priority,
       dueAt: item.dueAt,
       dateLocal: item.dueAt ? null : item.dueDateLocal,
-      deepLink:
-        item.classification === "checkpoint" ? "/checkpoints" : "/assignments",
+      deepLink: "/assignments",
       updatedAt: item.updatedAt,
       dataClassification: "metadata",
       capabilities: ["open"],

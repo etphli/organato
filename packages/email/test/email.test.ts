@@ -76,6 +76,22 @@ describe("email rendering", () => {
     );
     expect(digest?.html).toContain("Weekly plan");
     expect(digest?.html).toContain("Open Organato");
+    const legacyDigest = renderDigest({
+      items: [
+        { ...item, classification: "checkpoint" },
+        { ...item, id: "both-1", classification: "both" },
+      ],
+      subjects: [],
+      now,
+      appOrigin: "https://organato.example",
+      lastCanvasSync: "just now",
+      lastCalendarSync: "just now",
+    });
+    expect(legacyDigest?.itemIds).toEqual(["assignment-1", "both-1"]);
+    expect(legacyDigest?.text).not.toMatch(
+      /Checkpoint|Assignment \+ checkpoint/,
+    );
+    expect(legacyDigest?.text.match(/· Assignment/g)).toHaveLength(2);
   });
 
   it("renders the weekly review with done, slipped, and upcoming", () => {

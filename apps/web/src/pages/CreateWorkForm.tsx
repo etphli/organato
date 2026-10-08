@@ -18,7 +18,7 @@ import { localDateTimeToIso } from "./calendar/model";
 
 export interface NewWorkItem {
   name: string;
-  classification: "assignment" | "checkpoint" | "both";
+  classification: "assignment";
   dueAt: string | null;
   dueDateLocal: string | null;
   dueHasExplicitTime: boolean;
@@ -29,7 +29,6 @@ export interface NewWorkItem {
 }
 
 interface CreateWorkFormProps {
-  page: "assignments" | "checkpoints";
   subjects: Subject[];
   timezone: string;
   settings: WorkspaceSettings;
@@ -49,7 +48,6 @@ function subjectDefaultFor(
 }
 
 function CreateWorkFormComponent({
-  page,
   subjects,
   timezone,
   settings,
@@ -63,9 +61,6 @@ function CreateWorkFormComponent({
   const [priority, setPriority] = useState<
     NonNullable<OrganatoItem["priority"]> | ""
   >("");
-  const [classification, setClassification] = useState<
-    "assignment" | "checkpoint" | "both"
-  >(page === "assignments" ? "assignment" : "checkpoint");
   const priorityTouched = useRef(false);
   const applySubject = (subjectId: string) => {
     setSubject(subjectId);
@@ -78,17 +73,7 @@ function CreateWorkFormComponent({
   };
   const dialogRef = useRef<HTMLElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
-  useDialogFocus(true, dialogRef, nameRef, page);
-  const classificationOptions = useMemo(
-    () => [
-      {
-        value: page === "assignments" ? "assignment" : "checkpoint",
-        label: page === "assignments" ? "Assignment" : "Checkpoint",
-      },
-      { value: "both", label: "Both" },
-    ],
-    [page],
-  );
+  useDialogFocus(true, dialogRef, nameRef, "assignments");
   const subjectOptions = useMemo(
     () => [
       { value: "", label: "No subject" },
@@ -102,7 +87,7 @@ function CreateWorkFormComponent({
     [subjects],
   );
 
-  const itemNoun = page === "assignments" ? "assignment" : "checkpoint";
+  const itemNoun = "assignment";
 
   return (
     <div
@@ -144,7 +129,7 @@ function CreateWorkFormComponent({
             if (!trimmedName) return;
             onCreate({
               name: trimmedName,
-              classification,
+              classification: "assignment",
               dueAt:
                 dueDate && dueTime
                   ? localDateTimeToIso(dueDate, dueTime, timezone)
@@ -167,7 +152,7 @@ function CreateWorkFormComponent({
               aria-label="Work item name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder={`e.g. ${page === "assignments" ? "English essay" : "Science practical"}`}
+              placeholder="e.g. English essay"
               required
             />
           </label>
@@ -188,17 +173,6 @@ function CreateWorkFormComponent({
                 onChange={setDueTime}
               />
             </div>
-          </div>
-          <div className="create-work-field">
-            <span>Type</span>
-            <OrganatoSelect
-              ariaLabel="Classification"
-              options={classificationOptions}
-              value={classification}
-              onChange={(value) =>
-                setClassification(value as typeof classification)
-              }
-            />
           </div>
           <div className="create-work-field">
             <span>Subject</span>
@@ -260,7 +234,6 @@ function updateNewQuery(enabled: boolean) {
 
 /** Own the transient open state so New/Cancel never re-render WorkPage. */
 export const CreateWorkControl = memo(function CreateWorkControl({
-  page,
   subjects,
   timezone,
   settings,
@@ -312,7 +285,6 @@ export const CreateWorkControl = memo(function CreateWorkControl({
       {open && mounted
         ? createPortal(
             <CreateWorkForm
-              page={page}
               subjects={subjects}
               timezone={timezone}
               settings={settings}

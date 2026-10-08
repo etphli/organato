@@ -105,7 +105,7 @@ describe("server-backed item mutations", () => {
     const rendered = render(
       <MemoryRouter initialEntries={["/assignments"]}>
         <OrganatoProvider>
-          <WorkPage page="assignments" />
+          <WorkPage />
           <Toast />
         </OrganatoProvider>
       </MemoryRouter>,
@@ -180,7 +180,7 @@ describe("server-backed item mutations", () => {
     render(
       <MemoryRouter initialEntries={["/assignments"]}>
         <OrganatoProvider>
-          <WorkPage page="assignments" />
+          <WorkPage />
           <Toast />
         </OrganatoProvider>
       </MemoryRouter>,
@@ -236,7 +236,7 @@ describe("server-backed item mutations", () => {
     render(
       <MemoryRouter initialEntries={["/checkpoints"]}>
         <OrganatoProvider>
-          <WorkPage page="checkpoints" />
+          <WorkPage />
           <Toast />
         </OrganatoProvider>
       </MemoryRouter>,
@@ -249,15 +249,15 @@ describe("server-backed item mutations", () => {
       }),
     );
     fireEvent.click(
-      screen.getByRole("menuitem", { name: "Delete checkpoint" }),
+      screen.getByRole("menuitem", { name: "Delete assignment" }),
     );
     fireEvent.change(
       screen.getByRole("textbox", {
-        name: "Type delete to confirm checkpoint deletion",
+        name: "Type delete to confirm assignment deletion",
       }),
       { target: { value: "delete" } },
     );
-    fireEvent.click(screen.getByRole("button", { name: "Delete checkpoint" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete assignment" }));
 
     await waitFor(() => expect(confirmDeletion).not.toBeNull());
     expect(screen.getByText(checkpoint.displayName)).toBeInTheDocument();

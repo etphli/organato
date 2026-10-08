@@ -52,7 +52,7 @@ const clickOptional = async (selector, label) => {
 
 // Navigation labels must exist: a missing nav item is a regression, not a
 // skip. Labels mirror AppShell navigation.
-const navItems = ["Home", "Assignments", "Checkpoints", "Calendar", "Todo"];
+const navItems = ["Home", "Assignments", "Calendar", "Todo"];
 
 for (let round = 1; round <= 3; round += 1) {
   for (const item of navItems) {

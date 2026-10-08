@@ -7,7 +7,7 @@ import {
   daysBetweenLocalDates,
   digestDeliveryKey,
   groupDigestItems,
-  isInView,
+  isAssignmentClassification,
   itemDeadline,
   mergeDeadlineFields,
   nextRecurrence,
@@ -64,9 +64,15 @@ const item = (overrides: Partial<OrganatoItem> = {}): OrganatoItem => ({
 });
 
 describe("domain invariants", () => {
-  it("keeps Both membership in both views", () => {
-    expect(isInView("both", "assignments")).toBe(true);
-    expect(isInView("both", "checkpoints")).toBe(true);
+  it("includes every classified legacy work type in Assignments", () => {
+    for (const classification of [
+      "assignment",
+      "checkpoint",
+      "both",
+    ] as const) {
+      expect(isAssignmentClassification(classification)).toBe(true);
+    }
+    expect(isAssignmentClassification("unclassified")).toBe(false);
   });
 
   it("derives overdue without overwriting working status", () => {

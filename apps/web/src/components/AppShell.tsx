@@ -5,7 +5,6 @@ import {
   CheckSquare2,
   ChevronRight,
   ClipboardList,
-  Flag,
   Home,
   Settings,
 } from "lucide-react";
@@ -22,7 +21,6 @@ import { BrandMark } from "./BrandMark";
 const navigation = [
   { to: "/", label: "Home", icon: Home },
   { to: "/assignments", label: "Assignments", icon: ClipboardList },
-  { to: "/checkpoints", label: "Checkpoints", icon: Flag },
   { to: "/calendar", label: "Calendar", icon: CalendarDays },
   { to: "/todo", label: "Todo", icon: CheckSquare2 },
 ];

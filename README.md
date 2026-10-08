@@ -1,6 +1,6 @@
 # Organato
 
-Organato is a private, free-to-run school workload organizer for one person. It collects upcoming work from Canvas (called Reshet at school), asks the user to classify each new item as an assignment, checkpoint, or both, and brings school work, personal todos, a calendar, Google Calendar synchronization, and email reminders into one minimal interface.
+Organato is a private, free-to-run school workload organizer for one person. It collects upcoming work from Canvas (called Reshet at school), asks the user to classify each new item as an assignment, and brings school work, personal todos, a calendar, Google Calendar synchronization, and email reminders into one minimal interface.
 
 The product should feel closer to Obsidian than a conventional school portal: black, quiet, keyboard-friendly, information-dense, and deliberately free of clutter.
 
@@ -72,10 +72,10 @@ This stack is deliberately replaceable. All Organato data can be exported, exter
 ```mermaid
 flowchart LR
     Canvas["Canvas / Reshet"] -->|"Hourly read-only import"| Inbox["Home classification inbox"]
-    Inbox -->|"Assignment, Checkpoint, or Both"| Work["Organato work items"]
+    Inbox -->|"Assignment"| Work["Organato work items"]
     Manual["Manual todos and edits"] --> Work
     Work --> Home["Home summary"]
-    Work --> Tables["Assignment and checkpoint tables"]
+    Work --> Tables["Assignments table"]
     Work --> Calendar["Organato calendar"]
     Calendar -->|"Organato-owned events only"| Google["Google Calendar"]
     Work -->|"One consolidated HTML message"| Email["6:00 AM email digest"]
@@ -106,3 +106,16 @@ licence checks, and secret scanning. See the
 activation steps and the
 [build and release runbook](docs/10-build-and-release-runbook.md) for the full
 `pnpm check` quality gate.
+
+## Unified assignments
+
+Assignments contains all classified school work, including existing checkpoints and
+items previously marked Both. Home, calendar filters, CSV exports, and reminder
+labels use the same name. Old `/checkpoints` links redirect to `/assignments` and
+retain their query parameters. Saved checkpoint views remain available in Assignments.
+
+This change requires no database migration. Existing classifications remain in
+storage and backups so item IDs, history, overrides, attachments, subtasks,
+dependencies, calendar links, and legacy checklist templates remain intact.
+New work is created as an assignment. The API continues accepting old classifications
+and checkpoint view records for backup and older-client compatibility.
