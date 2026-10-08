@@ -49,7 +49,7 @@ trap cleanup EXIT
 systemctl daemon-reload
 systemd-analyze verify "${units[@]}"
 systemctl enable --runtime "${units[@]}"
-systemctl is-enabled --quiet "${units[@]}"
+for service in "${units[@]}"; do systemctl is-enabled --quiet "$service"; done
 
 wait_for() {
   for ((attempt=0; attempt<150; attempt++)); do
@@ -62,7 +62,13 @@ wait_for() {
   return 1
 }
 restarted_often() {
-  [[ "$(systemctl show "$unit-xvfb" -p NRestarts --value)" -ge 8 ]]
+  [[ "$(systemctl show "$unit-xvfb" -p NRestarts --value)" -ge 8 &&
+     "$(systemctl show "$unit-x11vnc" -p NRestarts --value)" -ge 8 ]]
+}
+all_active() {
+  for service in "${units[@]}"; do
+    systemctl is-active --quiet "$service" || return 1
+  done
 }
 new_pid() {
   local pid
@@ -90,7 +96,7 @@ wait_for restarted_often
 systemctl is-active --quiet "$unit-connector"
 connector_pid="$(systemctl show "$unit-connector" -p MainPID --value)"
 touch "$state_dir/start-allowed"
-wait_for systemctl is-active --quiet "${units[@]}"
+wait_for all_active
 wait_for vnc_ready
 iptables -C OUTPUT -p tcp -d 127.0.0.0/8 --dport 5908 -m owner --uid-owner "$service_user" -j ACCEPT
 iptables -C OUTPUT -p tcp -d 127.0.0.0/8 --dport 5908 -j REJECT
