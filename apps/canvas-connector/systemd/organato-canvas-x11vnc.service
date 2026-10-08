@@ -1,21 +1,23 @@
 [Unit]
 Description=Organato Canvas connector loopback VNC bridge
-Requires=organato-canvas-xvfb.service
+Wants=organato-canvas-xvfb.service
 After=organato-canvas-xvfb.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=organato-canvas
 Group=organato-canvas
 Environment=DISPLAY=:99
+ExecStartPre=+/usr/bin/bash /opt/organato-canvas-connector/scripts/ensure-vnc-firewall.sh 5900 organato-canvas
 # Loopback-only listener (-localhost) plus host firewall UID isolation (see
 # scripts/ensure-vnc-firewall.sh): only this profile's service user and root
 # may open TCP connections to the RFB port. The VNC relay additionally bridges
 # the display solely while an authenticated Organato viewer session is live,
 # so no unauthenticated local user or neighbouring profile can observe input.
 ExecStart=/usr/bin/x11vnc -display :99 -auth /var/lib/organato-canvas-connector/Xauthority -localhost -nopw -forever -shared -rfbport 5900 -noclipboard -nosetclipboard -noxdamage -repeat
-Restart=on-failure
-RestartSec=2
+Restart=always
+RestartSec=5
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

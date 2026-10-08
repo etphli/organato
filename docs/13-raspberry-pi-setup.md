@@ -41,8 +41,9 @@ sudo ./scripts/install-systemd.sh
 
 The installer stops an existing connector before replacing its executable
 files, installs dependencies with the committed `npm ci` lockfile, installs
-three package-contained systemd units, and starts Xvfb plus loopback x11vnc.
-The connector itself stays stopped until pairing is complete. The installed
+three package-contained systemd units, enables them for boot, and starts Xvfb
+plus loopback x11vnc. An already-paired connector resumes automatically; a new
+connector stays stopped until pairing is complete. The installed
 paths are:
 
 | Purpose                         | Path                                 |
@@ -116,6 +117,19 @@ The token is never printed or written to the journal.
 sudo systemctl enable --now organato-canvas-connector.service
 sudo systemctl status organato-canvas-connector.service
 ```
+
+After this one-time setup, the services start whenever the Pi boots, including
+when power returns after an outage. No desktop login or SSH session is needed.
+The connector keeps retrying when the network is unavailable, and the display
+services retry every five seconds until they can start. A display failure does
+not stop the connector's polling. Each VNC start restores its local firewall
+rules before opening the listener. Shared profiles use the same recovery
+settings with their own service user and port.
+
+Pairing and the saved Canvas browser profile remain in `/var/lib`, so a normal
+restart does not require pairing again. Canvas can still expire its login and
+ask you to sign in again through Organato. A disconnected device has no saved
+credential, so its connector stays stopped.
 
 In Organato, select **Sign in to Canvas**. The connector polls the Worker
 roughly every 15 seconds. The login request opens `/login` in the persistent
@@ -201,7 +215,6 @@ tar --extract --gzip --file organato-canvas-connector.tar.gz
 cd organato-canvas-connector
 
 sudo ./scripts/install-systemd.sh
-sudo systemctl start organato-canvas-connector.service
 sudo systemctl --no-pager --full status \
   organato-canvas-xvfb.service \
   organato-canvas-x11vnc.service \
@@ -209,7 +222,8 @@ sudo systemctl --no-pager --full status \
 ```
 
 The checksum command must report `OK`. The final command must show all three
-services as `active (running)`. Open Organato, select **Refresh status**, and
+services as `active (running)` for a paired device. The installer resumes paired
+connectors and enables startup for future boots. Open Organato, select **Refresh status**, and
 run a Canvas sync to test the upgrade.
 
 The installer replaces only the connector program in
@@ -280,6 +294,27 @@ then connects Playwright locally. Internal Chromium and DevTools pages remain
 blocked.
 
 ## 9. Troubleshooting
+
+### Connector stays offline after a power outage
+
+Install the current release using section 7 once. This updates the boot and
+recovery settings for the original connector and any shared profiles. Merging
+the release on GitHub does not update an already-installed Pi package.
+
+Check the original connector's boot settings and current state:
+
+```sh
+sudo systemctl is-enabled organato-canvas-{xvfb,x11vnc,connector}.service
+sudo systemctl --no-pager status organato-canvas-{xvfb,x11vnc,connector}.service
+sudo journalctl -b -u organato-canvas-xvfb -u organato-canvas-x11vnc -u organato-canvas-connector --no-pager -n 60
+```
+
+All three must be `enabled`, then settle at `active (running)` once the Pi has
+booted and the device is paired. After a successful sync, reboot the Pi with
+`sudo reboot`. Wait for it to reconnect in Organato without opening a terminal
+on the Pi, then run another sync. This is the device check for automatic boot.
+If the Pi itself does not power on when electricity returns, service settings
+cannot start it; check the power supply and the Pi's boot configuration.
 
 ### Repair the Xvfb lock-file restart loop
 
@@ -353,6 +388,12 @@ you must still check that the Canvas page appears and completes sign-in.
 | The Pi is offline in Organato       | Check the connector journal and outbound HTTPS connectivity; do not expose port 5900.                             |
 | Canvas identity is rejected         | Sign in to the same Emanuel Canvas account that was confirmed previously, then reconnect if the account changed.  |
 | A result remains pending            | Leave the service running for the next poll; network, 429, and 5xx failures retain the same command ID for retry. |
+
+Linux CI runs the actual systemd display units with Xvfb and x11vnc, delays the
+display beyond the normal start limit, kills the display, restores missing VNC
+firewall rules, and checks connector failure and clean-exit behavior. It replaces
+the connector process with a waiting process and uses a disposable profile;
+it does not test Pi hardware, power loss, or a real network reconnection.
 
 The automated package tests cover persistence, pending uploads, revocation,
 allowlist/SSRF checks, bounded pagination, Worker-compatible normalization,
