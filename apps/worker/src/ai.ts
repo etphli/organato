@@ -110,10 +110,11 @@ aiRoutes.post(
     if (request.kind === "task") {
       subjects = await listSubjects(context.env.DB, workspaceId);
       instruction =
-        'Extract a todo. Shape: {"name":string,"subjectId":string|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"priority":"low"|"medium"|"high"|"urgent"|null,"clarification":string|null}. Use only a supplied subject ID. Missing fields must be null. Ambiguous date or time must be null with a clarification. Times use the supplied timezone; date-only tasks have null time.';
+        'Extract a task. Shape: {"itemKind":"todo"|"work","name":string,"subjectId":string|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"priority":"low"|"medium"|"high"|"urgent"|null,"clarification":string|null}. Respect destination todo or work. For auto, school assignments, essays, assessments and projects are work; ordinary personal actions are todo. Use only a supplied subject ID. Missing fields must be null. Ambiguous date or time must be null with a clarification. Times use the supplied timezone; date-only tasks have null time.';
       input = {
         ...base,
         text: request.text,
+        destination: request.destination,
         subjects: subjects
           .filter((subject) => subject.active)
           .map(({ id, displayName }) => ({ id, name: displayName })),
@@ -183,6 +184,11 @@ aiRoutes.post(
       const result = await generateSuggestion(context.env, instruction, input);
       if (request.kind === "task") {
         const suggestion = aiTaskSchema.parse(result);
+        if (
+          request.destination !== "auto" &&
+          suggestion.itemKind !== request.destination
+        )
+          throw new Error("invalid_destination");
         if (
           suggestion.subjectId &&
           !subjects.some(

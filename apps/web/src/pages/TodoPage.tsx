@@ -99,6 +99,7 @@ export default function TodoPage() {
     <div className="page todo-page">
       <PageHeader
         title="Todo"
+        creation={<AiQuickAdd variant="toolbar" />}
         meta={`${activeCount} active${showCompleted ? ` · ${todos.length} shown` : ""}`}
         actions={
           <>
@@ -120,7 +121,6 @@ export default function TodoPage() {
           </>
         }
       />
-      <AiQuickAdd />
       <section className="todo-list" aria-label="Todos">
         <div className="todo-list-head">
           <span>Task</span>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { aiDemoMode } from "../../lib/ai";
 import { integrationRequest } from "../../lib/integrationApi";
 
@@ -12,11 +12,11 @@ export function useAiSuggestion<T>() {
   const [state, setState] = useState<SuggestionState<T>>({ kind: "idle" });
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
-  const clear = () => {
+  const clear = useCallback(() => {
     controller.current?.abort();
     controller.current = null;
     setState({ kind: "idle" });
-  };
+  }, []);
   const generate = async (operation: (signal: AbortSignal) => Promise<T>) => {
     controller.current?.abort();
     const current = new AbortController();

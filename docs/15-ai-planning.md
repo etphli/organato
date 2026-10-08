@@ -1,6 +1,6 @@
 # AI planning preview
 
-This PR adds three opt-in planning features in the agreed order: natural-language todo entry, assignment breakdown, then a next-action recommendation. The AI proposes changes; the user reviews and saves them. It does not classify work, change teacher deadlines, submit assignments, send messages or schedule study sessions.
+This PR adds three opt-in planning features in the agreed order: natural-language task entry, assignment breakdown, then a next-action recommendation. The AI proposes changes; the user reviews and saves them. It does not reclassify existing work, change teacher deadlines, submit assignments, send messages or schedule study sessions.
 
 ## Try the demo
 
@@ -13,13 +13,15 @@ pnpm demo:ai
 
 Open <http://127.0.0.1:5173>. The committed development profile enables a sample workspace without Google sign-in. Production builds do not enable demo mode. Sample deadlines are fixed fixture dates, so some appear overdue.
 
-1. On Home or Todo, enter `Finish my English draft next Thursday at 5pm, high priority`. Click **Preview todo**, inspect the subject/date/time/priority, edit the title, then **Save todo**. **Discard** leaves the workspace unchanged. Dates and times use the workspace timezone.
-2. Open an assignment. In **Break into steps**, click **Suggest steps**, edit a step title, deselect one step, then **Add selected steps**. The accepted steps appear in its existing checklist. Existing steps, notes, classification and deadline are preserved. Time estimates are approximate and shown during review; they are not stored as subtask deadlines or duration fields.
-3. On Home, choose 15, 25 or 60 minutes and click **Suggest next action**. **Open task** opens the recommended item's inspector. Completed, submitted, archived and dependency-blocked items are excluded. A workspace change invalidates the displayed recommendation until you ask again.
+1. On Todo, use the slim bar between the title and **Show completed**. Enter `Finish my English draft next Thursday at 5pm, high priority` and press Enter or the arrow. Review the subject/date/time/priority, edit the title, then **Save todo**. **Discard** makes no changes. Dates and times use the workspace timezone.
+2. On Assignments, click **New**, then **Describe it naturally**. Enter `English essay next Friday at 5pm` to preview an assignment. **Enter details** restores the usual manual form.
+3. Press **⌘K**, type `English essay assignment tomorrow` and Enter. The preview detects **Assignments**. A personal action such as `Read chapter four tomorrow` detects **Todo**. The **Save to** selector lets you correct either destination before saving. Existing navigation commands still work.
+4. Open an assignment. Below its checklist, **Break into steps** has **Suggest steps** and an optional **Add brief** control. Edit step titles, deselect one, then **Add selected steps**. Accepted steps appear in the checklist. Time estimates are approximate and shown during review.
+5. On Home, **Next up** lets you choose 15, 25 or 60 minutes and **Find a next step**. **Open task** opens the recommended item. **Why this task?** explains the suggestion. Completed, submitted, archived and dependency-blocked items are excluded. A workspace change invalidates the displayed recommendation until you ask again.
 
 The demo uses local deterministic examples, not a language model. Natural-language parsing supports today, tomorrow, the next occurrence of a weekday, ISO dates, explicit AM/PM or 24-hour times, existing subject names and priority words. Ambiguous times request clarification. The optional brief does not change demo checklist examples. Live AI can understand broader wording and tailor steps to the pasted brief; its quality and latency need a separate test with a key.
 
-Demo changes use only `organato-demo-state-v1` browser storage. **Reset demo** restores sample data. The three demo flows make no API or OpenRouter requests and do not touch real workspaces or integrations.
+Demo changes use only `organato-demo-state-v1` browser storage. **Reset demo** restores sample data. The demo flows make no API or OpenRouter requests and do not touch real workspaces or integrations.
 
 ## Live connection, after approval
 
@@ -54,6 +56,6 @@ Input and model output are validated at their boundaries. Cross-workspace assign
 
 Run `pnpm check` for formatting, lint, type checks, tests, the real Worker/D1/connector contract check, builds, license checks, dependency audit and secret scanning. The existing audit configuration ignores one known advisory; this change adds no runtime dependencies. The optional credentialed Canvas browser smoke remains skipped unless configured.
 
-Added coverage checks demo preview/edit/save/discard, selected checklist acceptance without network traffic, date/time validation, dependency filtering, live routing and privacy boundaries with a simulated provider, invalid model output, rate limiting, request size limits and retry-safe checklist writes against real SQLite using the existing D1 test adapter.
+Added coverage checks demo preview/edit/save/discard, command-palette destination detection and correction, natural assignment creation in New, selected checklist acceptance without network traffic, date/time validation, dependency filtering, live routing and privacy boundaries with a simulated provider, invalid model output, rate limiting, request size limits and retry-safe checklist writes against real SQLite using the existing D1 test adapter.
 
 Live OpenRouter inference remains unverified without a key. A passing test suite validates the integration contract and user flows, not the model's ability to interpret every school brief.

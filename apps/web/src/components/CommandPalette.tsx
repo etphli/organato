@@ -17,6 +17,8 @@ import {
   useOrganatoWorkspace,
 } from "../state/OrganatoProvider";
 import { useDialogFocus } from "./useDialogFocus";
+import { AiQuickAdd, type AiQuickAddHandle } from "./ai/AiQuickAdd";
+import { useAiAvailable } from "./ai/useAiSuggestion";
 
 const baseCommands = [
   { label: "Go to Home", icon: Home, path: "/" },
@@ -29,11 +31,13 @@ const baseCommands = [
 ];
 
 export function CommandPalette() {
+  const aiAvailable = useAiAvailable();
   const { settings } = useOrganatoWorkspace();
   const { commandOpen } = useOrganatoUi();
   const { dispatch, syncNow } = useOrganatoActions();
   const dialogRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const creationRef = useRef<AiQuickAddHandle>(null);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const navigate = useNavigate();
@@ -107,7 +111,7 @@ export function CommandPalette() {
             if (event.key === "ArrowDown") {
               event.preventDefault();
               setSelectedIndex((index) =>
-                Math.min(index + 1, filtered.length - 1),
+                Math.max(0, Math.min(index + 1, filtered.length - 1)),
               );
             }
             if (event.key === "ArrowUp") {
@@ -117,9 +121,12 @@ export function CommandPalette() {
             if (event.key === "Enter" && filtered[selectedIndex]) {
               event.preventDefault();
               runCommand(filtered[selectedIndex]);
+            } else if (event.key === "Enter" && query.trim()) {
+              event.preventDefault();
+              creationRef.current?.preview();
             }
           }}
-          placeholder="Type a command…"
+          placeholder="Type a command or describe a task…"
           aria-label="Command palette — type to filter commands"
           role="combobox"
           aria-expanded="true"
@@ -152,10 +159,17 @@ export function CommandPalette() {
               </button>
             );
           })}
-          {!filtered.length ? (
+          {!filtered.length && !(aiAvailable && query.trim()) ? (
             <p className="empty-line">No matching command.</p>
           ) : null}
         </div>
+        <AiQuickAdd
+          ref={creationRef}
+          variant="palette"
+          destination="auto"
+          externalText={query}
+          onSaved={() => dispatch({ type: "command", open: false })}
+        />
         {settings.showKeyboardHints ? (
           <footer>
             <kbd>↑</kbd>

@@ -228,6 +228,9 @@ function SubtaskSection({ item }: { item: OrganatoItem }) {
           Add {templateKey} checklist ({template.length} steps)
         </button>
       ) : null}
+      {item.kind === "work" && !item.archivedAt ? (
+        <AiBreakdown key={item.id} item={item} />
+      ) : null}
     </section>
   );
 }
@@ -1191,9 +1194,6 @@ export function Inspector() {
             />
           </section>
           <SubtaskSection item={item} />
-          {item.kind === "work" && !item.archivedAt ? (
-            <AiBreakdown key={item.id} item={item} />
-          ) : null}
           <section className="inspector-section">
             <h2>Linked attachments</h2>
             {item.attachments.length ? (

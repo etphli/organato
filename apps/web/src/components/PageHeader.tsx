@@ -10,11 +10,13 @@ export function PageHeader({
   title,
   meta,
   actions,
+  creation,
   showSync = true,
 }: {
   title: string;
   meta?: string;
   actions?: ReactNode;
+  creation?: ReactNode;
   showSync?: boolean;
 }) {
   const { integrations } = useOrganatoWorkspace();
@@ -25,11 +27,12 @@ export function PageHeader({
   );
   const syncUnavailable = canvas?.state === "disconnected";
   return (
-    <header className="page-header">
+    <header className={`page-header${creation ? " has-creation" : ""}`}>
       <div className="page-heading">
         <h1>{title}</h1>
         {meta ? <span>{meta}</span> : null}
       </div>
+      {creation ? <div className="page-header-creation">{creation}</div> : null}
       <div className="page-actions">
         {actions ? <div className="page-context-actions">{actions}</div> : null}
         <div className="page-global-actions">

@@ -14,6 +14,8 @@ import {
   quarterHourOptions,
 } from "../components/OrganatoControls";
 import { useDialogFocus } from "../components/useDialogFocus";
+import { AiQuickAdd } from "../components/ai/AiQuickAdd";
+import { useAiAvailable } from "../components/ai/useAiSuggestion";
 import { localDateTimeToIso } from "./calendar/model";
 
 export interface NewWorkItem {
@@ -54,6 +56,8 @@ function CreateWorkFormComponent({
   onCancel,
   onCreate,
 }: CreateWorkFormProps) {
+  const aiAvailable = useAiAvailable();
+  const [natural, setNatural] = useState(false);
   const [name, setName] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
@@ -110,7 +114,9 @@ function CreateWorkFormComponent({
         <header>
           <div>
             <span>New {itemNoun}</span>
-            <h2 id="create-work-title">Add the details</h2>
+            <h2 id="create-work-title">
+              {natural ? "Describe your assignment" : "Add the details"}
+            </h2>
           </div>
           <button
             type="button"
@@ -121,99 +127,128 @@ function CreateWorkFormComponent({
             <X size={18} />
           </button>
         </header>
-        <form
-          className="create-work-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const trimmedName = name.trim();
-            if (!trimmedName) return;
-            onCreate({
-              name: trimmedName,
-              classification: "assignment",
-              dueAt:
-                dueDate && dueTime
-                  ? localDateTimeToIso(dueDate, dueTime, timezone)
-                  : null,
-              dueDateLocal: dueDate && !dueTime ? dueDate : null,
-              dueHasExplicitTime: Boolean(dueDate && dueTime),
-              subjectId: subject || null,
-              priority: priority || null,
-              calendarEnabled:
-                subjectDefaultFor(settings, subject)?.calendarEnabled ?? true,
-              remindersEnabled:
-                subjectDefaultFor(settings, subject)?.remindersEnabled ?? true,
-            });
-          }}
-        >
-          <label className="create-work-field create-work-field--wide">
-            <span>Name</span>
-            <input
-              ref={nameRef}
-              aria-label="Work item name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. English essay"
-              required
-            />
-          </label>
-          <div className="create-work-field create-work-field--wide">
-            <span>Due</span>
-            <div className="create-work-due">
-              <OrganatoDatePicker
-                ariaLabel="Due date"
-                value={dueDate}
-                onChange={setDueDate}
-                placeholder="No date"
-              />
-              <OrganatoSelect
-                ariaLabel="Due time"
-                disabled={!dueDate}
-                options={quarterHourOptions}
-                value={dueTime}
-                onChange={setDueTime}
-              />
-            </div>
-          </div>
-          <div className="create-work-field">
-            <span>Subject</span>
-            <OrganatoSelect
-              ariaLabel="Subject"
-              options={subjectOptions}
-              value={subject}
-              onChange={applySubject}
-            />
-          </div>
-          <div className="create-work-field create-work-field--wide">
-            <span>Priority</span>
-            <OrganatoSelect
-              ariaLabel="Priority"
-              options={[
-                { value: "", label: "No priority" },
-                { value: "low", label: "Low" },
-                { value: "medium", label: "Medium" },
-                { value: "high", label: "High" },
-                { value: "urgent", label: "Urgent" },
-              ]}
-              value={priority}
-              onChange={(value) => {
-                priorityTouched.current = true;
-                setPriority(value as typeof priority);
-              }}
-            />
-          </div>
-          <footer>
+        {aiAvailable ? (
+          <div
+            className="ai-entry-tabs"
+            role="group"
+            aria-label="Assignment entry method"
+          >
             <button
               type="button"
-              className="create-work-cancel"
-              onClick={onCancel}
+              aria-pressed={!natural}
+              onClick={() => setNatural(false)}
             >
-              Cancel
+              Enter details
             </button>
-            <button type="submit" className="create-work-submit">
-              Create {itemNoun}
+            <button
+              type="button"
+              aria-pressed={natural}
+              onClick={() => setNatural(true)}
+            >
+              Describe it naturally
             </button>
-          </footer>
-        </form>
+          </div>
+        ) : null}
+        {natural ? (
+          <div className="ai-dialog-entry">
+            <AiQuickAdd destination="work" onSaved={onCancel} />
+          </div>
+        ) : (
+          <form
+            className="create-work-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const trimmedName = name.trim();
+              if (!trimmedName) return;
+              onCreate({
+                name: trimmedName,
+                classification: "assignment",
+                dueAt:
+                  dueDate && dueTime
+                    ? localDateTimeToIso(dueDate, dueTime, timezone)
+                    : null,
+                dueDateLocal: dueDate && !dueTime ? dueDate : null,
+                dueHasExplicitTime: Boolean(dueDate && dueTime),
+                subjectId: subject || null,
+                priority: priority || null,
+                calendarEnabled:
+                  subjectDefaultFor(settings, subject)?.calendarEnabled ?? true,
+                remindersEnabled:
+                  subjectDefaultFor(settings, subject)?.remindersEnabled ??
+                  true,
+              });
+            }}
+          >
+            <label className="create-work-field create-work-field--wide">
+              <span>Name</span>
+              <input
+                ref={nameRef}
+                aria-label="Work item name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="e.g. English essay"
+                required
+              />
+            </label>
+            <div className="create-work-field create-work-field--wide">
+              <span>Due</span>
+              <div className="create-work-due">
+                <OrganatoDatePicker
+                  ariaLabel="Due date"
+                  value={dueDate}
+                  onChange={setDueDate}
+                  placeholder="No date"
+                />
+                <OrganatoSelect
+                  ariaLabel="Due time"
+                  disabled={!dueDate}
+                  options={quarterHourOptions}
+                  value={dueTime}
+                  onChange={setDueTime}
+                />
+              </div>
+            </div>
+            <div className="create-work-field">
+              <span>Subject</span>
+              <OrganatoSelect
+                ariaLabel="Subject"
+                options={subjectOptions}
+                value={subject}
+                onChange={applySubject}
+              />
+            </div>
+            <div className="create-work-field create-work-field--wide">
+              <span>Priority</span>
+              <OrganatoSelect
+                ariaLabel="Priority"
+                options={[
+                  { value: "", label: "No priority" },
+                  { value: "low", label: "Low" },
+                  { value: "medium", label: "Medium" },
+                  { value: "high", label: "High" },
+                  { value: "urgent", label: "Urgent" },
+                ]}
+                value={priority}
+                onChange={(value) => {
+                  priorityTouched.current = true;
+                  setPriority(value as typeof priority);
+                }}
+              />
+            </div>
+            <footer>
+              <button
+                type="button"
+                className="create-work-cancel"
+                onClick={onCancel}
+              >
+                Cancel
+              </button>
+              <button type="submit" className="create-work-submit">
+                Create {itemNoun}
+              </button>
+            </footer>
+          </form>
+        )}
       </section>
     </div>
   );

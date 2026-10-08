@@ -397,6 +397,7 @@ describe("AI planning boundaries", () => {
 
   it("rejects invalid calendar dates and times without dates", () => {
     const task = {
+      itemKind: "todo",
       name: "Study",
       subjectId: null,
       date: null,

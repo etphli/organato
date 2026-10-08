@@ -5,6 +5,8 @@ import {
   demoTask,
   demoBreakdown,
   nextCandidates,
+  detectTaskKind,
+  type AiDestination,
   type AiRequest,
 } from "@organato/domain/ai";
 import type { OrganatoItem, Subject } from "@organato/domain/core";
@@ -31,14 +33,20 @@ export async function suggestTask(
   subjects: Subject[],
   timezone: string,
   signal: AbortSignal,
+  destination: AiDestination = "todo",
 ) {
   if (aiDemoMode)
-    return demoTask(
-      text,
-      subjects.filter((subject) => subject.active),
-      timezone,
-    );
-  return aiTaskSchema.parse(await suggest({ kind: "task", text }, signal));
+    return {
+      ...demoTask(
+        text,
+        subjects.filter((subject) => subject.active),
+        timezone,
+      ),
+      itemKind: destination === "auto" ? detectTaskKind(text) : destination,
+    };
+  return aiTaskSchema.parse(
+    await suggest({ kind: "task", text, destination }, signal),
+  );
 }
 
 export async function suggestBreakdown(

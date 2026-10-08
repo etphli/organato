@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Sparkles, Plus, X } from "lucide-react";
 import type { OrganatoItem } from "@organato/domain/core";
 import { aiBreakdownSchema } from "@organato/domain/ai";
 import { aiDemoMode, suggestBreakdown } from "../../lib/ai";
@@ -18,6 +19,7 @@ type StepDraft = {
 export function AiBreakdown({ item }: { item: OrganatoItem }) {
   const { dispatch } = useOrganatoActions();
   const available = useAiAvailable();
+  const [showBrief, setShowBrief] = useState(false);
   const [brief, setBrief] = useState("");
   const [consent, setConsent] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -68,57 +70,75 @@ export function AiBreakdown({ item }: { item: OrganatoItem }) {
       className="ai-panel ai-breakdown"
       aria-label="Assignment breakdown"
     >
-      <header>
-        <h2>Break into steps</h2>
-        <span>{aiDemoMode ? "Demo" : "AI"}</span>
-      </header>
-      <label>
-        Instructions to use, optional
-        <textarea
-          maxLength={6000}
-          value={brief}
-          onChange={(event) => {
-            setBrief(event.target.value);
-            clear();
-          }}
+      <div className="ai-breakdown-toolbar">
+        <div className="ai-planning-label">
+          <Sparkles size={14} aria-hidden="true" />
+          <span>Break into steps</span>
+        </div>
+        <button
+          type="button"
+          className="ai-quiet-button"
+          aria-expanded={showBrief}
+          onClick={() => setShowBrief((open) => !open)}
           disabled={saving}
-          placeholder="Paste the brief to get more specific planning steps. Your notes and files are not sent."
+        >
+          {showBrief ? <X size={13} /> : <Plus size={13} />}{" "}
+          {showBrief ? "Hide brief" : "Add brief"}
+        </button>
+        <button
+          type="button"
+          disabled={
+            !available ||
+            saving ||
+            state.kind === "loading" ||
+            (!aiDemoMode && !consent)
+          }
+          onClick={() => {
+            setSaveError(null);
+            void generate(async (signal) =>
+              (await suggestBreakdown(item, brief, signal)).steps
+                .filter(
+                  (step) =>
+                    !item.subtasks.some(
+                      (existing) =>
+                        existing.title.toLowerCase() ===
+                        step.title.toLowerCase(),
+                    ),
+                )
+                .map((step) => ({
+                  ...step,
+                  id: crypto.randomUUID(),
+                  included: true,
+                })),
+            );
+          }}
+        >
+          {state.kind === "loading" ? "Planning…" : "Suggest steps"}
+        </button>
+      </div>
+      {showBrief ? (
+        <label className="ai-brief">
+          Assignment brief, optional
+          <textarea
+            maxLength={6000}
+            value={brief}
+            disabled={saving}
+            onChange={(event) => {
+              setBrief(event.target.value);
+              clear();
+            }}
+            placeholder="Paste the instructions you want used…"
+          />
+          <small>Your notes and files are not sent.</small>
+        </label>
+      ) : null}
+      {!aiDemoMode ? (
+        <AiNotice
+          scope="this assignment's title, deadline, checklist and any instructions pasted above"
+          consent={consent}
+          onConsent={setConsent}
         />
-      </label>
-      <AiNotice
-        scope="this assignment's title, deadline, checklist and any instructions pasted above"
-        consent={consent}
-        onConsent={setConsent}
-      />
-      <button
-        type="button"
-        disabled={
-          !available ||
-          saving ||
-          state.kind === "loading" ||
-          (!aiDemoMode && !consent)
-        }
-        onClick={() => {
-          setSaveError(null);
-          void generate(async (signal) =>
-            (await suggestBreakdown(item, brief, signal)).steps
-              .filter(
-                (step) =>
-                  !item.subtasks.some(
-                    (existing) =>
-                      existing.title.toLowerCase() === step.title.toLowerCase(),
-                  ),
-              )
-              .map((step) => ({
-                ...step,
-                id: crypto.randomUUID(),
-                included: true,
-              })),
-          );
-        }}
-      >
-        {state.kind === "loading" ? "Planning…" : "Suggest steps"}
-      </button>
+      ) : null}
       {state.kind === "loading" ? (
         <button type="button" onClick={clear}>
           Cancel
@@ -127,11 +147,12 @@ export function AiBreakdown({ item }: { item: OrganatoItem }) {
       {state.kind === "error" ? <p role="alert">{state.message}</p> : null}
       {state.kind === "ready" ? (
         <div className="ai-preview">
-          <h3>Review suggested steps</h3>
-          <p className="ai-note">
-            Time estimates are approximate. Selected steps are added to your
-            personal checklist; the assignment deadline stays unchanged.
-          </p>
+          <div className="ai-review-heading">
+            <h3>Suggested steps</h3>
+            <span className="ai-note">
+              {state.value.filter((step) => step.included).length} selected
+            </span>
+          </div>
           {!state.value.length ? (
             <p>These steps are already in your checklist.</p>
           ) : null}
@@ -152,8 +173,9 @@ export function AiBreakdown({ item }: { item: OrganatoItem }) {
                   )
                 }
               />
-              <input
+              <textarea
                 aria-label={`Step ${index + 1} title`}
+                rows={2}
                 value={step.title}
                 maxLength={500}
                 disabled={saving}

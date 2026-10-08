@@ -7,7 +7,7 @@ export function AiDemoBanner() {
   return (
     <div className="ai-demo-banner">
       <span>
-        Demo workspace · sample data stays in this browser. Try a natural todo,
+        Demo workspace · sample data stays in this browser. Try task capture,
         assignment steps, and next action.
       </span>
       <button type="button" onClick={() => dispatch({ type: "reset" })}>

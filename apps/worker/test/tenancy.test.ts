@@ -796,11 +796,62 @@ describe("AI planning with real workspace data", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("detects task destinations and rejects a model that ignores a fixed destination", async () => {
+    const { app, env } = liveApi();
+    const suggestion = {
+      itemKind: "work",
+      name: "English essay",
+      subjectId: null,
+      date: null,
+      time: null,
+      priority: null,
+      clarification: null,
+    };
+    const fetcher = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(completion(suggestion)));
+    vi.stubGlobal("fetch", fetcher);
+    const response = await app.request(
+      "/api/ai/suggest",
+      body({
+        kind: "task",
+        destination: "auto",
+        text: "English essay tomorrow",
+      }),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      suggestion: { itemKind: "work" },
+    });
+    const requestBody = JSON.parse(fetcher.mock.calls[0]?.[1]?.body ?? "{}");
+    expect(JSON.parse(requestBody.messages[1].content)).toMatchObject({
+      destination: "auto",
+    });
+    const mismatch = await app.request(
+      "/api/ai/suggest",
+      body({ kind: "task", destination: "todo", text: "Read chapter four" }),
+      env,
+    );
+    expect(mismatch.status).toBe(502);
+    suggestion.itemKind = "todo";
+    const todo = await app.request(
+      "/api/ai/suggest",
+      body({ kind: "task", destination: "auto", text: "Read chapter four" }),
+      env,
+    );
+    expect(todo.status).toBe(200);
+    expect(await todo.json()).toMatchObject({
+      suggestion: { itemKind: "todo" },
+    });
+  });
+
   it("rejects hallucinated subject IDs, invalid dates and unrelated recommendations", async () => {
     const { app, env } = liveApi();
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
     const task = {
+      itemKind: "todo",
       name: "Draft",
       subjectId: "owner-subject",
       date: null,

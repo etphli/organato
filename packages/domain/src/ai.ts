@@ -14,6 +14,7 @@ export const aiDateSchema = z
   }, "Choose a valid date.");
 export const aiTaskSchema = z
   .object({
+    itemKind: z.enum(["todo", "work"]),
     name: z.string().trim().min(1).max(500),
     subjectId: z.string().max(200).nullable(),
     date: aiDateSchema.nullable(),
@@ -53,6 +54,7 @@ export const aiRequestSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("task"),
+      destination: z.enum(["todo", "work", "auto"]).default("todo"),
       text: z.string().trim().min(1).max(2000),
     })
     .strict(),
@@ -74,6 +76,15 @@ export type AiTask = z.infer<typeof aiTaskSchema>;
 export type AiBreakdown = z.infer<typeof aiBreakdownSchema>;
 export type AiNext = z.infer<typeof aiNextSchema>;
 export type AiRequest = z.infer<typeof aiRequestSchema>;
+export type AiDestination = Extract<AiRequest, { kind: "task" }>["destination"];
+
+export function detectTaskKind(text: string): AiTask["itemKind"] {
+  return /\b(assignment|assessment|essay|draft|project|report|checkpoint)\b/i.test(
+    text,
+  )
+    ? "work"
+    : "todo";
+}
 
 export function nextCandidates(
   items: OrganatoItem[],
@@ -163,6 +174,7 @@ export function demoTask(
     .replace(/[,\s]+$/g, "")
     .trim();
   return aiTaskSchema.parse({
+    itemKind: "todo",
     name: name || text,
     date: dateKey,
     time,

@@ -10,12 +10,7 @@ export function AiNotice({
   scope: string;
 }) {
   if (aiDemoMode)
-    return (
-      <p className="ai-note">
-        Demo suggestions run locally. No API key or external requests. Live AI
-        may give different results.
-      </p>
-    );
+    return <p className="ai-note">Local demo · no API requests</p>;
   return (
     <label className="ai-consent">
       <input
