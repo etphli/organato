@@ -17,8 +17,7 @@ import { POST_RESTORE_RELOAD_DELAY_MS } from "../lib/timing";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
-  isAssignmentClassification,
-  classificationLabel,
+  itemTypeLabel,
   visibleStatus,
   type OrganatoItem,
   type WorkspaceSnapshot,
@@ -43,10 +42,6 @@ const archivePageSize = 50;
 
 const genericOptions: Record<string, Array<[string, string]>> = {
   home: [
-    [
-      "Auto-expand classification inbox",
-      "New imports stay visible until classified.",
-    ],
     ["Show mini calendar", "Use the compact month on desktop."],
     ["Show quick todo", "Keep fast creation on Home."],
     ["Show workload strip", "Summarise the next seven days."],
@@ -108,7 +103,6 @@ function itemCsv(rows: OrganatoItem[], subjectNames: Map<string, string>) {
   const headers = [
     "Name",
     "Kind",
-    "Classification",
     "Subject",
     "Due",
     "Priority",
@@ -124,7 +118,6 @@ function itemCsv(rows: OrganatoItem[], subjectNames: Map<string, string>) {
       [
         item.displayName,
         item.kind,
-        item.classification,
         item.subjectId ? subjectNames.get(item.subjectId) : "",
         item.dueAt ?? item.dueDateLocal ?? "",
         item.priority,
@@ -144,7 +137,6 @@ function ToggleRows({ category }: { category: string }) {
   const { settings } = useOrganatoData();
   const { dispatch } = useOrganatoActions();
   const settingFields: Record<string, keyof typeof settings> = {
-    "Auto-expand classification inbox": "autoExpandClassification",
     "Show mini calendar": "showMiniCalendar",
     "Show quick todo": "showQuickTodo",
     "Show workload strip": "showWorkloadStrip",
@@ -545,9 +537,7 @@ export default function SettingsPage() {
         [
           "organato-assignments.csv",
           exported.items.filter(
-            (item) =>
-              !item.archivedAt &&
-              isAssignmentClassification(item.classification),
+            (item) => !item.archivedAt && item.kind === "work",
           ),
         ],
         [
@@ -1642,9 +1632,7 @@ export default function SettingsPage() {
                         <strong>{item.displayName}</strong>
                         <small>
                           {item.archiveReason ?? "Archived"} ·{" "}
-                          {item.kind === "todo"
-                            ? "Todo"
-                            : classificationLabel(item.classification)}
+                          {item.kind === "todo" ? "Todo" : itemTypeLabel(item)}
                         </small>
                       </button>
                       <button
@@ -1703,7 +1691,7 @@ export default function SettingsPage() {
                       <span>
                         {archivePreview.kind === "todo"
                           ? "Todo"
-                          : classificationLabel(archivePreview.classification)}
+                          : itemTypeLabel(archivePreview)}
                       </span>
                       <button
                         aria-label="Close archive preview"

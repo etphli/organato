@@ -75,11 +75,7 @@ export function projectStudatoSources(
     subjects.map((subject) => [subject.id, subject.displayName]),
   );
   return items
-    .filter(
-      (item) =>
-        item.kind === "work" &&
-        ["assignment", "checkpoint", "both"].includes(item.classification),
-    )
+    .filter((item) => item.kind === "work")
     .map((item) => ({
       canonicalId: `ato:organato:item:${item.id}`,
       sourceVersion: item.version,
@@ -92,7 +88,7 @@ export function projectStudatoSources(
           ? `ato:organato:subject:${item.subjectId}`
           : null,
       },
-      classification: item.classification,
+      classification: "assignment",
       state: item.workingStatus,
       priority: item.priority,
       dueAt: item.dueAt,

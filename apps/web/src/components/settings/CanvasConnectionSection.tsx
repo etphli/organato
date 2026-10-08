@@ -573,7 +573,7 @@ function LegacyCanvasConnectionSection({
                 <span>2</span> Import active courses and upcoming assignments
               </li>
               <li>
-                <span>3</span> New work appears in Home for classification
+                <span>3</span> New work appears directly in Assignments
               </li>
             </ol>
           </div>

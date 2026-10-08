@@ -8,7 +8,6 @@ import {
   daysBetweenLocalDates,
   digestDeliveryKey,
   groupDigestItems,
-  isAssignmentClassification,
   itemDeadline,
   mergeDeadlineFields,
   nextRecurrence,
@@ -65,17 +64,6 @@ const item = (overrides: Partial<OrganatoItem> = {}): OrganatoItem => ({
 });
 
 describe("domain invariants", () => {
-  it("includes every classified legacy work type in Assignments", () => {
-    for (const classification of [
-      "assignment",
-      "checkpoint",
-      "both",
-    ] as const) {
-      expect(isAssignmentClassification(classification)).toBe(true);
-    }
-    expect(isAssignmentClassification("unclassified")).toBe(false);
-  });
-
   it("derives overdue without overwriting working status", () => {
     const work = item({ dueAt: "2026-07-20T00:00:00.000Z" });
     expect(visibleStatus(work, new Date("2026-07-25T00:00:00.000Z"))).toBe(

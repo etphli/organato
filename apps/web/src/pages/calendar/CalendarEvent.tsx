@@ -6,7 +6,6 @@ import {
   ClipboardList,
   Clock3,
   Flag,
-  Layers2,
   TriangleAlert,
 } from "lucide-react";
 import { calendarEntryTypeLabel, type CalendarEntry } from "./model";
@@ -14,8 +13,6 @@ import { calendarEntryTypeLabel, type CalendarEntry } from "./model";
 function TypeIcon({ entry }: { entry: CalendarEntry }) {
   const props = { size: 11, strokeWidth: 1.8, "aria-hidden": true };
   if (entry.type === "todo") return <CheckSquare2 {...props} />;
-  if (entry.type === "checkpoint") return <Flag {...props} />;
-  if (entry.type === "both") return <Layers2 {...props} />;
   return <ClipboardList {...props} />;
 }
 

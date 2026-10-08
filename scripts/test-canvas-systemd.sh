@@ -79,7 +79,7 @@ vnc_ready() {
   python3 - <<'PY'
 import socket
 try:
-    with socket.create_connection(("127.0.0.1", 5908), timeout=0.2) as connection:
+    with socket.create_connection(("127.0.0.1", 5908), timeout=2) as connection:
         assert connection.recv(12).startswith(b"RFB ")
 except (OSError, AssertionError):
     raise SystemExit(1)

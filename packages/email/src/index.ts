@@ -1,5 +1,5 @@
 import {
-  classificationLabel,
+  itemTypeLabel,
   groupDigestItems,
   itemDeadline,
   type CanvasCourseSignals,
@@ -31,8 +31,7 @@ function escapeHtml(value: string): string {
 }
 
 function typeLabel(item: OrganatoItem): string {
-  if (item.kind === "todo") return "Todo";
-  return classificationLabel(item.classification);
+  return itemTypeLabel(item);
 }
 
 export interface DigestInput {

@@ -1,11 +1,6 @@
-import {
-  ChevronLeft,
-  ChevronRight,
-  ExternalLink,
-  MoreHorizontal,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   addDays,
   addMonths,
@@ -20,10 +15,8 @@ import {
   createItemComparator,
   dateOnlyCutoffUtc,
   daysRemainingLabel,
-  isAssignmentClassification,
   localDateKey,
   visibleStatus,
-  type Classification,
   type OrganatoItem,
 } from "@organato/domain/core";
 import { PageHeader } from "../components/PageHeader";
@@ -277,179 +270,6 @@ function RiskStrip() {
   );
 }
 
-function ClassificationInbox() {
-  const { items, subjectsById, settings, integrations } = useOrganatoData();
-  const { dispatch } = useOrganatoActions();
-  const today = useToday();
-  const [snoozedIds, setSnoozedIds] = useState<Record<string, number>>(() => {
-    try {
-      return JSON.parse(
-        localStorage.getItem("organato-classification-snoozed") ?? "{}",
-      ) as Record<string, number>;
-    } catch {
-      return {};
-    }
-  });
-  const snoozeActive = (id: string): boolean => {
-    const until = snoozedIds[id];
-    return typeof until === "number" && until > Date.now();
-  };
-  const snoozeItem = (id: string) => {
-    const next = { ...snoozedIds, [id]: Date.now() + 24 * 3_600_000 };
-    setSnoozedIds(next);
-    try {
-      localStorage.setItem(
-        "organato-classification-snoozed",
-        JSON.stringify(next),
-      );
-    } catch {
-      // Snooze still applies for this session when storage is unavailable.
-    }
-    dispatch({ type: "toast", message: "Hidden until tomorrow" });
-  };
-  const unclassified = items.filter(
-    (item) =>
-      item.kind === "work" &&
-      item.classification === "unclassified" &&
-      !item.archivedAt &&
-      !snoozeActive(item.id),
-  );
-  const active = unclassified[0];
-  const navigate = useNavigate();
-  const [optionsOpen, setOptionsOpen] = useState(false);
-  if (!active) {
-    const canvas = integrations.find(
-      (integration) => integration.provider === "canvas",
-    );
-    const message =
-      canvas?.state === "disconnected"
-        ? "Nothing to classify. Connect Reshet when you’re ready to import upcoming work."
-        : canvas?.state === "action_needed"
-          ? "Nothing to classify. Reshet needs attention in Settings."
-          : "Nothing to classify. Reshet has no new work waiting.";
-    return (
-      <p className="classification-empty">
-        {message}{" "}
-        {canvas?.state === "disconnected" ? (
-          <a href="/settings/canvas">Connect</a>
-        ) : null}
-      </p>
-    );
-  }
-  const classify = (classification: Classification) =>
-    dispatch({ type: "classify", id: active.id, classification });
-  return (
-    <section
-      className="classification-band"
-      aria-labelledby="classification-title"
-    >
-      <div className="classification-count">
-        <h2 id="classification-title">
-          {unclassified.length} items to classify
-        </h2>
-        <button
-          type="button"
-          className="icon-button"
-          aria-label="Classification options"
-          aria-expanded={optionsOpen}
-          onClick={() => setOptionsOpen((value) => !value)}
-        >
-          <MoreHorizontal size={17} />
-        </button>
-        {optionsOpen ? (
-          <div className="classification-options" role="menu">
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOptionsOpen(false);
-                navigate("/settings/appearance");
-              }}
-            >
-              Open classification settings
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOptionsOpen(false);
-                if (active) snoozeItem(active.id);
-              }}
-            >
-              Keep this item for later
-            </button>
-          </div>
-        ) : null}
-      </div>
-      <div className="classification-main">
-        <SubjectDot subjectId={active.subjectId} />
-        <div className="classification-copy">
-          <button
-            className="row-title"
-            onClick={() => dispatch({ type: "select", id: active.id })}
-          >
-            {active.displayName}
-          </button>
-          <p>
-            {subjectsById.get(active.subjectId ?? "")?.displayName}{" "}
-            {active.dueAt ? (
-              <>
-                <span>·</span>{" "}
-                {format(new Date(active.dueAt), "EEE d MMM · h:mm a")}{" "}
-              </>
-            ) : null}
-            <span>·</span>{" "}
-            <a
-              href={active.canvasHtmlUrl ?? "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Open in Canvas <ExternalLink size={11} />
-            </a>
-          </p>
-        </div>
-      </div>
-      <div className="classification-actions">
-        <button
-          className="focused-action"
-          onClick={() => classify("assignment")}
-        >
-          Assignment
-        </button>
-        <button
-          onClick={() => {
-            if (active) snoozeItem(active.id);
-          }}
-          title="Hide this item from the inbox until tomorrow"
-        >
-          Later
-        </button>
-        <span className="keyboard-hint">Tab / ↵ to navigate</span>
-      </div>
-      {settings.autoExpandClassification
-        ? unclassified.slice(1).map((item) => (
-            <button
-              className="queued-classification"
-              key={item.id}
-              onClick={() => dispatch({ type: "select", id: item.id })}
-            >
-              <SubjectDot subjectId={item.subjectId} />
-              <span>{item.displayName}</span>
-              <small>
-                {subjectsById.get(item.subjectId ?? "")?.displayName} ·{" "}
-                {daysRemainingLabel(
-                  item.dueAt ? new Date(item.dueAt) : null,
-                  today,
-                )}
-              </small>
-              <MoreHorizontal size={15} />
-            </button>
-          ))
-        : null}
-    </section>
-  );
-}
-
 function MiniCalendar() {
   const { items, settings, subjectsById } = useOrganatoData();
   const { dispatch } = useOrganatoActions();
@@ -670,8 +490,7 @@ function UpcomingList() {
             Boolean(
               dueLocalDate &&
               dueLocalDate >= localDateKey(today, settings.timezone),
-            ) &&
-            isAssignmentClassification(item.classification)
+            )
           );
         })
         .toSorted(createItemComparator(today, settings.timezone))
@@ -831,7 +650,6 @@ export default function HomePage() {
       <PageHeader title="Home" meta={format(today, "EEEE, d MMMM")} />
       <TopBriefing />
       <RiskStrip />
-      <ClassificationInbox />
       <AiNextAction />
       <OverdueList />
       <div

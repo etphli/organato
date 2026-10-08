@@ -52,7 +52,7 @@ const searchTerms: Record<SettingsCategoryId, string> = {
     "profile display name timezone sydney google account allowed identity owner sign in active sessions browser revoke",
   appearance:
     "theme obsidian dark black light system density compact comfortable font size sidebar corners animation colour",
-  home: "classification inbox mini calendar quick todo upcoming workload panels",
+  home: "mini calendar quick todo upcoming workload panels",
   work: "assignment checkpoint both table columns inline editing source icons submitted bulk archive sort view",
   todo: "task quick add natural shorthand recurrence repeat reminder calendar attachment",
   calendar:

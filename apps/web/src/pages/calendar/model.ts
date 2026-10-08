@@ -1,5 +1,4 @@
 import {
-  isAssignmentClassification,
   localDateKey,
   visibleStatus,
   type OrganatoItem,
@@ -20,8 +19,7 @@ import {
 } from "date-fns";
 
 export type CalendarView = "month" | "week" | "agenda";
-export type CalendarTypeFilter =
-  "assignment" | "checkpoint" | "todo" | "unclassified";
+export type CalendarTypeFilter = "assignment" | "todo";
 export type CalendarStatusFilter =
   "active" | "overdue" | "submitted" | "completed";
 
@@ -41,8 +39,7 @@ export const defaultCalendarFilters: CalendarFilters = {
   showTodos: true,
 };
 
-export type CalendarEntryType =
-  "assignment" | "checkpoint" | "both" | "todo" | "unclassified";
+export type CalendarEntryType = "assignment" | "todo";
 
 export interface CalendarEntry {
   item: OrganatoItem;
@@ -114,9 +111,7 @@ export function todayKey(
 
 function entryType(item: OrganatoItem): CalendarEntryType {
   if (item.kind === "todo") return "todo";
-  return isAssignmentClassification(item.classification)
-    ? "assignment"
-    : "unclassified";
+  return "assignment";
 }
 
 function timeParts(
@@ -166,9 +161,6 @@ function typeMatches(
   selected: CalendarTypeFilter[],
 ): boolean {
   if (!selected.length) return true;
-  if (type === "both" || type === "assignment" || type === "checkpoint") {
-    return selected.includes("assignment") || selected.includes("checkpoint");
-  }
   return selected.includes(type);
 }
 
@@ -398,6 +390,5 @@ export function filtersActiveCount(filters: CalendarFilters): number {
 }
 
 export function calendarEntryTypeLabel(type: CalendarEntryType): string {
-  if (type === "both" || type === "checkpoint") return "Assignment";
   return `${type[0]?.toUpperCase() ?? ""}${type.slice(1)}`;
 }

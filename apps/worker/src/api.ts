@@ -7,7 +7,6 @@ import { zValidator } from "@hono/zod-validator";
 import {
   assertSecretFreeBackup,
   classifications,
-  isAssignmentClassification,
   InvalidDeadlineError,
   localDateKey,
   mergeDeadlineFields,
@@ -101,7 +100,7 @@ const itemPatchSchema = z.object({
 const createItemSchema = z
   .object({
     kind: z.enum(["work", "todo"]),
-    classification: z.enum(classifications).default("unclassified"),
+    classification: z.enum(classifications).default("assignment"),
     displayName: z.string().min(1).max(500),
     dueAt: z.string().datetime().nullable().default(null),
     dueDateLocal: z
@@ -466,9 +465,7 @@ apiRoutes.get("/home", async (context) => {
       (item) => item.kind === "work" && item.classification === "unclassified",
     ),
     todos: items.filter((item) => item.kind === "todo").slice(0, 10),
-    assignments: items
-      .filter((item) => isAssignmentClassification(item.classification))
-      .slice(0, 8),
+    assignments: items.filter((item) => item.kind === "work").slice(0, 8),
     checkpoints: items
       .filter((item) => ["checkpoint", "both"].includes(item.classification))
       .slice(0, 8),
