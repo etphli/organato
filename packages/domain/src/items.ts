@@ -1,5 +1,4 @@
 import type {
-  Classification,
   FieldOverride,
   OrganatoItem,
   Priority,
@@ -201,20 +200,8 @@ export function visibleStatus(
   return item.workingStatus;
 }
 
-export function isAssignmentClassification(
-  classification: Classification,
-): boolean {
-  return (
-    classification === "assignment" ||
-    classification === "checkpoint" ||
-    classification === "both"
-  );
-}
-
-export function classificationLabel(classification: Classification): string {
-  return isAssignmentClassification(classification)
-    ? "Assignment"
-    : "Unclassified";
+export function itemTypeLabel(item: Pick<OrganatoItem, "kind">): string {
+  return item.kind === "todo" ? "Todo" : "Assignment";
 }
 
 export function effectiveField<T>(

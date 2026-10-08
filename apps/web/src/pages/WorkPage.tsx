@@ -29,7 +29,6 @@ import { useSearchParams } from "react-router-dom";
 import {
   daysRemainingLabel,
   itemDeadline,
-  isAssignmentClassification,
   visibleStatus,
   type OrganatoItem,
   type SavedView,
@@ -178,11 +177,7 @@ export default function WorkPage() {
   const data = useMemo(
     () =>
       items.filter((item) => {
-        if (
-          item.kind !== "work" ||
-          item.archivedAt ||
-          !isAssignmentClassification(item.classification)
-        ) {
+        if (item.kind !== "work" || item.archivedAt) {
           return false;
         }
         if (priorityFilter && item.priority !== priorityFilter) return false;
@@ -710,20 +705,6 @@ export default function WorkPage() {
             {table.getFilteredSelectedRowModel().rows.length} of{" "}
             {filteredRowCount} selected
           </strong>
-          <button
-            onClick={() => {
-              table.getFilteredSelectedRowModel().rows.forEach((row) =>
-                dispatch({
-                  type: "classify",
-                  id: row.original.id,
-                  classification: "assignment",
-                }),
-              );
-              setRowSelection({});
-            }}
-          >
-            Assignment
-          </button>
           <button
             onClick={() => {
               const selected = table.getFilteredSelectedRowModel().rows;

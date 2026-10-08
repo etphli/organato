@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe("Home", () => {
-  it("keeps new Canvas work visible for classification", () => {
+  it("does not ask users to classify Canvas work", () => {
     localStorage.clear();
     render(
       <MemoryRouter>
@@ -20,11 +20,8 @@ describe("Home", () => {
         </OrganatoProvider>
       </MemoryRouter>,
     );
-    expect(screen.getByText("3 items to classify")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Assignment" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Both" })).toBeNull();
+    expect(screen.queryByText(/items to classify/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Assignment" })).toBeNull();
   });
 
   it("shows only unfinished future work in upcoming panels", () => {

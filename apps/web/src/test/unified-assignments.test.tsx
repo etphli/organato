@@ -1,5 +1,6 @@
 import {
   cleanup,
+  fireEvent,
   render,
   renderHook,
   screen,
@@ -20,12 +21,7 @@ import { useCalendarPreferences } from "../pages/calendar/useCalendarPreferences
 import { OrganatoProvider } from "../state/OrganatoProvider";
 
 const legacyItems = seedItems
-  .filter(
-    (item) =>
-      item.kind === "work" &&
-      !item.archivedAt &&
-      item.classification !== "unclassified",
-  )
+  .filter((item) => item.kind === "work" && !item.archivedAt)
   .map((item) => ({
     ...item,
     workingStatus: "not_started" as const,
@@ -113,6 +109,30 @@ describe("unified assignments", () => {
     expect(screen.queryByRole("link", { name: "Checkpoints" })).toBeNull();
   });
 
+  it("lets old unclassified work open directly without a classification control", async () => {
+    const pending = legacyItems.find(
+      (item) => item.classification === "unclassified",
+    );
+    if (!pending) throw new Error("Legacy unclassified fixture is missing");
+    render(
+      <MemoryRouter initialEntries={["/assignments"]}>
+        <OrganatoProvider>
+          <App />
+        </OrganatoProvider>
+      </MemoryRouter>,
+    );
+    const row = await screen.findByRole(
+      "row",
+      { name: `Open details for ${pending.displayName}` },
+      { timeout: 15_000 },
+    );
+    fireEvent.click(row);
+    await screen.findByLabelText("Notes");
+    expect(screen.queryByRole("button", { name: "Classification" })).toBeNull();
+    expect(screen.queryByText("Decide later")).toBeNull();
+    expect(screen.queryByText("Classification")).toBeNull();
+  });
+
   it("shows one upcoming list including legacy Both work even with the old panel toggle off", () => {
     render(
       <MemoryRouter>
@@ -156,7 +176,7 @@ describe("unified assignments", () => {
         selectedDateKey: "2026-10-15",
         filters: {
           ...defaultCalendarFilters,
-          types: ["checkpoint"],
+          types: ["checkpoint", "unclassified"],
           subjectIds: ["maths"],
           priorities: ["high"],
         },

@@ -454,7 +454,7 @@ export async function runCanvasSync(
          canvas_assignment_id, canvas_course_id, canvas_html_url, source_name, source_due_at,
          source_updated_at, source_payload_hash, display_name, due_at, due_has_explicit_time,
          subject_id, working_status, submitted_at, calendar_enabled, reminders_enabled, calendar_sync_state, created_at, updated_at)
-        SELECT value ->> '$.id', ?, 'work', 'unclassified', 'canvas', ?,
+        SELECT value ->> '$.id', ?, 'work', 'assignment', 'canvas', ?,
           value ->> '$.assignmentId', value ->> '$.courseId', value ->> '$.url', value ->> '$.name', value ->> '$.due',
           value ->> '$.updated', value ->> '$.hash', value ->> '$.name', value ->> '$.due', (value ->> '$.due') IS NOT NULL,
           (SELECT id FROM subject WHERE workspace_id = ? AND canvas_course_id = value ->> '$.courseId'),

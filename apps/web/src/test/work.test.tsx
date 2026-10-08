@@ -47,10 +47,7 @@ describe("Assignment controls", () => {
     fireEvent.click(screen.getByRole("option", { name: "All assignments" }));
 
     const count = seedItems.filter(
-      (item) =>
-        item.kind === "work" &&
-        !item.archivedAt &&
-        item.classification !== "unclassified",
+      (item) => item.kind === "work" && !item.archivedAt,
     ).length;
     expect(screen.getByText(`${count} items`)).toBeInTheDocument();
     expect(screen.getByText("Poetry analysis checkpoint")).toBeInTheDocument();

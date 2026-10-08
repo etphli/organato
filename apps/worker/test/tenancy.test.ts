@@ -208,7 +208,8 @@ describe("per-account workspace isolation", () => {
     sqlite.exec(`
       UPDATE item SET classification = 'checkpoint', notes_markdown = 'Keep my notes', due_date_local = '2026-10-15', canvas_assignment_id = 'canvas-original' WHERE id = 'friend-item';
       INSERT INTO item (id, workspace_id, kind, classification, source_type, display_name, working_status, created_at, updated_at)
-      VALUES ('friend-both', 'friend@example.com', 'work', 'both', 'manual', 'Combined work', 'in_progress', datetime('now'), datetime('now'));
+      VALUES ('friend-both', 'friend@example.com', 'work', 'both', 'manual', 'Combined work', 'in_progress', datetime('now'), datetime('now')),
+      ('friend-pending', 'friend@example.com', 'work', 'unclassified', 'manual', 'Previously pending work', 'not_started', datetime('now'), datetime('now'));
       INSERT INTO subtask (id, workspace_id, item_id, title, completed, created_at, updated_at)
       VALUES ('step', 'friend@example.com', 'friend-item', 'Existing step', 1, datetime('now'), datetime('now'));
       INSERT INTO attachment_link (id, workspace_id, item_id, label, url, link_type, created_at)
@@ -249,6 +250,7 @@ describe("per-account workspace isolation", () => {
     expect(body.assignments.map((item) => item.id).toSorted()).toEqual([
       "friend-both",
       "friend-item",
+      "friend-pending",
     ]);
     const checkpoint = await getItem(db, "friend@example.com", "friend-item");
     expect(checkpoint).toMatchObject({
@@ -433,6 +435,25 @@ describe("per-account workspace isolation", () => {
       ),
     ).not.toContain("Friend-only todo");
 
+    const work = await app.request(
+      "/api/items",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "work",
+          displayName: "Work without a classification choice",
+        }),
+      },
+      env,
+    );
+    expect(work.status).toBe(201);
+    expect(
+      (await listItems(db, "friend@example.com")).find(
+        (item) => item.displayName === "Work without a classification choice",
+      ),
+    ).toMatchObject({ classification: "assignment" });
+
     const history = await db
       .prepare(
         `SELECT workspace_id FROM item_history
@@ -566,7 +587,7 @@ describe("per-account workspace isolation", () => {
       const importedId = firstSync.createdIds[0];
       expect(importedId).toBeDefined();
       const imported = await getItem(db, "friend@example.com", importedId!);
-      expect(imported).not.toBeNull();
+      expect(imported).toMatchObject({ classification: "assignment" });
       const classifiedResponse = await app.request(
         `/api/items/${importedId}/classify`,
         {

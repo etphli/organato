@@ -21,10 +21,7 @@ import type {
   Subject,
   WorkspaceSettings,
 } from "@organato/domain";
-import {
-  classificationLabel,
-  nextRecurrenceDeadline,
-} from "@organato/domain/core";
+import { nextRecurrenceDeadline } from "@organato/domain/core";
 import { useAuthOwner } from "../components/AuthGate";
 import {
   loadWorkspaceCache,
@@ -59,7 +56,7 @@ interface State {
   toast: string | null;
   toastSeq: number;
   undo: {
-    kind: "patch" | "classify" | "archive" | "restore";
+    kind: "patch" | "archive" | "restore";
     item: OrganatoItem;
     fields?: Array<keyof OrganatoItem>;
   } | null;
@@ -123,7 +120,6 @@ type Action =
   | { type: "deleteLink"; itemId: string; linkId: string }
   | { type: "select"; id: string | null }
   | { type: "patchItem"; id: string; patch: Partial<OrganatoItem> }
-  | { type: "classify"; id: string; classification: Classification }
   | { type: "archive"; id: string; reason?: string }
   | { type: "restore"; id: string }
   | { type: "deleteItem"; id: string; confirmation: string }
@@ -180,7 +176,6 @@ const serverMutationTypes = new Set<Action["type"]>([
   "deleteSubtask",
   "deleteLink",
   "patchItem",
-  "classify",
   "archive",
   "restore",
   "deleteItem",
@@ -685,28 +680,6 @@ function baseReducer(state: State, action: Action): State {
               fields: Object.keys(action.patch) as Array<keyof OrganatoItem>,
             }
           : null,
-    });
-  }
-  if (action.type === "classify") {
-    return persist({
-      ...state,
-      items: state.items.map((item) =>
-        item.id === action.id
-          ? {
-              ...item,
-              classification: action.classification,
-              version: item.version + 1,
-              updatedAt: new Date().toISOString(),
-            }
-          : item,
-      ),
-      toast: `Classified as ${classificationLabel(action.classification).toLowerCase()}`,
-      undo: state.items.find((item) => item.id === action.id)
-        ? {
-            kind: "classify",
-            item: state.items.find((item) => item.id === action.id)!,
-          }
-        : null,
     });
   }
   if (action.type === "archive") {
@@ -1405,23 +1378,6 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
             }
             return;
           }
-          if (action.type === "classify" && current) {
-            const version =
-              serverVersions.current.get(current.id) ?? current.version;
-            const result = await apiRequest<{ item: OrganatoItem }>(
-              `/api/items/${encodeURIComponent(action.id)}/classify`,
-              {
-                method: "POST",
-                body: JSON.stringify({
-                  version,
-                  classification: action.classification,
-                }),
-              },
-            );
-            serverVersions.current.set(result.item.id, result.item.version);
-            baseDispatch({ type: "replaceItem", item: result.item });
-            return;
-          }
           if (action.type === "archive") {
             if (!current) return;
             const version =
@@ -1644,23 +1600,6 @@ export function OrganatoProvider({ children }: { children: ReactNode }) {
                       serverVersions.current.get(currentItem.id) ??
                       currentItem.version,
                     ...patch,
-                  }),
-                },
-              );
-              serverVersions.current.set(result.item.id, result.item.version);
-              baseDispatch({ type: "replaceItem", item: result.item });
-              return;
-            }
-            if (undoState.kind === "classify" && currentItem) {
-              const result = await apiRequest<{ item: OrganatoItem }>(
-                `/api/items/${encodeURIComponent(currentItem.id)}/classify`,
-                {
-                  method: "POST",
-                  body: JSON.stringify({
-                    version:
-                      serverVersions.current.get(currentItem.id) ??
-                      currentItem.version,
-                    classification: undoState.item.classification,
                   }),
                 },
               );

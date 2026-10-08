@@ -24,11 +24,13 @@ function readFilters(value: unknown): CalendarFilters {
     types: [
       ...new Set(
         stringArray(candidate.types).map((entry) =>
-          entry === "checkpoint" ? "assignment" : entry,
+          ["checkpoint", "both", "unclassified"].includes(entry)
+            ? "assignment"
+            : entry,
         ),
       ),
     ].filter((entry): entry is CalendarFilters["types"][number] =>
-      ["assignment", "checkpoint", "todo", "unclassified"].includes(entry),
+      ["assignment", "todo"].includes(entry),
     ),
     subjectIds: stringArray(candidate.subjectIds),
     priorities: stringArray(candidate.priorities).filter(

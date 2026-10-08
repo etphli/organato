@@ -245,7 +245,7 @@ export function SearchOverlay() {
               <span>
                 <strong>{item.displayName}</strong>
                 <small>
-                  {item.kind === "todo" ? "Todo" : item.classification} ·{" "}
+                  {item.kind === "todo" ? "Todo" : "Assignment"} ·{" "}
                   {visibleStatus(item).replaceAll("_", " ")}
                 </small>
               </span>

@@ -102,7 +102,6 @@ export function CalendarFilterMenu({
   const typeOptions: Array<[CalendarTypeFilter, string]> = [
     ["assignment", "Assignments"],
     ["todo", "Todos"],
-    ["unclassified", "Unclassified"],
   ];
   const priorityOptions: Array<[NonNullable<Priority>, string]> = [
     ["urgent", "Urgent"],

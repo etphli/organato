@@ -1,5 +1,6 @@
 import {
   itemDeadline,
+  itemTypeLabel,
   localDateKey,
   type OrganatoItem,
   type Subject,
@@ -38,12 +39,7 @@ export function projectCalendarEvent(
     : {
         date: nextLocalDate(allDayDate || localDateKey(deadline, timezone)),
       };
-  const type =
-    item.kind === "todo"
-      ? "Todo"
-      : item.classification === "both"
-        ? "Assignment + checkpoint"
-        : item.classification[0]?.toUpperCase() + item.classification.slice(1);
+  const type = itemTypeLabel(item);
   const protectedLines = [
     type,
     subject?.displayName ? `Subject: ${subject.displayName}` : null,

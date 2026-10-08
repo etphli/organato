@@ -1,6 +1,6 @@
 # Organato
 
-Organato is a private, free-to-run school workload organizer for one person. It collects upcoming work from Canvas (called Reshet at school), asks the user to classify each new item as an assignment, and brings school work, personal todos, a calendar, Google Calendar synchronization, and email reminders into one minimal interface.
+Organato is a private, free-to-run school workload organizer for one person. It collects upcoming work from Canvas (called Reshet at school), treats imported school work as assignments, and brings school work, personal todos, a calendar, Google Calendar synchronization, and email reminders into one minimal interface.
 
 The product should feel closer to Obsidian than a conventional school portal: black, quiet, keyboard-friendly, information-dense, and deliberately free of clutter.
 
@@ -71,8 +71,7 @@ This stack is deliberately replaceable. All Organato data can be exported, exter
 
 ```mermaid
 flowchart LR
-    Canvas["Canvas / Reshet"] -->|"Hourly read-only import"| Inbox["Home classification inbox"]
-    Inbox -->|"Assignment"| Work["Organato work items"]
+    Canvas["Canvas / Reshet"] -->|"Hourly read-only import"| Work["Assignments"]
     Manual["Manual todos and edits"] --> Work
     Work --> Home["Home summary"]
     Work --> Tables["Assignments table"]
@@ -85,7 +84,7 @@ flowchart LR
 
 - No upcoming Canvas assignment is missed because it was not copied manually.
 - New Canvas work becomes visible after the next hourly sync.
-- Classification happens from Home without interrupting the import.
+- New and previously unclassified school work appears directly in Assignments.
 - A single daily email contains all relevant reminders instead of generating notification spam.
 - Manual edits survive later Canvas updates.
 - Direct edits to Organato-created Google Calendar events are respected.
@@ -113,7 +112,7 @@ activation steps and the
 
 ## Unified assignments
 
-Assignments contains all classified school work, including existing checkpoints and
+Assignments contains all school work, including existing checkpoints and
 items previously marked Both. Home, calendar filters, CSV exports, and reminder
 labels use the same name. Old `/checkpoints` links redirect to `/assignments` and
 retain their query parameters. Saved checkpoint views remain available in Assignments.
@@ -123,3 +122,7 @@ storage and backups so item IDs, history, overrides, attachments, subtasks,
 dependencies, calendar links, and legacy checklist templates remain intact.
 New work is created as an assignment. The API continues accepting old classifications
 and checkpoint view records for backup and older-client compatibility.
+
+Classification controls and the classification inbox have been removed. Existing
+unclassified work is visible immediately, and new Canvas imports are stored as
+assignments. Historical classification values remain in backups and storage.

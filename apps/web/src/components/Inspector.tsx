@@ -660,10 +660,7 @@ export function Inspector() {
       dispatch({
         type: "addWork",
         name: `${item.displayName} (copy)`,
-        classification:
-          item.classification === "unclassified"
-            ? "assignment"
-            : item.classification,
+        classification: "assignment",
         dueAt: item.dueAt,
         dueDateLocal: item.dueDateLocal,
         dueHasExplicitTime: item.dueHasExplicitTime,
@@ -1089,32 +1086,6 @@ export function Inspector() {
                 />
               </dd>
             </div>
-            {item.kind === "work" ? (
-              <div>
-                <dt>Classification</dt>
-                <dd>
-                  <OrganatoSelect
-                    ariaLabel="Classification"
-                    options={[
-                      { value: "assignment", label: "Assignment" },
-                      { value: "unclassified", label: "Decide later" },
-                    ]}
-                    value={
-                      item.classification === "unclassified"
-                        ? "unclassified"
-                        : "assignment"
-                    }
-                    onChange={(value) =>
-                      dispatch({
-                        type: "classify",
-                        id: item.id,
-                        classification: value as typeof item.classification,
-                      })
-                    }
-                  />
-                </dd>
-              </div>
-            ) : null}
             {item.kind === "todo" ? (
               <div>
                 <dt>Repeat</dt>

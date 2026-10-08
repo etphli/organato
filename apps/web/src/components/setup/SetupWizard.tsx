@@ -278,10 +278,8 @@ export function SetupWizard({ onDismiss }: SetupWizardProps) {
                 <div>
                   <Tag size={19} />
                   <span>
-                    <strong>Classify on Home</strong>
-                    <small>
-                      New items wait safely until you classify them.
-                    </small>
+                    <strong>Plan in Assignments</strong>
+                    <small>New work appears directly in Assignments.</small>
                   </span>
                 </div>
               </div>
