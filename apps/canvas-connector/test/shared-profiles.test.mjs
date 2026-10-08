@@ -26,9 +26,16 @@ test("shared Pi profiles render separate users, state, display authentication an
     );
     assert.ok(output.includes(`Xvfb :${display}`));
     assert.ok(output.includes(`-rfbport ${port}`));
+    assert.ok(output.includes(`test -S /tmp/.X11-unix/X${display}`));
+    assert.ok(
+      output.includes(`Wants=organato-canvas-profile-${name}-x11vnc.service`),
+    );
+    assert.ok(
+      output.includes(`ensure-vnc-firewall.sh ${port} organato-${name}`),
+    );
     assert.ok(
       output.includes(
-        `Requires=organato-canvas-profile-${name}-x11vnc.service`,
+        `ConditionPathExists=/var/lib/organato-canvas-profile-${name}/device-credential.json`,
       ),
     );
     assert.equal(output.includes("User=organato-canvas\n"), false);

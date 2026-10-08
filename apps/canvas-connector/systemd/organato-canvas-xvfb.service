@@ -1,14 +1,15 @@
 [Unit]
 Description=Organato Canvas connector virtual display
 After=local-fs.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=organato-canvas
 Group=organato-canvas
 ExecStart=/usr/bin/Xvfb :99 -screen 0 1280x900x24 -nolisten tcp -auth /var/lib/organato-canvas-connector/Xauthority
-Restart=on-failure
-RestartSec=2
+Restart=always
+RestartSec=5
 NoNewPrivileges=yes
 ProtectSystem=strict
 ReadWritePaths=/tmp

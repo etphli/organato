@@ -55,7 +55,7 @@ apt-cache show "$browser_package" >/dev/null 2>&1 || {
   echo "The configured apt sources do not provide Chromium." >&2
   exit 1
 }
-apt-get install --no-install-recommends -y ca-certificates curl tar xz-utils "$browser_package" xvfb x11vnc xauth
+apt-get install --no-install-recommends -y ca-certificates curl tar xz-utils "$browser_package" xvfb x11vnc xauth iptables
 
 node_is_supported() {
   local version major
@@ -248,6 +248,9 @@ systemctl enable organato-canvas-xvfb.service organato-canvas-x11vnc.service org
 # connections. Failure here must not leave the display exposed, so abort.
 bash "$source_dir/scripts/ensure-vnc-firewall.sh" 5900 "$service_user"
 systemctl restart organato-canvas-xvfb.service organato-canvas-x11vnc.service
+if [[ -f "$state_dir/device-credential.json" ]]; then
+  systemctl restart organato-canvas-connector.service
+fi
 
 for profile_unit in "${profile_units[@]}"; do
   profile_name="$(basename "$profile_unit" -connector.service)"
@@ -261,4 +264,4 @@ rollback_needed=0
 trap - ERR
 
 echo "Installed Chromium, Xvfb, x11vnc, Node.js, and the connector package."
-echo "Configure $env_file, pair the device, then start organato-canvas-connector.service."
+echo "Paired connectors start now and at boot. For a new device, configure $env_file, pair it, then start organato-canvas-connector.service."
