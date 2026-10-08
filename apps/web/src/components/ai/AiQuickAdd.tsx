@@ -6,7 +6,7 @@ import {
   useState,
   type Ref,
 } from "react";
-import { ArrowUp, Sparkles, X } from "lucide-react";
+import { ArrowUp, X } from "lucide-react";
 import {
   aiTaskSchema,
   type AiDestination,
@@ -113,7 +113,6 @@ export function AiQuickAdd({
             preview();
           }}
         >
-          <Sparkles size={15} aria-hidden="true" />
           <input
             ref={input}
             id={id}
@@ -129,7 +128,7 @@ export function AiQuickAdd({
             placeholder={
               destination === "work"
                 ? "English essay next Friday at 5pm…"
-                : "Add a todo in your own words…"
+                : "Add a todo, e.g. read English tomorrow…"
             }
           />
           <button
@@ -151,7 +150,6 @@ export function AiQuickAdd({
           onClick={preview}
           disabled={state.kind === "loading"}
         >
-          <Sparkles size={16} aria-hidden="true" />
           <span>Create from this description</span>
           <small>Todo or assignment</small>
         </button>
@@ -162,7 +160,7 @@ export function AiQuickAdd({
             <span>
               {state.kind === "loading"
                 ? "Understanding your task…"
-                : "Review before saving"}
+                : "Review task"}
             </span>
             <button
               type="button"
@@ -244,7 +242,6 @@ export function AiQuickAdd({
               }}
             >
               <div className="ai-review-heading">
-                <h3>Ready to add</h3>
                 <label className="ai-destination">
                   <span>Save to</span>
                   <select

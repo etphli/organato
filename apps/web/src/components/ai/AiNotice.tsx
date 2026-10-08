@@ -9,8 +9,7 @@ export function AiNotice({
   onConsent: (value: boolean) => void;
   scope: string;
 }) {
-  if (aiDemoMode)
-    return <p className="ai-note">Local demo · no API requests</p>;
+  if (aiDemoMode) return null;
   return (
     <label className="ai-consent">
       <input

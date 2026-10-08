@@ -6,10 +6,7 @@ export function AiDemoBanner() {
   if (import.meta.env.VITE_DEMO_MODE !== "true") return null;
   return (
     <div className="ai-demo-banner">
-      <span>
-        Demo workspace · sample data stays in this browser. Try task capture,
-        assignment steps, and next action.
-      </span>
+      <span>Demo workspace · Local sample data. No API requests.</span>
       <button type="button" onClick={() => dispatch({ type: "reset" })}>
         Reset demo
       </button>

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { nextCandidates, type AiNext } from "@organato/domain/ai";
 import { aiDemoMode, suggestNext } from "../../lib/ai";
 import {
@@ -28,13 +28,7 @@ export function AiNextAction() {
     <section className="ai-panel ai-next" aria-label="What to do next">
       <div className="ai-next-toolbar">
         <div className="ai-next-heading">
-          <span className="ai-next-icon">
-            <Sparkles size={17} aria-hidden="true" />
-          </span>
-          <div>
-            <h2>Next up</h2>
-            <p>One clear step to move things along.</p>
-          </div>
+          <h2>Next up</h2>
         </div>
         <div className="ai-next-controls">
           <label>
@@ -82,7 +76,7 @@ export function AiNextAction() {
         />
       ) : null}
       {!candidates.length ? (
-        <p>Nothing unblocked needs attention. Enjoy the space.</p>
+        <p>No unfinished tasks are ready to start.</p>
       ) : null}
       {state.kind === "loading" ? (
         <button type="button" onClick={clear}>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import type { OrganatoItem } from "@organato/domain/core";
 import { aiBreakdownSchema } from "@organato/domain/ai";
 import { aiDemoMode, suggestBreakdown } from "../../lib/ai";
@@ -72,7 +72,6 @@ export function AiBreakdown({ item }: { item: OrganatoItem }) {
     >
       <div className="ai-breakdown-toolbar">
         <div className="ai-planning-label">
-          <Sparkles size={14} aria-hidden="true" />
           <span>Break into steps</span>
         </div>
         <button

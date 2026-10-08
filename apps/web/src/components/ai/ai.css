@@ -178,9 +178,6 @@
   font: inherit;
   font-size: 12px;
 }
-.ai-capture > svg {
-  flex-shrink: 0;
-}
 .ai-capture button {
   display: grid;
   place-items: center;
@@ -221,8 +218,12 @@
   margin-bottom: 12px;
 }
 .ai-review-topline {
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 550;
+}
+.ai-creation .ai-review-heading {
+  justify-content: flex-end;
 }
 .ai-review-heading h3 {
   margin: 0;
@@ -311,11 +312,7 @@
 .ai-next.ai-panel {
   padding: 16px 18px;
   border-radius: 12px;
-  background: linear-gradient(
-    110deg,
-    var(--surface),
-    color-mix(in srgb, var(--surface) 40%, var(--bg))
-  );
+  background: var(--surface);
 }
 .ai-next-toolbar,
 .ai-next-heading,
@@ -330,26 +327,10 @@
 .ai-next-heading {
   min-width: 0;
 }
-.ai-next-icon {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  color: var(--text);
-  background: var(--bg);
-}
 .ai-next-heading h2 {
   font-size: 14px;
   font-weight: 600;
-  margin: 0 0 3px;
-}
-.ai-next-heading p {
   margin: 0;
-  font-size: 12px;
-  color: var(--muted);
 }
 .ai-next-controls {
   flex-shrink: 0;
@@ -483,7 +464,7 @@
   font-size: 12px;
   min-height: 0;
   line-height: 1.5;
-  resize: vertical;
+  resize: none;
 }
 .ai-breakdown .ai-step textarea:focus {
   border-color: var(--border-strong);
