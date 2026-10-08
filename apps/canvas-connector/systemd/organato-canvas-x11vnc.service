@@ -9,6 +9,7 @@ Type=simple
 User=organato-canvas
 Group=organato-canvas
 Environment=DISPLAY=:99
+ExecStartPre=/usr/bin/test -S /tmp/.X11-unix/X99
 ExecStartPre=+/usr/bin/bash /opt/organato-canvas-connector/scripts/ensure-vnc-firewall.sh 5900 organato-canvas
 # Loopback-only listener (-localhost) plus host firewall UID isolation (see
 # scripts/ensure-vnc-firewall.sh): only this profile's service user and root

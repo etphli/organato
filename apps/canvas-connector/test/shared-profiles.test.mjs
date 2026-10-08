@@ -26,6 +26,7 @@ test("shared Pi profiles render separate users, state, display authentication an
     );
     assert.ok(output.includes(`Xvfb :${display}`));
     assert.ok(output.includes(`-rfbport ${port}`));
+    assert.ok(output.includes(`test -S /tmp/.X11-unix/X${display}`));
     assert.ok(
       output.includes(`Wants=organato-canvas-profile-${name}-x11vnc.service`),
     );

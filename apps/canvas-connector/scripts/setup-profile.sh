@@ -27,6 +27,7 @@ render_unit() {
     -e "s|/var/lib/organato-canvas-connector|$state_dir|g" \
     -e "s|/etc/organato-canvas-connector.env|$env_file|g" \
     -e "s/:99/:$display/g" \
+    -e "s|/tmp/.X11-unix/X99|/tmp/.X11-unix/X$display|g" \
     -e "s/-rfbport 5900/-rfbport $port/g" \
     "$template_dir/organato-canvas-$component.service"
 }
