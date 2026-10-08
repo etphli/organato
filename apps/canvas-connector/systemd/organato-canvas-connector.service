@@ -1,8 +1,10 @@
 [Unit]
 Description=Organato Canvas browser connector
-Requires=organato-canvas-x11vnc.service
+Wants=organato-canvas-x11vnc.service
 After=network-online.target organato-canvas-x11vnc.service
 Wants=network-online.target
+StartLimitIntervalSec=0
+ConditionPathExists=/var/lib/organato-canvas-connector/device-credential.json
 
 [Service]
 Type=simple

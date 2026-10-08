@@ -9,6 +9,14 @@ permissions:
   contents: read
 
 jobs:
+  canvas-systemd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y xvfb x11vnc xauth iptables
+      - run: sudo env CI=true bash scripts/test-canvas-systemd.sh
+
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 15
