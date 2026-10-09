@@ -27,6 +27,7 @@ import { OrganatoSelect } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
 import { AccountAccessSection } from "../components/settings/AccountAccessSection";
 import { CanvasConnectionSection } from "../components/settings/CanvasConnectionSection";
+import { AiSettingsSection } from "../components/settings/AiSettingsSection";
 import { EmailDeliverySection } from "../components/settings/EmailDeliverySection";
 import {
   SettingsNavigation,
@@ -1147,6 +1148,7 @@ export default function SettingsPage() {
           {active === "canvas" ? (
             <CanvasConnectionSection onWorkspaceRefresh={refresh} />
           ) : null}
+          {active === "ai" ? <AiSettingsSection /> : null}
           {active === "email" ? (
             <>
               <div className="settings-block">

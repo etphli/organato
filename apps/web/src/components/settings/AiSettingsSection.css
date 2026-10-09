@@ -1,0 +1,20 @@
+.ai-settings fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.ai-settings input:not([type="checkbox"]) {
+  width: min(100%, 360px);
+  min-width: 0;
+}
+.ai-settings button {
+  margin: 8px 8px 0 0;
+}
+@media (max-width: 640px) {
+  .ai-settings .setting-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+}

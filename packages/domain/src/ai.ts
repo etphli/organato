@@ -213,3 +213,12 @@ export function demoBreakdown(title: string): AiBreakdown {
         ],
   };
 }
+
+export const aiSettingsSchema = z.object({
+  model: z.string(),
+  enabled: z.boolean(),
+  hasKey: z.boolean(),
+  sharedAvailable: z.boolean(),
+  personal: z.boolean(),
+});
+export type AiSettings = z.infer<typeof aiSettingsSchema>;

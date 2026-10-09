@@ -11,10 +11,67 @@ import {
 } from "@organato/domain/ai";
 import { localDateKey } from "@organato/domain/core";
 import { getItem, getSettings, listItems, listSubjects } from "./db";
-import { isDemoMode, rateLimit } from "./security";
+import {
+  decryptSecret,
+  encryptSecret,
+  requireRecentSession,
+  isDemoMode,
+  rateLimit,
+} from "./security";
 import type { Env, Variables } from "./types";
 
 const defaultModel = "nvidia/nemotron-3-super-120b-a12b:free";
+const configSchema = z.object({
+  model: z
+    .string()
+    .trim()
+    .max(200)
+    .regex(/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+:free$/),
+  enabled: z.boolean(),
+});
+const saveSchema = configSchema.extend({
+  apiKey: z
+    .string()
+    .trim()
+    .min(10)
+    .max(512)
+    .regex(/^[\x21-\x7e]+$/)
+    .optional(),
+});
+async function connection(env: Env, workspaceId: string) {
+  return env.DB.prepare(
+    "SELECT encrypted_credential, metadata_json FROM integration_connection WHERE workspace_id = ? AND provider = 'ai'",
+  )
+    .bind(workspaceId)
+    .first<{ encrypted_credential: string | null; metadata_json: string }>();
+}
+async function personalEnv(env: Env, workspaceId: string): Promise<Env> {
+  const row = await connection(env, workspaceId);
+  if (!row) return env;
+  const config = configSchema.parse(JSON.parse(row.metadata_json));
+  return {
+    ...env,
+    AI_ENABLED: config.enabled ? "true" : "false",
+    OPENROUTER_MODEL: config.model,
+    OPENROUTER_API_KEY: row.encrypted_credential
+      ? await decryptSecret(
+          row.encrypted_credential,
+          env.DATA_ENCRYPTION_KEY,
+          `ai:${workspaceId}`,
+        )
+      : "",
+  };
+}
+async function validateKey(apiKey: string) {
+  const response = await fetch("https://openrouter.ai/api/v1/key", {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok)
+    throw new Error(
+      "OpenRouter could not verify this key. Check the key and try again.",
+    );
+}
 const envelopeSchema = z.object({
   choices: z
     .array(z.object({ message: z.object({ content: z.string() }) }))
@@ -80,14 +137,113 @@ export async function generateSuggestion(
 
 export const aiRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 aiRoutes.use("*", bodyLimit({ maxSize: 12_000 }));
-aiRoutes.get("/status", (context) =>
-  context.json({ enabled: enabled(context.env) }),
+aiRoutes.get("/status", async (context) => {
+  const env = await personalEnv(context.env, context.get("user").workspaceId);
+  return context.json({ enabled: enabled(env) });
+});
+aiRoutes.get("/settings", async (context) => {
+  const row = await connection(context.env, context.get("user").workspaceId);
+  const config = row
+    ? configSchema.parse(JSON.parse(row.metadata_json))
+    : {
+        model: context.env.OPENROUTER_MODEL ?? defaultModel,
+        enabled: enabled(context.env),
+      };
+  return context.json({
+    ...config,
+    hasKey: Boolean(row?.encrypted_credential),
+    sharedAvailable: enabled(context.env),
+    personal: Boolean(row),
+  });
+});
+aiRoutes.post(
+  "/settings",
+  requireRecentSession(),
+  zValidator("json", saveSchema),
+  async (context) => {
+    if (isDemoMode(context.env))
+      return context.json(
+        { error: "API keys cannot be saved in the demo workspace." },
+        403,
+      );
+    const workspaceId = context.get("user").workspaceId;
+    if (!(await rateLimit(context, `ai-settings:${workspaceId}`, 10)))
+      return context.json({ error: "Try again later." }, 429);
+    const { apiKey, ...config } = context.req.valid("json");
+    const previous = await connection(context.env, workspaceId);
+    if (config.enabled && !apiKey && !previous?.encrypted_credential)
+      return context.json(
+        { error: "Paste an OpenRouter API key to enable AI." },
+        400,
+      );
+    let encrypted = previous?.encrypted_credential ?? null;
+    if (apiKey) {
+      try {
+        await validateKey(apiKey);
+      } catch {
+        return context.json(
+          {
+            error:
+              "OpenRouter could not verify this key. Check the key and try again.",
+          },
+          400,
+        );
+      }
+      encrypted = await encryptSecret(
+        apiKey,
+        context.env.DATA_ENCRYPTION_KEY,
+        `ai:${workspaceId}`,
+      );
+    }
+    await context.env.DB.prepare(
+      `INSERT INTO integration_connection (workspace_id, provider, account_label, status, encrypted_credential, credential_key_version, metadata_json, updated_at)
+    VALUES (?, 'ai', 'OpenRouter', ?, ?, 1, ?, ?) ON CONFLICT(workspace_id, provider) DO UPDATE SET status=excluded.status, encrypted_credential=excluded.encrypted_credential, metadata_json=excluded.metadata_json, updated_at=excluded.updated_at`,
+    )
+      .bind(
+        workspaceId,
+        config.enabled ? "healthy" : "disconnected",
+        encrypted,
+        JSON.stringify(config),
+        new Date().toISOString(),
+      )
+      .run();
+    return context.json({ ok: true });
+  },
 );
+aiRoutes.delete("/settings", requireRecentSession(), async (context) => {
+  await context.env.DB.prepare(
+    "DELETE FROM integration_connection WHERE workspace_id = ? AND provider = 'ai'",
+  )
+    .bind(context.get("user").workspaceId)
+    .run();
+  return context.json({ ok: true });
+});
+aiRoutes.post("/test", requireRecentSession(), async (context) => {
+  const workspaceId = context.get("user").workspaceId;
+  if (!(await rateLimit(context, `ai-test:${workspaceId}`, 10)))
+    return context.json({ error: "Try again later." }, 429);
+  const env = await personalEnv(context.env, workspaceId);
+  if (isDemoMode(env) || !env.OPENROUTER_API_KEY)
+    return context.json({ error: "Save a key first." }, 400);
+  try {
+    await validateKey(env.OPENROUTER_API_KEY);
+    return context.json({ ok: true });
+  } catch {
+    return context.json(
+      { error: "OpenRouter could not verify the saved key." },
+      400,
+    );
+  }
+});
 aiRoutes.post(
   "/suggest",
   zValidator("json", aiRequestSchema),
   async (context) => {
-    if (!enabled(context.env))
+    const aiEnv = await personalEnv(
+      context.env,
+      context.get("user").workspaceId,
+    );
+    if (!enabled(aiEnv))
       return context.json(
         {
           error:
@@ -181,7 +337,7 @@ aiRoutes.post(
         429,
       );
     try {
-      const result = await generateSuggestion(context.env, instruction, input);
+      const result = await generateSuggestion(aiEnv, instruction, input);
       if (request.kind === "task") {
         const suggestion = aiTaskSchema.parse(result);
         if (
