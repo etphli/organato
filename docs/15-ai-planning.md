@@ -25,13 +25,13 @@ Demo changes use only `organato-demo-state-v1` browser storage. **Reset demo** r
 
 ## Live connection, after approval
 
-Live AI defaults off. No provider credentials or production settings were changed by this PR. The Worker must be deployed separately after approval, then configured with:
+After the Worker rollout, open **Settings → Integrations → AI** in your signed-in workspace. Paste an [OpenRouter API key](https://openrouter.ai/settings/keys), enter a model ID ending in `:free`, enable suggestions, and save. Organato verifies the key through OpenRouter's [current-key endpoint](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key) before storing it.
 
-- `OPENROUTER_API_KEY` as a Worker secret, never a `VITE_*` value or committed file.
-- `AI_ENABLED=true` to expose the live controls.
-- Optional `OPENROUTER_MODEL`, defaulting to `nvidia/nemotron-3-super-120b-a12b:free`. The configured ID must end in `:free`.
+The personal key is encrypted with the Worker's existing AES-GCM secret and bound to your workspace. It is never returned to the browser, stored in browser storage, or included in backups. Leave the key field blank to retain it when changing the model or enable switch. **Test connection** checks the saved key without requesting a model completion. **Remove personal connection** deletes the key and restores the installation defaults. Key changes require a recent Google sign-in.
 
-The key belongs to the installation, so all Organato accounts share its quota. This version does not store per-user provider keys. For local live testing, use private `.dev.vars` for the Worker and disable the frontend development demo profile with `VITE_DEMO_MODE=false`. Serve the frontend and API from the same origin; the Vite demo command is frontend-only.
+Personal connections work without an installation-wide key. Accounts without personal configuration can still use the installation defaults: `OPENROUTER_API_KEY` as a Worker secret, `AI_ENABLED=true`, and optional `OPENROUTER_MODEL`. Live AI otherwise defaults off. Demo mode never saves provider keys. No schema migration is needed; account-scoped AI credentials use the existing integration connection table.
+
+For local live testing, use private `.dev.vars` for the Worker and disable the frontend demo profile with `VITE_DEMO_MODE=false`. Serve the frontend and API from the same origin; the Vite demo command is frontend-only.
 
 Every live suggestion requires a visible consent checkbox explaining what will leave Organato. Task creation sends the entered text, active subject names/IDs and workspace date/timezone. Breakdown sends only the owned assignment's title, deadline, existing checklist and explicitly pasted instructions. Recommendations send at most 15 candidate items' titles, deadlines, priorities, statuses, estimates and unfinished checklist steps. Notes, attachments, Canvas credentials, Google tokens and user identity are not sent. Free providers may retain prompts under their own policies; only send material you are comfortable sharing.
 
@@ -46,7 +46,7 @@ References, checked 9 October 2026:
 - [Zero-price provider routing](https://openrouter.ai/docs/guides/routing/provider-selection)
 - [Free-tier sustainability](https://openrouter.ai/blog/announcements/updates-to-our-free-tier-sustaining-accessible-ai-for-everyone/)
 
-Organato applies conservative shared-key guards: 4 attempts/minute and 12/day per workspace, plus 16/minute and 40/day across the installation. Day buckets reset at UTC midnight. Attempts count even if the provider fails; cancellations may already have consumed a provider request. Use a dedicated key/account budget if other apps share the same OpenRouter account. These guards leave headroom but cannot guarantee provider availability or quota synchronization.
+Organato applies conservative request guards for personal and shared keys: 4 attempts/minute and 12/day per workspace, plus 16/minute and 40/day across the installation. Day buckets reset at UTC midnight. Attempts count even if the provider fails; cancellations may already have consumed a provider request. Use a dedicated key/account budget if other apps share the same OpenRouter account. These guards leave headroom but cannot guarantee provider availability or quota synchronization.
 
 Each preview/suggestion button makes one model request. Editing, discarding and accepting a preview make no further model requests. Recommendations run only when requested. Output is capped at 1,600 tokens, provider calls time out after 25 seconds, and no automatic retry is performed. Routing caps prompt, completion and per-request pricing at zero, disables provider fallback, and never selects a paid model. If no eligible free endpoint remains, the request fails and manual planning remains available.
 
