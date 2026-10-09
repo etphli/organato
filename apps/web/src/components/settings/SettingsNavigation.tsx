@@ -11,6 +11,7 @@ export const settingsCategories = [
   ["calendar", "Calendar"],
   ["canvas", "Canvas / Reshet"],
   ["email", "Email & reminders"],
+  ["ai", "AI"],
   ["subjects", "Subjects"],
   ["search", "Search & shortcuts"],
   ["accessibility", "Accessibility"],
@@ -39,7 +40,7 @@ const groups: Array<{
       "accessibility",
     ],
   },
-  { label: "Integrations", categories: ["canvas", "email"] },
+  { label: "Integrations", categories: ["canvas", "email", "ai"] },
   {
     label: "Data & security",
     categories: ["subjects", "data", "security", "advanced"],
@@ -61,6 +62,7 @@ const searchTerms: Record<SettingsCategoryId, string> = {
     "canvas reshet Emanuel School session cookie course upcoming assignment import sync read only connect",
   email:
     "gmail email digest reminder 6 am Sydney recipient test message short notice",
+  ai: "ai artificial intelligence openrouter api key model planning suggestions",
   subjects: "course subject name rename short label colour color active hidden",
   search:
     "search notes fuzzy recent command palette keyboard shortcut key bindings",

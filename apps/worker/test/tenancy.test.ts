@@ -729,6 +729,147 @@ describe("AI planning with real workspace data", () => {
     env.OPENROUTER_API_KEY = "test-provider-key";
     return { app, env, db };
   };
+  it("stores a personal key encrypted, scopes it to its account, and uses it for suggestions", async () => {
+    const { app, env, db } = liveApi();
+    env.DATA_ENCRYPTION_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const fetcher = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetcher);
+    const key = "test-personal-provider-key";
+    const saved = await app.request(
+      "/api/ai/settings",
+      body({
+        apiKey: key,
+        model: "nvidia/nemotron-3-super-120b-a12b:free",
+        enabled: true,
+      }),
+      env,
+    );
+    expect(saved.status).toBe(200);
+    const row = await db
+      .prepare(
+        "SELECT encrypted_credential FROM integration_connection WHERE workspace_id = ? AND provider = 'ai'",
+      )
+      .bind("friend@example.com")
+      .first<{ encrypted_credential: string }>();
+    expect(row?.encrypted_credential).toBeTruthy();
+    expect(row?.encrypted_credential).not.toContain(key);
+    const status = await app.request("/api/ai/settings", {}, env);
+    expect(await status.json()).toMatchObject({ hasKey: true, personal: true });
+    expect(
+      await (await app.request("/api/export", {}, env)).text(),
+    ).not.toContain(key);
+    const owner = tenantApi(db, "ethan.likht@gmail.com", { demoMode: "false" });
+    expect(
+      await (
+        await owner.app.request("/api/ai/settings", {}, { ...env })
+      ).json(),
+    ).toMatchObject({ hasKey: false, personal: false });
+    fetcher.mockResolvedValueOnce(
+      completion({ steps: [{ title: "Outline", minutes: 20 }] }),
+    );
+    expect(
+      (
+        await app.request(
+          "/api/ai/suggest",
+          body({ kind: "breakdown", itemId: "friend-item", brief: "" }),
+          env,
+        )
+      ).status,
+    ).toBe(200);
+    expect(fetcher.mock.calls.at(-1)?.[1].headers.Authorization).toBe(
+      `Bearer ${key}`,
+    );
+    expect(
+      (
+        await app.request(
+          "/api/ai/settings",
+          body({
+            enabled: false,
+            model: "nvidia/nemotron-3-super-120b-a12b:free",
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(200);
+    expect(await (await app.request("/api/ai/status", {}, env)).json()).toEqual(
+      { enabled: false },
+    );
+    expect(
+      (await app.request("/api/ai/settings", { method: "DELETE" }, env)).status,
+    ).toBe(200);
+    expect(
+      await (await app.request("/api/ai/settings", {}, env)).json(),
+    ).toMatchObject({ hasKey: false, personal: false });
+  });
+
+  it("rejects paid models, invalid keys, demo writes, and stale-session key changes", async () => {
+    const { app, env, db } = liveApi();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(new Response("bad key", { status: 401 }));
+    vi.stubGlobal("fetch", fetcher);
+    expect(
+      (
+        await app.request(
+          "/api/ai/settings",
+          body({
+            apiKey: "invalid-api-key",
+            model: "openai/paid",
+            enabled: true,
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(400);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(
+      (
+        await app.request(
+          "/api/ai/settings",
+          body({
+            apiKey: "invalid-api-key",
+            model: "test/model:free",
+            enabled: true,
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      await (await app.request("/api/ai/settings", {}, env)).json(),
+    ).toMatchObject({ hasKey: false });
+    const stale = tenantApi(db, "friend@example.com", {
+      demoMode: "false",
+      authenticatedAt: "2020-01-01T00:00:00Z",
+    });
+    expect(
+      (
+        await stale.app.request(
+          "/api/ai/settings",
+          body({
+            apiKey: "invalid-api-key",
+            model: "test/model:free",
+            enabled: true,
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await app.request(
+          "/api/ai/settings",
+          body({
+            apiKey: "invalid-api-key",
+            model: "test/model:free",
+            enabled: true,
+          }),
+          { ...env, DEMO_MODE: "true" },
+        )
+      ).status,
+    ).toBe(403);
+  });
+
   const completion = (suggestion: unknown) =>
     new Response(
       JSON.stringify({

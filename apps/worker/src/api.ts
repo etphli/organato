@@ -1960,7 +1960,7 @@ apiRoutes.get("/integrations", async (context) => {
   const result = await context.env.DB.prepare(
     `SELECT provider, account_label, status, scopes_json, last_success_at,
             last_attempt_at, last_error_category, reconnect_needed
-     FROM integration_connection WHERE workspace_id = ?`,
+     FROM integration_connection WHERE workspace_id = ? AND provider IN ('canvas', 'google')`,
   )
     .bind(context.get("user").workspaceId)
     .all();
