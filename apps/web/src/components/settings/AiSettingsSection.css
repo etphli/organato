@@ -11,8 +11,26 @@
 .ai-settings button {
   margin: 8px 8px 0 0;
 }
+.ai-settings .ai-settings-toggle {
+  align-items: center;
+  gap: 16px;
+}
+.ai-settings-toggle input[type="checkbox"] {
+  min-width: 36px;
+  min-height: 20px;
+  padding: 0;
+  border-radius: 20px;
+}
+.ai-settings-toggle input[type="checkbox"]::after {
+  display: block;
+  border: 0;
+  transform: none;
+}
+.ai-settings-toggle input[type="checkbox"]:checked::after {
+  transform: translateX(16px);
+}
 @media (max-width: 640px) {
-  .ai-settings .setting-row {
+  .ai-settings .field-row {
     align-items: stretch;
     flex-direction: column;
     gap: 8px;

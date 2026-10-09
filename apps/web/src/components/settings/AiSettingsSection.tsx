@@ -123,10 +123,11 @@ export function AiSettingsSection() {
             }}
           >
             <fieldset disabled={busy || !settings}>
-              <label className="field-row setting-row">
+              <label className="setting-row ai-settings-toggle">
                 <span>Enable AI suggestions</span>
                 <input
                   type="checkbox"
+                  role="switch"
                   checked={enabled}
                   onChange={(event) => setEnabled(event.target.checked)}
                 />
