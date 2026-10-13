@@ -1501,6 +1501,17 @@ input[type="checkbox"]:disabled {
   color: var(--muted);
 }
 
+.work-source-link {
+  color: var(--muted);
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 4px;
+}
+
+.work-source-link:hover {
+  color: var(--text);
+}
+
 .date-cell {
   color: var(--text);
   display: flex;

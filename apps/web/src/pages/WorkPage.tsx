@@ -257,9 +257,23 @@ export default function WorkPage() {
             <strong>{row.original.displayName}</strong>
             {settings.showSourceIcons &&
             row.original.sourceType === "canvas" ? (
-              <small title="Canvas source" aria-label="Canvas source">
-                <ExternalLink size={12} />
-              </small>
+              row.original.canvasHtmlUrl ? (
+                <a
+                  className="work-source-link"
+                  href={row.original.canvasHtmlUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Open Canvas assignment"
+                  aria-label={`Open Canvas assignment for ${row.original.displayName}`}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <ExternalLink size={12} />
+                </a>
+              ) : (
+                <small title="Canvas source" aria-label="Canvas source">
+                  <ExternalLink size={12} />
+                </small>
+              )
             ) : null}
             {settings.showSourceIcons && row.original.overrides.length ? (
               <small title="Manual override" aria-label="Manual override">

@@ -8,16 +8,29 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import WorkPage from "../pages/WorkPage";
-import { OrganatoProvider } from "../state/OrganatoProvider";
+import { OrganatoProvider, useOrganatoUi } from "../state/OrganatoProvider";
 import { seedItems, seedSettings, seedSubjects } from "../data/seed";
 
-function renderAssignments({ creating = false } = {}) {
+function SelectionProbe() {
+  const { selectedItem } = useOrganatoUi();
+  return (
+    <output aria-label="Selected item">
+      {selectedItem?.displayName ?? "None"}
+    </output>
+  );
+}
+
+function renderAssignments({
+  creating = false,
+  observeSelection = false,
+} = {}) {
   return render(
     <MemoryRouter
       initialEntries={[creating ? "/assignments?new=1" : "/assignments"]}
     >
       <OrganatoProvider>
         <WorkPage />
+        {observeSelection ? <SelectionProbe /> : null}
       </OrganatoProvider>
     </MemoryRouter>,
   );
@@ -35,6 +48,51 @@ describe("Assignment controls", () => {
   afterEach(() => {
     cleanup();
     window.history.replaceState(null, "", "/");
+  });
+
+  it("opens the Canvas source link without selecting the assignment", () => {
+    renderAssignments({ observeSelection: true });
+    const item = seedItems.find(
+      (item) => item.displayName === "Group lab report",
+    )!;
+    const row = screen.getByRole("row", {
+      name: "Open details for Group lab report",
+    });
+    const link = within(row).getByRole("link", {
+      name: "Open Canvas assignment for Group lab report",
+    });
+    expect(link).toHaveAttribute("href", item.canvasHtmlUrl);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noreferrer");
+    fireEvent.click(link);
+    expect(screen.getByLabelText("Selected item")).toHaveTextContent("None");
+    fireEvent.keyDown(link, { key: "Enter" });
+    expect(screen.getByLabelText("Selected item")).toHaveTextContent("None");
+    fireEvent.click(row);
+    expect(screen.getByLabelText("Selected item")).toHaveTextContent(
+      "Group lab report",
+    );
+  });
+
+  it("keeps a source badge when a Canvas assignment has no link", () => {
+    const item = seedItems.find(
+      (item) => item.displayName === "Group lab report",
+    )!;
+    localStorage.setItem(
+      "organato-demo-state-v1",
+      JSON.stringify({
+        items: [{ ...item, canvasHtmlUrl: null }],
+        subjects: seedSubjects,
+        settings: seedSettings,
+        views: [],
+      }),
+    );
+    renderAssignments();
+    const row = screen.getByRole("row", {
+      name: "Open details for Group lab report",
+    });
+    expect(within(row).getByLabelText("Canvas source")).toBeInTheDocument();
+    expect(within(row).queryByRole("link")).not.toBeInTheDocument();
   });
 
   it("switches between active and all assignments", () => {
