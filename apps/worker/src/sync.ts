@@ -59,11 +59,17 @@ function subjectColour(index: number): string {
   ]!;
 }
 
-export function isCanvasImportCandidate(assignment: CanvasAssignment): boolean {
-  return (
-    assignment.published &&
-    (!assignment.dueAt || Number.isFinite(Date.parse(assignment.dueAt)))
-  );
+export function isCanvasImportCandidate(
+  assignment: CanvasAssignment,
+  {
+    upcomingOnly = false,
+    now = new Date(),
+  }: { upcomingOnly?: boolean; now?: Date } = {},
+): boolean {
+  if (!assignment.published) return false;
+  if (!assignment.dueAt) return !upcomingOnly;
+  const dueAt = Date.parse(assignment.dueAt);
+  return Number.isFinite(dueAt) && (!upcomingOnly || dueAt >= now.getTime());
 }
 
 export function shouldAdvanceCanvasMissing(
@@ -311,7 +317,11 @@ export async function runCanvasSync(
           skipped += 1;
           continue;
         }
-        if (!isCanvasImportCandidate(assignment)) {
+        if (
+          !isCanvasImportCandidate(assignment, {
+            upcomingOnly: env.CANVAS_IMPORT_UPCOMING_ONLY === "true",
+          })
+        ) {
           skipped += 1;
           continue;
         }

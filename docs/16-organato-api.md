@@ -542,6 +542,8 @@ These commands change production. Run them only after release approval.
 5. Create a temporary read-and-write key. Create a todo, edit its priority and deadline using its version, confirm it in the app, then archive it.
 6. Revoke both temporary keys and confirm subsequent calls return `401`.
 
+The production configuration keeps `CANVAS_IMPORT_UPCOMING_ONLY=true` to preserve the live Worker's existing upcoming-only Canvas import behavior. This limits new Canvas imports, not API access to records already in Organato. Other deployments can omit the flag to import all published work.
+
 The feature needs no new environment secrets or paid infrastructure. An older Worker can run with the new additive table present. For a code rollback, retain the table and its hashes so keys remain revocable after restoring this release. Do not include plaintext keys or token hashes in diagnostic exports. Existing workspace backups omit keys; restoring a work backup does not create or recover API credentials.
 
 Production OAuth, D1 deployment, and provider synchronization require the release environment. Local tests cannot prove a production rollout has occurred.
