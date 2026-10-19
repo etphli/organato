@@ -25,6 +25,7 @@ import {
 import { PageHeader } from "../components/PageHeader";
 import { OrganatoSelect } from "../components/OrganatoControls";
 import { SubjectDot } from "../components/SubjectDot";
+import { ApiKeysSection } from "../components/settings/ApiKeysSection";
 import { AccountAccessSection } from "../components/settings/AccountAccessSection";
 import { CanvasConnectionSection } from "../components/settings/CanvasConnectionSection";
 import { AiSettingsSection } from "../components/settings/AiSettingsSection";
@@ -985,6 +986,7 @@ export default function SettingsPage() {
             <h2>{settingsCategories.find(([id]) => id === active)?.[1]}</h2>
           ) : null}
           {active === "account" ? <AccountAccessSection /> : null}
+          {active === "api" ? <ApiKeysSection /> : null}
           {active === "appearance" ? (
             <div className="settings-block">
               <h3>Interface</h3>

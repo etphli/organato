@@ -1,0 +1,124 @@
+.api-key-form {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 24px;
+}
+.api-key-form label,
+.api-key-reveal label {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+}
+.api-key-form input,
+.api-key-form select,
+.api-key-reveal textarea {
+  width: 100%;
+  min-width: 0;
+}
+.api-key-form button {
+  justify-self: start;
+}
+.api-key-reveal {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--focus);
+  border-radius: 12px;
+}
+.api-key-reveal h4 {
+  margin: 0 0 8px;
+}
+.api-key-reveal p,
+.api-key-confirm p {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.api-key-reveal textarea {
+  font-family: monospace;
+  resize: none;
+  min-height: 72px;
+  overflow-wrap: anywhere;
+}
+.api-key-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+.api-key-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.api-key-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+.api-key-list li > div:first-child {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.api-key-list small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.api-key-confirm {
+  flex-basis: 100%;
+}
+@media (max-width: 640px) {
+  .api-key-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+.api-key-description {
+  color: var(--secondary);
+  line-height: 1.65;
+  max-width: 72ch;
+}
+.api-key-form input,
+.api-key-form select,
+.api-key-reveal textarea {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  min-height: 40px;
+  padding: 9px 10px;
+  font-size: 0.8125rem;
+}
+.api-key-primary,
+.api-key-secondary,
+.api-key-danger {
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  display: inline-flex;
+  min-height: 36px;
+  padding: 8px 13px;
+  font-size: 0.8125rem;
+}
+.api-key-form .api-key-primary {
+  grid-column: 1 / -1;
+}
+.api-key-primary {
+  background: var(--focus-soft);
+  border-color: var(--focus);
+  color: var(--text);
+}
+.api-key-secondary {
+  background: var(--surface);
+  color: var(--text);
+}
+.api-key-danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}

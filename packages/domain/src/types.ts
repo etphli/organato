@@ -318,3 +318,17 @@ export interface WorkspaceSnapshot {
   items: OrganatoItem[];
   savedViews: SavedView[];
 }
+
+export type ApiKeyPermission = "read" | "read_write";
+
+/** Safe key metadata. The bearer token is returned only when a key is created. */
+export interface ApiKeySummary {
+  id: string;
+  name: string;
+  prefix: string;
+  permission: ApiKeyPermission;
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}

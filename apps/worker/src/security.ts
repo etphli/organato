@@ -152,11 +152,11 @@ export function requestMatchesOrigin(request: Request, appOrigin: string) {
 }
 
 export function hasRecentAuthentication(
-  authenticatedAt: string,
+  authenticatedAt: string | undefined,
   now = new Date(),
   maximumAgeMinutes = 10,
 ) {
-  const timestamp = new Date(authenticatedAt).getTime();
+  const timestamp = authenticatedAt ? new Date(authenticatedAt).getTime() : NaN;
   return (
     Number.isFinite(timestamp) &&
     timestamp <= now.getTime() &&
@@ -270,6 +270,7 @@ export async function getOrCreateCsrfToken(
   context: Context<{ Bindings: Env; Variables: Variables }>,
 ) {
   const user = context.get("user");
+  if (!user.sessionIdHash) throw new Error("A browser session is required.");
   if (user.sessionIdHash === "demo") return "demo-csrf";
   const existing = getCookie(context, csrfCookie);
   if (existing) {

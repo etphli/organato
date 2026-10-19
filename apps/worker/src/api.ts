@@ -746,7 +746,7 @@ apiRoutes.post(
       context.env.DB.prepare(
         `UPDATE item SET classification = ?, version = version + 1,
            updated_at = ?
-         WHERE id = ? AND workspace_id = ? AND version = ? AND archived_at IS NULL`,
+         WHERE id = ? AND workspace_id = ? AND version = ? AND archived_at IS NULL AND kind = 'work'`,
       ).bind(
         input.classification,
         now,
@@ -3128,6 +3128,9 @@ apiRoutes.post(
       ).catch(() => undefined);
     }
     await context.env.DB.batch([
+      context.env.DB.prepare("DELETE FROM api_key WHERE workspace_id = ?").bind(
+        user.workspaceId,
+      ),
       context.env.DB.prepare("DELETE FROM item WHERE workspace_id = ?").bind(
         user.workspaceId,
       ),
