@@ -31,6 +31,16 @@ export interface SessionUser {
   authenticatedAt: string;
 }
 
+export interface ApiKeyUser {
+  email: string;
+  workspaceId: string;
+  displayName: string;
+  apiKeyId: string;
+  csrfToken?: never;
+  sessionIdHash?: never;
+  authenticatedAt?: never;
+}
+
 export type Variables = {
-  user: SessionUser;
+  user: SessionUser | ApiKeyUser;
 };

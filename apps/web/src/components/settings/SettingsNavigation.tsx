@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 
 export const settingsCategories = [
   ["account", "Account & access"],
+  ["api", "API keys"],
   ["appearance", "Appearance"],
   ["home", "Home"],
   ["work", "Assignments"],
@@ -40,7 +41,7 @@ const groups: Array<{
       "accessibility",
     ],
   },
-  { label: "Integrations", categories: ["canvas", "email", "ai"] },
+  { label: "Integrations", categories: ["canvas", "email", "ai", "api"] },
   {
     label: "Data & security",
     categories: ["subjects", "data", "security", "advanced"],
@@ -49,6 +50,7 @@ const groups: Array<{
 ];
 
 const searchTerms: Record<SettingsCategoryId, string> = {
+  api: "api keys token developer integration automation read write revoke expiry",
   account:
     "profile display name timezone sydney google account allowed identity owner sign in active sessions browser revoke",
   appearance:

@@ -125,6 +125,7 @@ function tenantDatabase() {
     "0009_storage_deletion_queue.sql",
     "0010_attachment_size.sql",
     "0011_canvas_item_tombstone.sql",
+    "0012_api_keys.sql",
   ]) {
     sqlite.exec(
       readFileSync(

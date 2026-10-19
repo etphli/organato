@@ -11,6 +11,8 @@ import { EMAIL_TEMPLATE_VERSION } from "@organato/email";
 import { Hono } from "hono";
 import { apiRoutes } from "./api";
 import { aiRoutes } from "./ai";
+import { apiKeyRoutes } from "./api-keys";
+import { publicApiRoutes } from "./public-api";
 import { authRoutes } from "./auth";
 import {
   googleIntegrationCallback,
@@ -335,6 +337,8 @@ app.post("/api/internal/schedule", async (context) => {
 
 app.route("/api/canvas-device", canvasDeviceRoutes);
 app.get("/api/canvas-view", (c) => canvasViewer(c.req.raw, c.env));
+
+app.route("/api/v1", publicApiRoutes);
 
 app.use("/api/*", requireSession());
 app.use("/api/*", async (context, next) => {
@@ -704,6 +708,7 @@ app.post("/api/integrations/google/resolve-conflict", async (context) => {
   }
 });
 
+app.route("/api/keys", apiKeyRoutes);
 app.route("/api", apiRoutes);
 app.route("/api/ai", aiRoutes);
 
