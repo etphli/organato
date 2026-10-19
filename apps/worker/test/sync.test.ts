@@ -116,6 +116,60 @@ describe("synchronization decisions", () => {
     ).toBe(true);
   });
 
+  it.each([
+    {
+      name: "future",
+      dueAt: "2026-10-20T00:00:00Z",
+      published: true,
+      expected: true,
+    },
+    {
+      name: "current instant",
+      dueAt: "2026-10-19T00:00:00Z",
+      published: true,
+      expected: true,
+    },
+    {
+      name: "past",
+      dueAt: "2026-10-18T00:00:00Z",
+      published: true,
+      expected: false,
+    },
+    { name: "undated", dueAt: null, published: true, expected: false },
+    {
+      name: "invalid deadline",
+      dueAt: "not-a-date",
+      published: true,
+      expected: false,
+    },
+    {
+      name: "unpublished",
+      dueAt: "2026-10-20T00:00:00Z",
+      published: false,
+      expected: false,
+    },
+  ])(
+    "preserves upcoming-only import scope for $name work",
+    ({ dueAt, published, expected }) => {
+      expect(
+        isCanvasImportCandidate(
+          {
+            id: "scope-check",
+            courseId: "12",
+            name: "Scope check",
+            dueAt,
+            htmlUrl:
+              "https://canvas.example/courses/12/assignments/scope-check",
+            updatedAt: "2026-10-19T00:00:00Z",
+            published,
+            submitted: false,
+          },
+          { upcomingOnly: true, now: new Date("2026-10-19T00:00:00Z") },
+        ),
+      ).toBe(expected);
+    },
+  );
+
   it("does not advance Canvas disappearance for failed courses or past work", () => {
     const successful = new Set(["course-1"]);
     const now = new Date("2026-07-27T00:00:00.000Z");

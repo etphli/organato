@@ -13,6 +13,7 @@ export interface Env {
   DATA_ENCRYPTION_KEY: string;
   CANVAS_BASE_URL: string;
   CANVAS_DISPLAY_NAME?: string;
+  CANVAS_IMPORT_UPCOMING_ONLY?: string;
   SCHEDULER_TOKEN?: string;
   SCHEDULER_MODE?: "cloudflare" | "local";
   STUDATO_ISSUER?: string;

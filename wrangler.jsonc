@@ -41,6 +41,7 @@
     "GOOGLE_CLIENT_ID": "190702448599-eg9o5ehknkbo29d2nifqg3l0tr3fpk67.apps.googleusercontent.com",
     "CANVAS_BASE_URL": "https://emanuel.instructure.com",
     "CANVAS_DISPLAY_NAME": "Emanuel School Canvas",
+    "CANVAS_IMPORT_UPCOMING_ONLY": "true",
     "DEMO_MODE": "false",
     "SCHEDULER_MODE": "local",
   },
