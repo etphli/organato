@@ -15,13 +15,13 @@ installClientDiagnostics();
 registerServiceWorker();
 
 createRoot(document.getElementById("root")!).render(
-  <BrowserRouter useTransitions={false}>
-    <AppErrorBoundary>
-      <AuthGate>
+  <AuthGate>
+    <BrowserRouter useTransitions={false}>
+      <AppErrorBoundary>
         <OrganatoProvider>
           <App />
         </OrganatoProvider>
-      </AuthGate>
-    </AppErrorBoundary>
-  </BrowserRouter>,
+      </AppErrorBoundary>
+    </BrowserRouter>
+  </AuthGate>,
 );
