@@ -1,4 +1,12 @@
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -14,6 +22,15 @@ const configDir = resolve(homedir(), ".config", "organato");
 const launchAgents = resolve(homedir(), "Library", "LaunchAgents");
 mkdirSync(configDir, { recursive: true, mode: 0o700 });
 mkdirSync(launchAgents, { recursive: true });
+const script = resolve(configDir, "local-scheduler.mjs");
+const stagingDir = mkdtempSync(resolve(configDir, "install-"));
+try {
+  const stagedScript = resolve(stagingDir, "local-scheduler.mjs");
+  copyFileSync(new URL("./local-scheduler.mjs", import.meta.url), stagedScript);
+  renameSync(stagedScript, script);
+} finally {
+  rmSync(stagingDir, { recursive: true, force: true });
+}
 const envPath = resolve(configDir, "scheduler.env");
 writeFileSync(
   envPath,
@@ -22,7 +39,6 @@ writeFileSync(
 );
 chmodSync(envPath, 0o600);
 
-const script = resolve(process.cwd(), "scripts", "local-scheduler.mjs");
 function escapeXml(value) {
   return value
     .replaceAll("&", "&amp;")

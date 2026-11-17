@@ -241,7 +241,7 @@ canvasConnectorRoutes.get("/", async (c) => {
     new Request("https://connector/status"),
   );
   if (!response.ok) return response;
-  const status = z.record(z.unknown()).parse(await response.json());
+  const status = z.record(z.string(), z.unknown()).parse(await response.json());
   const device = await c.env.DB.prepare(
     "SELECT 1 AS pending FROM canvas_connector_device WHERE workspace_id = ? AND revoked_at IS NOT NULL AND erased_at IS NULL LIMIT 1",
   )

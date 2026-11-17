@@ -268,6 +268,36 @@ describe("domain invariants", () => {
     expect(assertSecretFreeBackup('{"refresh_token":"nope"}')).toBe(false);
   });
 
+  it("preserves keyed history snapshots and optional legacy override values in backups", () => {
+    const before = { dueAt: null, notes: ["draft"] };
+    const result = validateBackupItem({
+      ...item(),
+      history: [
+        {
+          id: "history-1",
+          actorType: "system",
+          actorIdentity: "system",
+          action: "updated",
+          summary: "Updated deadline",
+          createdAt: "2026-07-25T00:00:00.000Z",
+          before,
+        },
+      ],
+      overrides: [
+        {
+          fieldName: "due",
+          value: null,
+          origin: "organato",
+          updatedAt: "2026-07-25T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(result).toMatchObject({
+      success: true,
+      data: { history: [{ before }], overrides: [{ value: null }] },
+    });
+  });
+
   it("rejects dangerous Canvas links and invalid date shapes in backups", () => {
     // Any https host is accepted (the server recomputes Canvas identity per
     // installation on restore), but non-https and credentialed URLs are not.

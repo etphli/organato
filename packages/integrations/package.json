@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@organato/domain": "workspace:*",
-    "zod": "^3.25.76"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^3.2.7",

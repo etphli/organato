@@ -14,7 +14,7 @@
     "dev:worker": "pnpm --filter @organato/worker dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "test": "pnpm -r test && node --test scripts/install-launchd.test.mjs",
     "test:coverage": "pnpm -r test:coverage",
     "lint": "node node_modules/eslint/bin/eslint.js . --max-warnings=0",
     "format": "node node_modules/prettier/bin/prettier.cjs --write .",

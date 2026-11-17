@@ -109,7 +109,21 @@ export ORGANATO_SCHEDULER_TOKEN="<locally generated token>"
 pnpm scheduler:install
 ```
 
-Review the generated plists, ensure the Mac timezone is Australia/Sydney, and load them with `launchctl bootstrap`. The token is stored in a mode-0600 local environment file, not in the plist or repository.
+The installer copies the scheduler to `~/.config/organato/local-scheduler.mjs`.
+Scheduled jobs can then run when the checkout is unavailable. The token lives
+in the mode-0600 `scheduler.env` file in the same directory.
+
+To update an existing install, reuse the saved credentials and run this from
+the updated checkout:
+
+```bash
+node --env-file="$HOME/.config/organato/scheduler.env" scripts/install-launchd.mjs
+```
+
+Review the generated plists and confirm the Mac timezone is Australia/Sydney.
+For each already-loaded job, run `launchctl bootout gui/$(id -u)/dev.organato.<job>`
+to unload its previous definition. Load the jobs you want with
+`launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/dev.organato.<job>.plist"`.
 
 Current official references:
 

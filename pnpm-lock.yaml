@@ -122,7 +122,7 @@ importers:
     dependencies:
       '@hono/zod-validator':
         specifier: ^0.7.2
-        version: 0.7.6(hono@4.13.7)(zod@3.25.76)
+        version: 0.7.6(hono@4.13.7)(zod@4.6.6)
       '@organato/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -139,8 +139,8 @@ importers:
         specifier: ^6.0.12
         version: 6.2.4
       zod:
-        specifier: ^3.25.76
-        version: 3.25.76
+        specifier: ^4.6.6
+        version: 4.6.6
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20250726.0
@@ -160,8 +160,8 @@ importers:
   packages/domain:
     dependencies:
       zod:
-        specifier: ^3.25.76
-        version: 3.25.76
+        specifier: ^4.6.6
+        version: 4.6.6
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^3.2.4
@@ -195,8 +195,8 @@ importers:
         specifier: workspace:*
         version: link:../domain
       zod:
-        specifier: ^3.25.76
-        version: 3.25.76
+        specifier: ^4.6.6
+        version: 4.6.6
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^3.2.7
@@ -2308,8 +2308,8 @@ packages:
   youch@4.1.0-beta.10:
     resolution: {integrity: sha512-rLfVLB4FgQneDr0dv1oddCVZmKjcJ6yX6mS4pU82Mq/Dt9a3cLZQ62pDBL4AUO+uVrCvtWz3ZFUL2HFAFJ/BXQ==}
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+  zod@4.6.6:
+    resolution: {integrity: sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==}
 
 snapshots:
 
@@ -2692,10 +2692,10 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
-  '@hono/zod-validator@0.7.6(hono@4.13.7)(zod@3.25.76)':
+  '@hono/zod-validator@0.7.6(hono@4.13.7)(zod@4.6.6)':
     dependencies:
       hono: 4.13.7
-      zod: 3.25.76
+      zod: 4.6.6
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -4221,4 +4221,4 @@ snapshots:
       cookie: 1.1.1
       youch-core: 0.3.3
 
-  zod@3.25.76: {}
+  zod@4.6.6: {}

@@ -205,13 +205,17 @@ const workspaceSettingsPatchSchema = z
     smsGatewayAddress: z.string().max(254),
     examEscalationEnabled: z.boolean(),
     subjectDefaults: z.record(
+      z.string(),
       z.object({
         priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
         calendarEnabled: z.boolean().optional(),
         remindersEnabled: z.boolean().optional(),
       }),
     ),
-    checklistTemplates: z.record(z.array(z.string().max(200)).max(20)),
+    checklistTemplates: z.record(
+      z.string(),
+      z.array(z.string().max(200)).max(20),
+    ),
     reminderWindowDays: z.number().int().min(1).max(90),
     immediateImportAlert: z.boolean(),
     naturalTodoParsing: z.boolean(),
