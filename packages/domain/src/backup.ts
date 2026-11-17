@@ -47,8 +47,8 @@ const historySchema = z
     action: z.string().max(200),
     summary: z.string().max(2_000),
     createdAt: z.string().datetime(),
-    before: z.record(z.unknown()).optional(),
-    after: z.record(z.unknown()).optional(),
+    before: z.record(z.string(), z.unknown()).optional(),
+    after: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
@@ -136,8 +136,8 @@ const itemFieldsSchema = z
       .array(
         z.object({
           fieldName: z.enum(["name", "due", "subject", "calendarNote"]),
-          value: z.unknown(),
-          sourceValueAtOverride: z.unknown(),
+          value: z.unknown().optional(),
+          sourceValueAtOverride: z.unknown().optional(),
           origin: z.enum(["organato", "google"]),
           updatedAt: z.string().datetime(),
         }),
@@ -326,7 +326,7 @@ const savedViewSchema = z
       )
       .max(20),
     columns: z.array(z.string().max(80)).max(30),
-    columnWidths: z.record(z.number().positive().max(2_000)),
+    columnWidths: z.record(z.string(), z.number().positive().max(2_000)),
     isDefault: z.boolean(),
   })
   .strict();
@@ -368,6 +368,7 @@ const settingsSchema = z
     examEscalationEnabled: z.boolean().default(false),
     subjectDefaults: z
       .record(
+        z.string(),
         z.object({
           priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
           calendarEnabled: z.boolean().optional(),
@@ -376,7 +377,7 @@ const settingsSchema = z
       )
       .default({}),
     checklistTemplates: z
-      .record(z.array(z.string().max(200)).max(20))
+      .record(z.string(), z.array(z.string().max(200)).max(20))
       .default({}),
     reminderWindowDays: z.number().int().min(1).max(90),
     immediateImportAlert: z.boolean(),
